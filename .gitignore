@@ -1,5 +1,5 @@
 # Binaries
-cmdr
+/cmdr
 *.exe
 *.dll
 *.so
