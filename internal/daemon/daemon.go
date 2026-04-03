@@ -40,6 +40,9 @@ func pidPath() string {
 // WebFS is set by main to the embedded web/build filesystem.
 var WebFS fs.FS
 
+// Version is set by main from the build-time version string.
+var Version = "dev"
+
 // Run starts the daemon in the foreground (blocking).
 func Run() error {
 	if err := writePID(); err != nil {
@@ -63,6 +66,9 @@ func Run() error {
 
 	mux := http.NewServeMux()
 	registerAPI(mux, s, bus, database)
+
+	// Debug routes
+	registerDebugAPI(mux)
 
 	// Serve embedded SPA for non-API routes (production)
 	if WebFS != nil {
@@ -208,9 +214,10 @@ func handleStatus(s *scheduler.Scheduler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"status": "running",
-			"pid":    os.Getpid(),
-			"tasks":  len(s.Tasks()),
+			"status":  "running",
+			"version": Version,
+			"pid":     os.Getpid(),
+			"tasks":   len(s.Tasks()),
 		})
 	}
 }

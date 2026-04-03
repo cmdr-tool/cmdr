@@ -17,10 +17,12 @@ web:
 	@echo "cmdr: building frontend..."
 	@cd web && bun run build
 
-# Build Go binary (embeds web/build/)
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
+# Build Go binary (embeds web/build/, stamps version)
 go:
-	@echo "cmdr: building backend..."
-	@go build -o cmdr ./cmd/cmdr
+	@echo "cmdr: building backend ($(VERSION))..."
+	@go build -ldflags="-X main.version=$(VERSION)" -o cmdr ./cmd/cmdr
 
 # Full deploy: build → install binary → restart service
 install: build

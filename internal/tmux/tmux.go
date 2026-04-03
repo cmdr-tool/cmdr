@@ -50,7 +50,9 @@ func socketPath() string {
 // ensuring it works when run from launchd or other non-interactive contexts.
 func tmuxCmd(args ...string) *exec.Cmd {
 	fullArgs := append([]string{"-S", socketPath()}, args...)
-	return exec.Command("tmux", fullArgs...)
+	cmd := exec.Command("tmux", fullArgs...)
+	cmd.Env = append(os.Environ(), "LANG=en_US.UTF-8", "TERM=screen")
+	return cmd
 }
 
 // ListSessions returns all tmux sessions with their windows and panes.

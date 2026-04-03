@@ -2,6 +2,7 @@ const BASE = '/api';
 
 export interface DaemonStatus {
 	pid: number;
+	version: string;
 	tasks: number;
 }
 

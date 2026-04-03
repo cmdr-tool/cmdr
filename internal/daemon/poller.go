@@ -43,9 +43,10 @@ func publishStatus(bus *EventBus, s *scheduler.Scheduler) {
 	bus.Publish(Event{
 		Type: "status",
 		Data: map[string]any{
-			"status": "running",
-			"pid":    os.Getpid(),
-			"tasks":  len(s.Tasks()),
+			"status":  "running",
+			"version": Version,
+			"pid":     os.Getpid(),
+			"tasks":   len(s.Tasks()),
 		},
 	})
 }

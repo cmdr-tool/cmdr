@@ -29,14 +29,17 @@
 				<a href="/" class="no-underline">
 					<img src="/cmdr-logo.svg" alt="cmdr" class="h-10" />
 				</a>
-				<span class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono
+				<span class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono
 					border backdrop-blur-sm
 					{status
 						? 'bg-green-950/40 border-green-800/30 text-green-400'
 						: 'bg-bourbon-800/40 border-bourbon-700/30 text-bourbon-500'}">
-					<span class="w-2 h-2 rounded-full {status ? 'bg-green-500 shadow-[0_0_6px_var(--color-green-500)]' : 'bg-bourbon-600'}"></span>
+					<span class="w-1.5 h-1.5 rounded-full {status ? 'bg-green-500 shadow-[0_0_6px_var(--color-green-500)]' : 'bg-bourbon-600'}"></span>
 					{status ? `pid ${status.pid}` : 'offline'}
 				</span>
+				{#if status?.version}
+					<span class="text-[10px] font-mono text-bourbon-700">{status.version}</span>
+				{/if}
 			</div>
 			<ul class="flex list-none gap-1 p-0">
 				{#each nav as item}

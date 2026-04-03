@@ -15,7 +15,8 @@ import (
 var version = "dev"
 
 func main() {
-	// Set embedded SPA filesystem for the daemon to serve
+	// Set version and embedded SPA filesystem for the daemon
+	daemon.Version = version
 	if webFS, err := fs.Sub(cmdr.WebBuildFS, "web/build"); err == nil {
 		daemon.WebFS = webFS
 	}
