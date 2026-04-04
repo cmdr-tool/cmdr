@@ -20,7 +20,19 @@
 	});
 
 	onDestroy(unsub);
+
+	const pageTitles: Record<string, string> = {
+		'/': 'Dashboard',
+		'/tasks': 'Tasks',
+		'/settings': 'Settings'
+	};
+
+	let pageTitle = $derived(pageTitles[$page.url.pathname] ?? 'cmdr');
 </script>
+
+<svelte:head>
+	<title>⌘R {pageTitle}</title>
+</svelte:head>
 
 <div class="relative min-h-screen bg-bourbon-950 text-bourbon-300 font-body bg-crosshair">
 	<div class="pointer-events-none absolute inset-x-0 top-0 h-80 z-0 bg-linear-to-b from-bourbon-950 from-40% via-bourbon-950/85 via-50% to-transparent"></div>
