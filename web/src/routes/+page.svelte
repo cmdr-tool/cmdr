@@ -23,6 +23,8 @@
 	let commits: GitCommit[] = $state([]);
 	let error: string | null = $state(null);
 	let sseConnected = $state(false);
+	let sessionsLoaded = $state(false);
+	let commitsLoaded = $state(false);
 
 	const now = new Date();
 	const hour = now.getHours();
@@ -39,11 +41,13 @@
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to connect to daemon';
 		}
+		commitsLoaded = true;
 	});
 
 	const unsubTmux = events.on('tmux:sessions', (data) => {
 		sessions = data;
 		sseConnected = true;
+		sessionsLoaded = true;
 	});
 
 	const unsubClaude = events.on('claude:sessions', (data) => {
@@ -288,7 +292,12 @@
 			<ActivityChart />
 		</div>
 
-		{#if sessions.length === 0}
+		{#if !sessionsLoaded}
+			<div class="flex items-center gap-2 text-bourbon-600 py-4">
+				<div class="w-3 h-3 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
+				<span class="text-[10px] font-mono">loading sessions</span>
+			</div>
+		{:else if sessions.length === 0}
 			<p class="text-bourbon-600 text-sm">No tmux sessions running.</p>
 		{:else}
 			<div class="flex flex-col gap-1.5">
@@ -362,8 +371,7 @@
 								{/each}
 							</div>
 						</div>
-						<div class="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-4 pl-10 opacity-0 group-hover:opacity-100 transition-opacity"
-							style="background: linear-gradient(to right, transparent, {session.attached ? 'var(--color-bourbon-800)' : 'var(--color-bourbon-950)'} 30%)">
+						<div class="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-4 pl-10 opacity-0 group-hover:opacity-100 transition-opacity bg-linear-to-r from-transparent to-bourbon-900 to-30%">
 							{#if session.attached}
 								<button
 									onclick={() => focusTmuxSession(session.name)}
@@ -415,7 +423,12 @@
 			{/if}
 		</div>
 
-		{#if commits.length === 0}
+		{#if !commitsLoaded}
+			<div class="flex items-center gap-2 text-bourbon-600 py-4">
+				<div class="w-3 h-3 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
+				<span class="text-[10px] font-mono">loading commits</span>
+			</div>
+		{:else if commits.length === 0}
 			<p class="text-bourbon-600 text-sm">No commits yet. Add repos in <a href="/settings" class="text-cmd-400 hover:text-cmd-300">settings</a>.</p>
 		{:else}
 			<div class="flex flex-col gap-5">

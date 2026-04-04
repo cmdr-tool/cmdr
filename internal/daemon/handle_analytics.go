@@ -14,7 +14,8 @@ type activityBucket struct {
 	Nvim          int `json:"nvim"`           // samples where active tool was nvim
 	Claude        int `json:"claude"`         // samples where active tool was claude
 	Other         int `json:"other"`          // samples where active tool was other
-	Inactive      int `json:"inactive"`       // samples where inactive
+	Inactive      int `json:"inactive"`       // samples where inactive (no attached session)
+	Away          int `json:"away"`           // samples where user was away from keyboard
 	ClaudeTotal   int `json:"claudeTotal"`    // avg total claude instances
 	ClaudeWorking int `json:"claudeWorking"`  // avg working
 	ClaudeWaiting int `json:"claudeWaiting"`  // avg waiting
@@ -136,6 +137,8 @@ func mergeSamples(idx int, raws []rawSample) activityBucket {
 			b.Claude++
 		case "other":
 			b.Other++
+		case "away":
+			b.Away++
 		default:
 			b.Inactive++
 		}

@@ -1,10 +1,11 @@
 import { writable } from 'svelte/store';
-import type { DaemonStatus, TmuxSession, ClaudeSession } from './api';
+import type { DaemonStatus, TmuxSession, ClaudeSession, ActivityResponse } from './api';
 
 type EventMap = {
 	status: DaemonStatus;
 	'tmux:sessions': TmuxSession[];
 	'claude:sessions': ClaudeSession[];
+	'analytics:activity': ActivityResponse;
 };
 
 type EventHandler<K extends keyof EventMap> = (data: EventMap[K]) => void;

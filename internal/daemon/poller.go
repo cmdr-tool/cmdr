@@ -15,6 +15,11 @@ import (
 	"github.com/mikehu/cmdr/internal/tmux"
 )
 
+const (
+	sleepThreshold = 15 * time.Second // gap > this means system was sleeping
+	awayIdleTime   = 5 * time.Minute  // HIDIdleTime > this means user is away
+)
+
 // startPoller runs server-side polling and publishes events to the bus.
 func startPoller(bus *EventBus, s *scheduler.Scheduler, db *sql.DB) func() {
 	done := make(chan struct{})
@@ -23,15 +28,27 @@ func startPoller(bus *EventBus, s *scheduler.Scheduler, db *sql.DB) func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 
-		// Run one tick immediately
-		pollTick(bus, s, db)
+		var tickCount int
+		lastTick := time.Now()
+		pollTick(bus, s, db, false, tickCount)
 
 		for {
 			select {
 			case <-done:
 				return
 			case <-ticker.C:
-				pollTick(bus, s, db)
+				tickCount++
+				now := time.Now()
+				gap := now.Sub(lastTick)
+				lastTick = now
+
+				if gap > sleepThreshold {
+					log.Printf("cmdr: poller: wake detected (gap %v), backfilling sleep buckets", gap.Round(time.Second))
+					backfillSleep(db, now.Add(-gap), now)
+				}
+
+				away := systemIdleTime() > awayIdleTime
+				pollTick(bus, s, db, away, tickCount)
 			}
 		}
 	}()
@@ -39,8 +56,9 @@ func startPoller(bus *EventBus, s *scheduler.Scheduler, db *sql.DB) func() {
 	return func() { close(done) }
 }
 
-// pollTick runs a single polling cycle: fetch tmux once, publish all events, record analytics.
-func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB) {
+// pollTick runs a single polling cycle.
+// tickCount drives sub-frequencies: analytics publishes every 12 ticks (60s).
+func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tickCount int) {
 	publishStatus(bus, s)
 
 	tmuxSessions, err := tmux.ListSessions()
@@ -48,11 +66,67 @@ func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB) {
 		log.Printf("cmdr: poller: tmux list error: %v", err)
 		tmuxSessions = []tmux.Session{}
 	}
-	bus.Publish(Event{Type: "tmux:sessions", Data: tmuxSessions})
 
 	claudeSessions := enrichAndPublishClaude(bus, tmuxSessions)
 
-	recordActivity(db, tmuxSessions, claudeSessions, time.Now())
+	if !away {
+		bus.Publish(Event{Type: "tmux:sessions", Data: tmuxSessions})
+	}
+
+	now := time.Now()
+	recordActivity(db, tmuxSessions, claudeSessions, now, away)
+
+	// Publish analytics snapshot every 60s (12 ticks)
+	if tickCount%12 == 0 {
+		publishAnalytics(bus, db, now)
+	}
+}
+
+// systemIdleTime returns how long since the last keyboard/mouse input.
+func systemIdleTime() time.Duration {
+	out, err := exec.Command("ioreg", "-c", "IOHIDSystem", "-d", "4").Output()
+	if err != nil {
+		return 0
+	}
+	// Parse HIDIdleTime from ioreg output (value is in nanoseconds)
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "HIDIdleTime") && !strings.Contains(line, "HIDIdleTimeDelta") {
+			parts := strings.Split(line, "=")
+			if len(parts) == 2 {
+				val := strings.TrimSpace(parts[1])
+				if ns, err := strconv.ParseInt(val, 10, 64); err == nil {
+					return time.Duration(ns)
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// publishAnalytics queries today+yesterday at 5m resolution and publishes via SSE.
+func publishAnalytics(bus *EventBus, db *sql.DB, now time.Time) {
+	todaySlot := now.YearDay() % 2
+	yesterdaySlot := (todaySlot + 1) % 2
+	mergeCount := 60 // 5m
+
+	_, curBucket := currentBucket(now)
+
+	bus.Publish(Event{
+		Type: "analytics:activity",
+		Data: activityResponse{
+			Resolution:    "5m",
+			SamplesPerBar: mergeCount,
+			Today: activityDay{
+				Date:          now.Format("2006-01-02"),
+				CurrentBucket: curBucket / mergeCount,
+				Buckets:       querySlot(db, todaySlot, mergeCount),
+			},
+			Yesterday: activityDay{
+				Date:    now.AddDate(0, 0, -1).Format("2006-01-02"),
+				Buckets: querySlot(db, yesterdaySlot, mergeCount),
+			},
+		},
+	})
 }
 
 func publishStatus(bus *EventBus, s *scheduler.Scheduler) {

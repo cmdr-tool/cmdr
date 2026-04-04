@@ -215,6 +215,7 @@ export interface ActivityBucket {
 	claude: number;
 	other: number;
 	inactive: number;
+	away: number;
 	claudeTotal: number;
 	claudeWorking: number;
 	claudeWaiting: number;

@@ -14,7 +14,8 @@ import (
 var lastClearedDay = -1
 
 // recordActivity persists one 5-second activity snapshot into the fixed-bucket table.
-func recordActivity(db *sql.DB, tmuxSessions []tmux.Session, claudeSessions []claude.Session, now time.Time) {
+// When away=true, the user is idle — record tool as "away" but still capture Claude states.
+func recordActivity(db *sql.DB, tmuxSessions []tmux.Session, claudeSessions []claude.Session, now time.Time, away bool) {
 	slot, bucket := currentBucket(now)
 	today := now.YearDay()
 
@@ -27,7 +28,12 @@ func recordActivity(db *sql.DB, tmuxSessions []tmux.Session, claudeSessions []cl
 		lastClearedDay = today
 	}
 
-	activeTool := determineActiveTool(tmuxSessions)
+	var activeTool string
+	if away {
+		activeTool = "away"
+	} else {
+		activeTool = determineActiveTool(tmuxSessions)
+	}
 	total, working, waiting, idle, unknown := countClaudeStates(claudeSessions)
 
 	_, err := db.Exec(`INSERT OR REPLACE INTO activity_buckets
@@ -65,6 +71,30 @@ func clearSlot(db *sql.DB, slot int) {
 	_, err := db.Exec(`DELETE FROM activity_buckets WHERE slot = ?`, slot)
 	if err != nil {
 		log.Printf("cmdr: analytics: clear slot %d error: %v", slot, err)
+	}
+}
+
+// backfillSleep fills the gap between sleepStart and wakeTime with "away" buckets.
+// Only fills buckets within the same day as wakeTime to avoid cross-day complexity.
+func backfillSleep(db *sql.DB, sleepStart, wakeTime time.Time) {
+	_, startBucket := currentBucket(sleepStart)
+	slot, endBucket := currentBucket(wakeTime)
+
+	// Only backfill within today's slot (don't cross midnight boundaries)
+	if sleepStart.YearDay() != wakeTime.YearDay() {
+		startBucket = 0
+	}
+
+	for b := startBucket; b < endBucket; b++ {
+		db.Exec(`INSERT OR IGNORE INTO activity_buckets
+			(slot, bucket, active_tool, claude_total, claude_working, claude_waiting, claude_idle, claude_unknown, recorded_at)
+			VALUES (?, ?, 'away', 0, 0, 0, 0, 0, ?)`,
+			slot, b, wakeTime.Format(time.RFC3339),
+		)
+	}
+
+	if startBucket < endBucket {
+		log.Printf("cmdr: analytics: backfilled %d sleep buckets (%d→%d)", endBucket-startBucket, startBucket, endBucket)
 	}
 }
 

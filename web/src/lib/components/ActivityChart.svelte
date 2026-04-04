@@ -2,13 +2,13 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { scaleLinear } from 'd3-scale';
 	import { getActivity, type ActivityBucket, type ActivityResponse } from '$lib/api';
+	import { events } from '$lib/events';
 
 	let data: ActivityResponse | null = $state(null);
 	let containerWidth = $state(600);
 	let hoverIdx: number | null = $state(null);
 	let activeView: 'tools' | 'claude' = $state('tools');
 	let container: HTMLDivElement;
-	let interval: ReturnType<typeof setInterval>;
 
 	const STRIP_HEIGHT = 16;
 	const BARS_PER_DAY = 288; // 5m buckets
@@ -16,12 +16,21 @@
 	const toolColors: Record<string, string> = {
 		nvim: 'var(--color-cmd-500)',
 		claude: 'var(--color-run-500)',
-		other: 'var(--color-bourbon-600)'
+		other: 'var(--color-bourbon-600)',
+		away: 'hatch'
 	};
 
+	let unsub: (() => void) | null = null;
+
 	onMount(async () => {
-		await fetchData();
-		interval = setInterval(fetchData, 60_000);
+		// Seed from REST
+		try { data = await getActivity('5m'); } catch { /* silent */ }
+
+		// Subscribe to SSE deltas
+		unsub = events.on('analytics:activity', (update) => {
+			data = update;
+		});
+
 		const ro = new ResizeObserver((entries) => {
 			containerWidth = entries[0].contentRect.width;
 		});
@@ -30,12 +39,8 @@
 	});
 
 	onDestroy(() => {
-		if (interval) clearInterval(interval);
+		if (unsub) unsub();
 	});
-
-	async function fetchData() {
-		try { data = await getActivity('5m'); } catch { /* silent */ }
-	}
 
 	let barWidth = $derived(Math.max(1, containerWidth / BARS_PER_DAY));
 	let xScale = $derived(scaleLinear().domain([0, BARS_PER_DAY]).range([0, containerWidth]));
@@ -44,6 +49,8 @@
 
 	function dominantTool(b: ActivityBucket): string | null {
 		const active = b.nvim + b.claude + b.other;
+		// If mostly away, show hatch pattern
+		if (b.away > active && b.away > b.inactive) return 'away';
 		if (active === 0) return null;
 		if (b.nvim >= b.claude && b.nvim >= b.other) return 'nvim';
 		if (b.claude >= b.nvim && b.claude >= b.other) return 'claude';
@@ -190,13 +197,13 @@
 				<!-- Yesterday strip -->
 				<div class="relative h-1 rounded-sm overflow-hidden bg-bourbon-800/20 mb-1">
 					{#each yesterdayToolSegs as seg}
-						<div class="absolute top-0 bottom-0 opacity-30" style="left:{seg.x}px; width:{seg.w}px; background:{seg.color}"></div>
+						<div class="absolute top-0 bottom-0 opacity-30 {seg.color === 'hatch' ? 'bg-hatch' : ''}" style="left:{seg.x}px; width:{seg.w}px; {seg.color !== 'hatch' ? `background:${seg.color}` : ''}"></div>
 					{/each}
 				</div>
 				<!-- Today strip -->
 				<div class="relative rounded-sm overflow-hidden bg-bourbon-800/20" style="height:{STRIP_HEIGHT}px">
 					{#each todayToolSegs as seg}
-						<div class="absolute top-0 bottom-0" style="left:{seg.x}px; width:{seg.w}px; background:{seg.color}"></div>
+						<div class="absolute top-0 bottom-0 {seg.color === 'hatch' ? 'bg-hatch' : ''}" style="left:{seg.x}px; width:{seg.w}px; {seg.color !== 'hatch' ? `background:${seg.color}` : ''}"></div>
 					{/each}
 					{#if hoverIdx !== null}<div class="absolute top-0 bottom-0 w-px bg-bourbon-100/60" style="left:{xScale(hoverIdx)}px"></div>{/if}
 				</div>
@@ -211,6 +218,7 @@
 					<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-cmd-500 inline-block"></span>nvim</span>
 					<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-run-500 inline-block"></span>claude</span>
 					<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-bourbon-600 inline-block"></span>other</span>
+					<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-sm bg-hatch inline-block"></span>away</span>
 				</div>
 			{:else}
 				<!-- Claude: yesterday strip -->
