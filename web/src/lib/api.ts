@@ -343,3 +343,19 @@ export function getClaudeTasks(): Promise<ClaudeTask[]> {
 export function getClaudeTaskResult(id: number): Promise<ClaudeTaskResult> {
 	return request(`/claude/tasks/result?id=${id}`);
 }
+
+export function dismissClaudeTask(id: number): Promise<{ dismissed: number }> {
+	return request('/claude/tasks/dismiss', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ id })
+	});
+}
+
+export function dismissAllClaudeTasks(): Promise<{ dismissed: number }> {
+	return request('/claude/tasks/dismiss', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ all: 'completed' })
+	});
+}

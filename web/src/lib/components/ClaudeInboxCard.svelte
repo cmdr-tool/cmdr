@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { CheckCircle, XCircle, Loader, Eye } from 'lucide-svelte';
-	import { getClaudeTasks, getClaudeTaskResult, type ClaudeTask } from '$lib/api';
+	import { CheckCircle, XCircle, Eye, X } from 'lucide-svelte';
+	import { getClaudeTasks, getClaudeTaskResult, dismissClaudeTask, dismissAllClaudeTasks, type ClaudeTask } from '$lib/api';
 	import { events } from '$lib/events';
 
 	let {
@@ -14,19 +14,18 @@
 	let loaded = $state(false);
 	let unsub: (() => void) | null = null;
 	let pendingCount = $derived(tasks.filter(t => t.status === 'running' || t.status === 'pending').length);
+	let completedCount = $derived(tasks.filter(t => t.status === 'completed' || t.status === 'failed').length);
 
 	onMount(async () => {
 		try { tasks = await getClaudeTasks(); } catch { /* silent */ }
 		loaded = true;
 
 		unsub = events.on('claude:task', (evt) => {
-			// Update existing task or refetch
 			const idx = tasks.findIndex(t => t.id === evt.id);
 			if (idx >= 0) {
 				tasks[idx] = { ...tasks[idx], status: evt.status as ClaudeTask['status'] };
 				tasks = [...tasks];
 			} else {
-				// New task — refetch full list
 				getClaudeTasks().then(t => { tasks = t; }).catch(() => {});
 			}
 		});
@@ -41,6 +40,16 @@
 			const { result } = await getClaudeTaskResult(task.id);
 			onviewresult(result);
 		} catch { /* silent */ }
+	}
+
+	async function dismiss(task: ClaudeTask) {
+		await dismissClaudeTask(task.id);
+		tasks = tasks.filter(t => t.id !== task.id);
+	}
+
+	async function clearAll() {
+		await dismissAllClaudeTasks();
+		tasks = tasks.filter(t => t.status === 'running' || t.status === 'pending');
 	}
 
 	function timeAgo(dateStr: string): string {
@@ -86,26 +95,49 @@
 						<span class="text-red-400 shrink-0"><XCircle size={14} /></span>
 					{/if}
 
-					<!-- Info -->
-					<span class="text-[10px] font-mono text-bourbon-600 shrink-0">{task.type}</span>
+					<!-- Type badge -->
+					<span class="text-[10px] font-mono text-bourbon-500 bg-bourbon-800/50 px-1.5 py-0.5 rounded shrink-0">{task.type}</span>
+
+					<!-- Metadata -->
 					<span class="text-bourbon-100 font-mono text-xs">{repoName(task.repoPath)}</span>
 					{#if task.commitSha}
 						<span class="text-cmd-400 font-mono text-[10px]">{shortSha(task.commitSha)}</span>
 					{/if}
+
 					<span class="text-bourbon-700 text-[10px] ml-auto shrink-0">{timeAgo(task.createdAt)}</span>
 
-					<!-- View result -->
-					{#if task.status === 'completed'}
-						<button
-							onclick={() => viewResult(task)}
-							class="text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer shrink-0"
-							title="View result"
-						>
-							<Eye size={14} />
-						</button>
-					{/if}
+					<!-- Actions -->
+					<div class="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+						{#if task.status === 'completed'}
+							<button
+								onclick={() => viewResult(task)}
+								class="text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer"
+								title="View result"
+							>
+								<Eye size={14} />
+							</button>
+						{/if}
+						{#if task.status !== 'running' && task.status !== 'pending'}
+							<button
+								onclick={() => dismiss(task)}
+								class="text-bourbon-700 hover:text-red-400 transition-colors cursor-pointer"
+								title="Dismiss"
+							>
+								<X size={14} />
+							</button>
+						{/if}
+					</div>
 				</div>
 			{/each}
 		</div>
+
+		{#if completedCount > 1}
+			<div class="mt-3 pt-3 border-t border-bourbon-800">
+				<button
+					onclick={clearAll}
+					class="text-[10px] font-mono text-bourbon-600 hover:text-bourbon-400 transition-colors cursor-pointer"
+				>clear all completed</button>
+			</div>
+		{/if}
 	</div>
 {/if}

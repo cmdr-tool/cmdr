@@ -342,3 +342,40 @@ func handleGetClaudeTaskResult(db *sql.DB) http.HandlerFunc {
 		})
 	}
 }
+
+func handleDismissClaudeTask(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			ID  int    `json:"id"`
+			All string `json:"all"` // "completed" to clear all completed
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, jsonErr(err), http.StatusBadRequest)
+			return
+		}
+
+		var res sql.Result
+		var err error
+		if body.All == "completed" {
+			res, err = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('completed', 'failed')`)
+		} else if body.ID > 0 {
+			res, err = db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, body.ID)
+		} else {
+			http.Error(w, `{"error":"missing id or all"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		n, _ := res.RowsAffected()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int64{"dismissed": n})
+	}
+}

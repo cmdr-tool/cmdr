@@ -233,6 +233,7 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 	// Claude tasks
 	mux.HandleFunc("/api/claude/tasks", handleListClaudeTasks(database))
 	mux.HandleFunc("/api/claude/tasks/result", handleGetClaudeTaskResult(database))
+	mux.HandleFunc("/api/claude/tasks/dismiss", handleDismissClaudeTask(database))
 }
 
 func handleStatus(s *scheduler.Scheduler) http.HandlerFunc {

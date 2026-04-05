@@ -58,19 +58,51 @@
 		return 'other';
 	}
 
+	// Fill gaps: once "away", stay "away" until an active tool proves return.
+	// Buckets with no data or "inactive" between away periods → treated as away.
+	function fillAwayGaps(buckets: ActivityBucket[]): Map<number, string> {
+		const map = new Map(buckets.map((b) => [b.bucket, b]));
+		const resolved = new Map<number, string>();
+
+		if (!buckets.length) return resolved;
+
+		const minBucket = Math.min(...buckets.map(b => b.bucket));
+		const maxBucket = Math.max(...buckets.map(b => b.bucket));
+
+		let inAway = false;
+		for (let i = minBucket; i <= maxBucket; i++) {
+			const b = map.get(i);
+			const tool = b ? dominantTool(b) : null;
+
+			if (tool === 'away') {
+				inAway = true;
+				resolved.set(i, 'away');
+			} else if (tool && tool !== 'away') {
+				// Active tool — user returned
+				inAway = false;
+				resolved.set(i, tool);
+			} else {
+				// No data or inactive — if we were away, stay away
+				if (inAway) {
+					resolved.set(i, 'away');
+				}
+				// Otherwise leave as gap (no entry in resolved)
+			}
+		}
+		return resolved;
+	}
+
 	function toToolSegments(buckets: ActivityBucket[]): { x: number; w: number; color: string }[] {
 		if (!buckets.length) return [];
-		const map = new Map(buckets.map((b) => [b.bucket, b]));
+		const resolved = fillAwayGaps(buckets);
 		const segments: { x: number; w: number; color: string }[] = [];
 		let i = 0;
 		while (i < BARS_PER_DAY) {
-			const b = map.get(i);
-			const tool = b ? dominantTool(b) : null;
+			const tool = resolved.get(i) ?? null;
 			if (!tool) { i++; continue; }
 			const start = i;
 			while (i < BARS_PER_DAY) {
-				const nb = map.get(i);
-				if (!nb || dominantTool(nb) !== tool) break;
+				if ((resolved.get(i) ?? null) !== tool) break;
 				i++;
 			}
 			segments.push({
