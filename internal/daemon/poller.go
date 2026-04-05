@@ -84,7 +84,7 @@ func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tick
 
 // systemIdleTime returns how long since the last keyboard/mouse input.
 func systemIdleTime() time.Duration {
-	out, err := exec.Command("ioreg", "-c", "IOHIDSystem", "-d", "4").Output()
+	out, err := exec.Command("/usr/sbin/ioreg", "-c", "IOHIDSystem", "-d", "4").Output()
 	if err != nil {
 		return 0
 	}
