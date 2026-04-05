@@ -209,6 +209,7 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 	mux.HandleFunc("/api/commits/diff", handleCommitDiff(database))
 	mux.HandleFunc("/api/commits/files", handleCommitFiles(database))
 	mux.HandleFunc("/api/commits/seen", handleMarkSeen(database))
+	mux.HandleFunc("/api/commits/flag", handleToggleFlag(database))
 	mux.HandleFunc("/api/sync", handleSyncRepos(database))
 
 	// Analytics

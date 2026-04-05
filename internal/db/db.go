@@ -72,7 +72,19 @@ func migrate(d *sql.DB) error {
 
 		CREATE INDEX IF NOT EXISTS idx_commits_repo_date ON commits(repo_id, committed_at DESC);
 		CREATE INDEX IF NOT EXISTS idx_commits_seen ON commits(seen, committed_at DESC);
+	`)
+	if err != nil {
+		return err
+	}
 
+	// Add flagged column if missing
+	var hasFlagged bool
+	d.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('commits') WHERE name='flagged'`).Scan(&hasFlagged)
+	if !hasFlagged {
+		d.Exec(`ALTER TABLE commits ADD COLUMN flagged BOOLEAN NOT NULL DEFAULT 0`)
+	}
+
+	_, err = d.Exec(`
 		CREATE TABLE IF NOT EXISTS activity_buckets (
 			slot            INTEGER NOT NULL,
 			bucket          INTEGER NOT NULL,

@@ -142,6 +142,7 @@ export interface GitCommit {
 	committedAt: string;
 	url: string;
 	seen: boolean;
+	flagged: boolean;
 	repoName: string;
 	repoPath: string;
 }
@@ -199,6 +200,14 @@ export function markCommitsSeen(ids: number[]): Promise<{ marked: number }> {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ ids })
+	});
+}
+
+export function toggleCommitFlag(id: number, flagged: boolean): Promise<{ flagged: boolean }> {
+	return request('/commits/flag', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ id, flagged })
 	});
 }
 

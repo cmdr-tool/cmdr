@@ -209,7 +209,7 @@ func handleListCommits(db *sql.DB) http.HandlerFunc {
 
 		// Use a windowed query to get N most recent commits per repo
 		query := `
-			SELECT c.id, c.sha, c.author, c.message, c.committed_at, c.url, c.seen,
+			SELECT c.id, c.sha, c.author, c.message, c.committed_at, c.url, c.seen, c.flagged,
 			       r.name, r.path
 			FROM commits c
 			JOIN repos r ON r.id = c.repo_id
@@ -255,6 +255,7 @@ func handleListCommits(db *sql.DB) http.HandlerFunc {
 			CommittedAt string `json:"committedAt"`
 			URL         string `json:"url"`
 			Seen        bool   `json:"seen"`
+			Flagged     bool   `json:"flagged"`
 			RepoName    string `json:"repoName"`
 			RepoPath    string `json:"repoPath"`
 		}
@@ -263,7 +264,7 @@ func handleListCommits(db *sql.DB) http.HandlerFunc {
 		for rows.Next() {
 			var c commit
 			if err := rows.Scan(&c.ID, &c.SHA, &c.Author, &c.Message, &c.CommittedAt, &c.URL,
-				&c.Seen, &c.RepoName, &c.RepoPath); err != nil {
+				&c.Seen, &c.Flagged, &c.RepoName, &c.RepoPath); err != nil {
 				continue
 			}
 			commits = append(commits, c)
@@ -360,6 +361,33 @@ func handleMarkSeen(db *sql.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int64{"marked": n})
+	}
+}
+
+func handleToggleFlag(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			ID      int  `json:"id"`
+			Flagged bool `json:"flagged"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, jsonErr(err), http.StatusBadRequest)
+			return
+		}
+
+		_, err := db.Exec(`UPDATE commits SET flagged = ? WHERE id = ?`, body.Flagged, body.ID)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"flagged": body.Flagged})
 	}
 }
 
