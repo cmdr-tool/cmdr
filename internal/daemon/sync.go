@@ -8,7 +8,7 @@ import (
 )
 
 // SyncAllRepos fetches new commits for all monitored repos.
-func SyncAllRepos(db *sql.DB) {
+func SyncAllRepos(db *sql.DB, bus *EventBus) {
 	rows, err := db.Query(`SELECT id, path, default_branch FROM repos`)
 	if err != nil {
 		log.Printf("cmdr: sync: query repos: %v", err)
@@ -31,7 +31,11 @@ func SyncAllRepos(db *sql.DB) {
 		repos = append(repos, r)
 	}
 
+	totalNew := 0
 	for _, r := range repos {
-		tasks.SyncOne(db, r.id, r.path, r.defaultBranch)
+		totalNew += tasks.SyncOne(db, r.id, r.path, r.defaultBranch)
+	}
+	if totalNew > 0 {
+		bus.Publish(Event{Type: "commits:sync", Data: true})
 	}
 }

@@ -18,7 +18,7 @@
 	} = $props();
 
 	let editing = $state(false);
-	let draft = $state(result);
+	let draft = $state('');
 	let saving = $state(false);
 	let refactoring = $state(false);
 

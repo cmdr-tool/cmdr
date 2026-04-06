@@ -46,9 +46,14 @@
 		claudeSessions = data;
 	});
 
+	const unsubCommits = events.on('commits:sync', async () => {
+		commits = await getCommits();
+	});
+
 	onDestroy(() => {
 		unsubTmux();
 		unsubClaude();
+		unsubCommits();
 	});
 
 	// --- Diff modal ---

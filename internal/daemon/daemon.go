@@ -56,11 +56,15 @@ func Run() error {
 	}
 	defer database.Close()
 
-	s := scheduler.New(database)
+	bus := NewEventBus()
+
+	s := scheduler.New(database, scheduler.Hooks{
+		OnCommitsSync: func() {
+			bus.Publish(Event{Type: "commits:sync", Data: true})
+		},
+	})
 	s.Start()
 	defer s.Stop()
-
-	bus := NewEventBus()
 	stopPoller := startPoller(bus, s, database)
 	defer stopPoller()
 
@@ -210,7 +214,7 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 	mux.HandleFunc("/api/commits/files", handleCommitFiles(database))
 	mux.HandleFunc("/api/commits/seen", handleMarkSeen(database))
 	mux.HandleFunc("/api/commits/flag", handleToggleFlag(database))
-	mux.HandleFunc("/api/sync", handleSyncRepos(database))
+	mux.HandleFunc("/api/sync", handleSyncRepos(database, bus))
 
 	// Analytics
 	mux.HandleFunc("/api/analytics/activity", handleActivityAnalytics(database))

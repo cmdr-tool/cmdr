@@ -6,6 +6,7 @@
 *.dylib
 
 # Build
+/build/
 /dist/
 /tmp/
 

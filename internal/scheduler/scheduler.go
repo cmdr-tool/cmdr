@@ -23,17 +23,22 @@ type Scheduler struct {
 	tasks []Task
 }
 
+// Hooks holds optional callbacks that tasks can invoke.
+type Hooks struct {
+	OnCommitsSync func() // called when sync-commits finds new commits
+}
+
 // New creates a scheduler with all registered tasks.
-func New(db *sql.DB) *Scheduler {
+func New(db *sql.DB, hooks Hooks) *Scheduler {
 	s := &Scheduler{
 		cron: cron.New(cron.WithSeconds()),
 	}
-	s.register(db)
+	s.register(db, hooks)
 	return s
 }
 
 // register adds all defined tasks.
-func (s *Scheduler) register(db *sql.DB) {
+func (s *Scheduler) register(db *sql.DB, hooks Hooks) {
 	s.tasks = []Task{
 		{
 			Name:        "hello",
@@ -45,7 +50,7 @@ func (s *Scheduler) register(db *sql.DB) {
 			Name:        "sync-commits",
 			Description: "Fetch new commits from monitored repos",
 			Schedule:    "0 */5 * * * *", // every 5 minutes
-			Fn:          tasks.SyncCommits(db),
+			Fn:          tasks.SyncCommits(db, hooks.OnCommitsSync),
 		},
 		{
 			Name:        "prune-commits",

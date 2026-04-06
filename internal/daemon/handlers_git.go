@@ -393,9 +393,9 @@ func handleToggleFlag(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func handleSyncRepos(db *sql.DB) http.HandlerFunc {
+func handleSyncRepos(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		go SyncAllRepos(db)
+		go SyncAllRepos(db, bus)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "sync started"})

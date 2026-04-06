@@ -85,7 +85,7 @@ func runCmd() *cobra.Command {
 				return err
 			}
 			defer database.Close()
-			s := scheduler.New(database)
+			s := scheduler.New(database, scheduler.Hooks{})
 			return s.RunTask(args[0])
 		},
 	}
@@ -101,7 +101,7 @@ func listCmd() *cobra.Command {
 				return err
 			}
 			defer database.Close()
-			s := scheduler.New(database)
+			s := scheduler.New(database, scheduler.Hooks{})
 			for _, t := range s.Tasks() {
 				fmt.Printf("  %-20s %s\t%s\n", t.Name, t.Schedule, t.Description)
 			}

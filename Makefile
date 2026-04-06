@@ -1,16 +1,17 @@
 BIN_DIR     := $(HOME)/.local/bin
+APP_DIR     := /Applications
 PLIST_NAME  := com.mikehu.cmdr.plist
 LABEL       := com.mikehu.cmdr
 LAUNCH_DIR  := $(HOME)/Library/LaunchAgents
 GUI_DOMAIN  := gui/$(shell id -u)
 
-.PHONY: all build web go install uninstall restart clean dev
+.PHONY: all build web go app install uninstall restart clean dev
 
 # Default: build everything
 all: build
 
-# Build frontend + backend
-build: web go
+# Build frontend + backend + app
+build: web go app
 
 # Build SvelteKit SPA → web/build/
 web:
@@ -24,7 +25,19 @@ go:
 	@echo "cmdr: building backend ($(VERSION))..."
 	@go build -ldflags="-X main.version=$(VERSION)" -o cmdr ./cmd/cmdr
 
-# Full deploy: build → install binary → restart service
+# Build macOS app bundle (frameless webview wrapper)
+app:
+	@echo "cmdr: building app..."
+	@mkdir -p build
+	@swiftc -O -o build/cmdr-app app/main.swift -framework Cocoa -framework WebKit
+	@mkdir -p build/cmdr.app/Contents/{MacOS,Resources}
+	@cp build/cmdr-app build/cmdr.app/Contents/MacOS/cmdr-app
+	@cp app/Info.plist build/cmdr.app/Contents/
+	@cp app/assets/AppIcon.icns build/cmdr.app/Contents/Resources/
+	@cp app/assets/menubarTemplate.png app/assets/menubarTemplate@2x.png build/cmdr.app/Contents/Resources/
+	@rm -f build/cmdr-app
+
+# Full deploy: build → install binary + app → restart service
 install: build
 	@mkdir -p $(BIN_DIR) $(LAUNCH_DIR)
 	@codesign -s "cmdr" -f cmdr
@@ -35,6 +48,8 @@ install: build
 	@sed 's|__CMDR_BIN__|$(BIN_DIR)/cmdr|g' $(PLIST_NAME) > $(LAUNCH_DIR)/$(PLIST_NAME)
 	@launchctl bootstrap "$(GUI_DOMAIN)" "$(LAUNCH_DIR)/$(PLIST_NAME)"
 	@rm -f cmdr
+	@rsync -a --delete build/cmdr.app/ "$(APP_DIR)/cmdr.app/"
+	@echo "cmdr: installed app to $(APP_DIR)/cmdr.app"
 	@bash scripts/install-hooks.sh
 	@echo "cmdr: service installed and started ✓"
 
@@ -61,5 +76,5 @@ test:
 # Clean build artifacts
 clean:
 	@rm -f cmdr
-	@rm -rf web/build
+	@rm -rf web/build build/
 	@echo "cmdr: cleaned ✓"

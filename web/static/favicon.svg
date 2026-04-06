@@ -8,6 +8,6 @@
   <rect width="128" height="128" rx="20" fill="#EF9F27"/>
   <rect width="128" height="11" fill="#FAC775" clip-path="url(#rc)"/>
   <rect y="11" width="128" height="8" fill="#FAC775" fill-opacity="0.25" clip-path="url(#rc)"/>
-  <path transform="translate(37, 102) scale(0.1172, -0.1172)" fill="#412402"
+  <path transform="translate(47.5, 85.3) scale(0.061, -0.061)" fill="#412402"
     d="M52 0V442.459Q52 479.853 70.912 511.014Q89.824 542.176 121.201 561.088Q152.578 580 190.23 580H512.095V449.066H195.055Q190.082 449.066 186.508 445.492Q182.934 441.918 182.934 436.945V0Z"/>
 </svg>
