@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { getCommits, toggleCommitFlag, type TmuxSession, type ClaudeSession, type GitCommit, type ClaudeTask } from '$lib/api';
-	import { events } from '$lib/events';
+	import { events, connection } from '$lib/events';
 
 	import BrewCard from '$lib/components/BrewCard.svelte';
 	import SessionCard from '$lib/components/SessionCard.svelte';
@@ -14,7 +14,6 @@
 	let claudeSessions: ClaudeSession[] = $state([]);
 	let commits: GitCommit[] = $state([]);
 	let error: string | null = $state(null);
-	let sseConnected = $state(false);
 	let sessionsLoaded = $state(false);
 	let commitsLoaded = $state(false);
 
@@ -40,13 +39,11 @@
 
 	const unsubTmux = events.on('tmux:sessions', (data) => {
 		sessions = data;
-		sseConnected = true;
 		sessionsLoaded = true;
 	});
 
 	const unsubClaude = events.on('claude:sessions', (data) => {
 		claudeSessions = data;
-		sseConnected = true;
 	});
 
 	onDestroy(() => {
@@ -100,12 +97,12 @@
 	</p>
 </div>
 
-{#if !sseConnected}
-	<div class="flex items-center justify-center gap-3 text-bourbon-600 py-12">
-		<div class="w-4 h-4 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
-		<span class="font-display text-xs uppercase tracking-widest">Loading</span>
+{#if $connection.reconnecting}
+	<div class="flex items-center justify-center gap-3 text-bourbon-600 py-4 mb-4">
+		<div class="w-3 h-3 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
+		<span class="font-display text-[10px] uppercase tracking-widest">Reconnecting</span>
 	</div>
-{:else}
+{/if}
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
@@ -140,8 +137,6 @@
 		<h3 class="font-display text-xs font-bold uppercase tracking-widest text-run-500 mb-2">Note</h3>
 		<p class="text-bourbon-400">{error}</p>
 	</div>
-{/if}
-
 {/if}
 
 <!-- Diff Modal -->

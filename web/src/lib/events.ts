@@ -35,14 +35,14 @@ class EventClient {
 		// Any incoming message resets heartbeat
 		this.source.onmessage = () => this.resetHeartbeat();
 
+		// Attach all registered event listeners immediately
+		for (const type of this.handlers.keys()) {
+			this.attachListener(type);
+		}
+
 		this.source.addEventListener('open', () => {
 			connection.set({ connected: true, reconnecting: false });
 			this.resetHeartbeat();
-
-			// Attach all registered event listeners
-			for (const type of this.handlers.keys()) {
-				this.attachListener(type);
-			}
 		});
 
 		this.source.addEventListener('error', () => {
@@ -103,9 +103,8 @@ class EventClient {
 
 		if (!this.source) {
 			this.connect();
-		} else if (this.source.readyState === EventSource.OPEN) {
-			// Source already connected — attach listener immediately
-			// (handles the case where open event already fired, e.g. after HMR)
+		} else {
+			// Attach listener whether connecting or already open
 			this.attachListener(type);
 		}
 

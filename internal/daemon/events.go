@@ -63,6 +63,7 @@ func handleEvents(bus *EventBus) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
+		flusher.Flush() // Flush headers immediately so the browser fires 'open'
 
 		ch := bus.Subscribe()
 		defer bus.Unsubscribe(ch)
