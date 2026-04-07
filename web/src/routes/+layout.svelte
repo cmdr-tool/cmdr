@@ -8,7 +8,6 @@
 
 	let { children } = $props();
 	let status: DaemonStatus | null = $state(null);
-	const isApp = typeof navigator !== 'undefined' && navigator.userAgent === 'cmdr-app';
 
 	const nav = [
 		{ href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -37,12 +36,10 @@
 
 <div class="relative min-h-screen bg-bourbon-950 text-bourbon-300 font-body bg-crosshair">
 	<div class="pointer-events-none absolute inset-x-0 top-0 h-80 z-0 bg-linear-to-b from-bourbon-950 from-40% via-bourbon-950/85 via-50% to-transparent"></div>
-	<div class="relative z-10 max-w-7xl mx-auto px-6 py-4" class:pt-8={isApp}>
+	<div class="relative z-10 max-w-7xl mx-auto px-6 pt-6 pb-4">
 		<nav class="flex items-center justify-between mb-6">
 			<div class="flex items-center gap-5">
-				<a href="/" class="no-underline">
-					<img src="/cmdr-logo.svg" alt="cmdr" class="h-10" />
-				</a>
+				<img src="/cmdr-logo.svg" alt="cmdr" class="h-10" />
 				<span class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono
 					border backdrop-blur-sm
 					{status
