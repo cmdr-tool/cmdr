@@ -66,11 +66,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
+        // View menu
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(withTitle: "Reload", action: #selector(reloadPage), keyEquivalent: "r")
+        let viewItem = NSMenuItem()
+        viewItem.submenu = viewMenu
+        mainMenu.addItem(viewItem)
+
         NSApplication.shared.mainMenu = mainMenu
     }
 
     @objc private func hideWindow() {
         window.orderOut(nil)
+    }
+
+    @objc private func reloadPage() {
+        webView.reload()
     }
 
     // MARK: - Menu Bar
@@ -82,18 +93,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 img.isTemplate = true
                 button.image = img
             }
-            button.action = #selector(toggleWindow)
+            button.action = #selector(showWindow)
             button.target = self
         }
     }
 
-    @objc private func toggleWindow() {
-        if window.isVisible {
-            window.orderOut(nil)
-        } else {
-            window.makeKeyAndOrderFront(nil)
-            NSApplication.shared.activate(ignoringOtherApps: true)
-        }
+    @objc private func showWindow() {
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     // MARK: - Window

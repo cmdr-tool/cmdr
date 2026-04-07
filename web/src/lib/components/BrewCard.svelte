@@ -25,7 +25,15 @@
 		upgrading = formula ?? 'all';
 		try {
 			await brewUpgrade(formula);
-			// Cache refresh + SSE push happens server-side after upgrade
+			// Optimistically clear so UI collapses before SSE confirms
+			if (!formula && data) {
+				data = { formulae: [], casks: [] };
+			} else if (formula && data) {
+				data = {
+					formulae: data.formulae.filter((p) => p.name !== formula),
+					casks: data.casks.filter((p) => p.name !== formula)
+				};
+			}
 		} catch { /* silent */ }
 		upgrading = null;
 	}

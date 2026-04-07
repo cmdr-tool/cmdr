@@ -55,14 +55,13 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
 	class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-	onclick={onclose}
+	onmousedown={(e) => { if (e.target === e.currentTarget) onclose(); }}
 	onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}
 	role="dialog"
 	tabindex="-1"
 >
 	<div
 		class="bg-bourbon-900 border border-bourbon-800 rounded-2xl w-[90vw] max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
-		onclick={(e) => e.stopPropagation()}
 	>
 		<div class="flex items-center justify-between px-6 py-4 border-b border-bourbon-800 shrink-0">
 			<div class="flex items-center gap-3">
