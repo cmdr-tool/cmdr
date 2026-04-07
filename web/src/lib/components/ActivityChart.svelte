@@ -161,13 +161,19 @@
 				if (b.claudeTotal > 0) lastKnown = b;
 			} else {
 				nextKnown = nextKnownAt.get(i) ?? null;
-				// Fill gap if we have Claude data on both sides (sessions were likely running)
+				// Fill gap by carrying forward the nearest neighbor's state
 				if (lastKnown && nextKnown) {
-					const total = Math.round((lastKnown.claudeTotal + nextKnown.claudeTotal) / 2);
+					// Use whichever neighbor is closer; ties go to the previous
+					const distPrev = i - lastKnown.bucket;
+					const distNext = nextKnown.bucket - i;
+					const source = distPrev <= distNext ? lastKnown : nextKnown;
 					filled.push({
 						bucket: i, samples: 0, nvim: 0, claude: 0, other: 0, inactive: 0, away: 0,
-						claudeTotal: total, claudeWorking: 0, claudeWaiting: 0,
-						claudeIdle: total, claudeUnknown: 0
+						claudeTotal: source.claudeTotal,
+						claudeWorking: source.claudeWorking,
+						claudeWaiting: source.claudeWaiting,
+						claudeIdle: source.claudeIdle,
+						claudeUnknown: source.claudeUnknown
 					});
 				}
 			}
@@ -185,7 +191,7 @@
 			const layers: { color: string; heightPct: number }[] = [];
 			if (b.claudeWorking > 0) layers.push({ color: 'var(--color-green-500)', heightPct: (b.claudeWorking / b.claudeTotal) * scale });
 			if (b.claudeWaiting > 0) layers.push({ color: 'var(--color-run-500)', heightPct: (b.claudeWaiting / b.claudeTotal) * scale });
-			if (b.claudeIdle > 0) layers.push({ color: 'var(--color-bourbon-800)', heightPct: (b.claudeIdle / b.claudeTotal) * scale });
+			if (b.claudeIdle > 0) layers.push({ color: 'var(--color-bourbon-700)', heightPct: (b.claudeIdle / b.claudeTotal) * scale });
 			if (b.claudeUnknown > 0) layers.push({ color: 'var(--color-cmd-500)', heightPct: (b.claudeUnknown / b.claudeTotal) * scale });
 			result.push({
 				x: xScale(b.bucket),
@@ -338,7 +344,7 @@
 				<div class="flex items-center gap-3 mt-1.5 text-[9px] font-mono text-bourbon-700">
 					<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>working</span>
 					<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-run-500 inline-block"></span>waiting</span>
-					<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-bourbon-800 inline-block border border-bourbon-700"></span>idle</span>
+					<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-bourbon-700 inline-block"></span>idle</span>
 					<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-cmd-500 inline-block"></span>?</span>
 				</div>
 			{/if}
