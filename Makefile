@@ -29,7 +29,7 @@ go:
 app:
 	@echo "cmdr: building app..."
 	@mkdir -p build
-	@swiftc -O -o build/cmdr-app app/main.swift -framework Cocoa -framework WebKit
+	@swiftc -O -o build/cmdr-app app/main.swift -framework Cocoa -framework WebKit -framework UserNotifications
 	@mkdir -p build/cmdr.app/Contents/{MacOS,Resources}
 	@cp build/cmdr-app build/cmdr.app/Contents/MacOS/cmdr-app
 	@cp app/Info.plist build/cmdr.app/Contents/
@@ -43,8 +43,6 @@ install: build
 	@codesign -s "cmdr" -f cmdrd
 	@cp cmdrd $(BIN_DIR)/cmdrd
 	@echo "cmdr: installed binary to $(BIN_DIR)/cmdrd"
-	@launchctl bootout "$(GUI_DOMAIN)/com.mikehu.cmdr" 2>/dev/null || true
-	@rm -f $(BIN_DIR)/cmdr $(LAUNCH_DIR)/com.mikehu.cmdr.plist
 	@launchctl bootout "$(GUI_DOMAIN)/$(LABEL)" 2>/dev/null || true
 	@sleep 1
 	@sed 's|__CMDR_BIN__|$(BIN_DIR)/cmdrd|g' $(PLIST_NAME) > $(LAUNCH_DIR)/$(PLIST_NAME)
