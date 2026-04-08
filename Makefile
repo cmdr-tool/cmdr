@@ -1,7 +1,7 @@
 BIN_DIR     := $(HOME)/.local/bin
 APP_DIR     := /Applications
-PLIST_NAME  := com.mikehu.cmdrd.plist
-LABEL       := com.mikehu.cmdrd
+PLIST_NAME  := com.mikehu.cmdr.plist
+LABEL       := com.mikehu.cmdr
 LAUNCH_DIR  := $(HOME)/Library/LaunchAgents
 GUI_DOMAIN  := gui/$(shell id -u)
 
@@ -23,7 +23,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 # Build Go binary (embeds web/build/, stamps version)
 go:
 	@echo "cmdr: building backend ($(VERSION))..."
-	@go build -ldflags="-X main.version=$(VERSION)" -o cmdrd ./cmd/cmdr
+	@go build -ldflags="-X main.version=$(VERSION)" -o cmdr ./cmd/cmdr
 
 # Build macOS app bundle (frameless webview wrapper)
 app:
@@ -40,14 +40,16 @@ app:
 # Full deploy: build → install binary + app → restart service
 install: build
 	@mkdir -p $(BIN_DIR) $(LAUNCH_DIR)
-	@codesign -s "cmdr" -f cmdrd
-	@cp cmdrd $(BIN_DIR)/cmdrd
-	@echo "cmdr: installed binary to $(BIN_DIR)/cmdrd"
+	@codesign -s "cmdr" -f cmdr
+	@cp cmdr $(BIN_DIR)/cmdr
+	@echo "cmdr: installed binary to $(BIN_DIR)/cmdr"
+	@launchctl bootout "$(GUI_DOMAIN)/com.mikehu.cmdrd" 2>/dev/null || true
+	@rm -f $(BIN_DIR)/cmdrd $(LAUNCH_DIR)/com.mikehu.cmdrd.plist
 	@launchctl bootout "$(GUI_DOMAIN)/$(LABEL)" 2>/dev/null || true
 	@sleep 1
-	@sed 's|__CMDR_BIN__|$(BIN_DIR)/cmdrd|g' $(PLIST_NAME) > $(LAUNCH_DIR)/$(PLIST_NAME)
+	@sed 's|__CMDR_BIN__|$(BIN_DIR)/cmdr|g' $(PLIST_NAME) > $(LAUNCH_DIR)/$(PLIST_NAME)
 	@launchctl bootstrap "$(GUI_DOMAIN)" "$(LAUNCH_DIR)/$(PLIST_NAME)"
-	@rm -f cmdrd
+	@rm -f cmdr
 	@rsync -a --delete build/cmdr.app/ "$(APP_DIR)/cmdr.app/"
 	@echo "cmdr: installed app to $(APP_DIR)/cmdr.app"
 	@echo "cmdr: service installed and started ✓"
@@ -55,7 +57,7 @@ install: build
 # Stop and remove service
 uninstall:
 	@launchctl bootout "$(GUI_DOMAIN)/$(LABEL)" 2>/dev/null || true
-	@rm -f $(BIN_DIR)/cmdrd $(LAUNCH_DIR)/$(PLIST_NAME)
+	@rm -f $(BIN_DIR)/cmdr $(LAUNCH_DIR)/$(PLIST_NAME)
 	@echo "cmdr: uninstalled ✓"
 
 # Restart service without rebuilding
@@ -74,6 +76,6 @@ test:
 
 # Clean build artifacts
 clean:
-	@rm -f cmdrd
+	@rm -f cmdr
 	@rm -rf web/build build/
 	@echo "cmdr: cleaned ✓"

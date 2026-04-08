@@ -3,7 +3,7 @@
 <plist version="1.0">
   <dict>
     <key>Label</key>
-    <string>com.mikehu.cmdrd</string>
+    <string>com.mikehu.cmdr</string>
     <key>ProgramArguments</key>
     <array>
       <string>__CMDR_BIN__</string>
