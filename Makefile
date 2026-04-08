@@ -43,8 +43,6 @@ install: build
 	@codesign -s "cmdr" -f cmdr
 	@cp cmdr $(BIN_DIR)/cmdr
 	@echo "cmdr: installed binary to $(BIN_DIR)/cmdr"
-	@launchctl bootout "$(GUI_DOMAIN)/com.mikehu.cmdrd" 2>/dev/null || true
-	@rm -f $(BIN_DIR)/cmdrd $(LAUNCH_DIR)/com.mikehu.cmdrd.plist
 	@launchctl bootout "$(GUI_DOMAIN)/$(LABEL)" 2>/dev/null || true
 	@sleep 1
 	@sed 's|__CMDR_BIN__|$(BIN_DIR)/cmdr|g' $(PLIST_NAME) > $(LAUNCH_DIR)/$(PLIST_NAME)
