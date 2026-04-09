@@ -46,7 +46,7 @@ func handleCreateDirective(db *sql.DB) http.HandlerFunc {
 }
 
 // handleSaveDirective updates the prompt content of a draft task.
-func handleSaveDirective(db *sql.DB) http.HandlerFunc {
+func handleSaveDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -63,8 +63,20 @@ func handleSaveDirective(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		db.Exec(`UPDATE claude_tasks SET repo_path=?, prompt=? WHERE id=? AND status='draft'`,
-			body.RepoPath, body.Content, body.ID)
+		title := directiveTitle(body.Content)
+
+		// Check if title changed before publishing SSE
+		var oldTitle string
+		db.QueryRow(`SELECT COALESCE(title, '') FROM claude_tasks WHERE id=?`, body.ID).Scan(&oldTitle)
+
+		db.Exec(`UPDATE claude_tasks SET repo_path=?, prompt=?, title=? WHERE id=? AND status='draft'`,
+			body.RepoPath, body.Content, title, body.ID)
+
+		if title != oldTitle {
+			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				"id": body.ID, "status": "draft", "title": title,
+			}})
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -158,4 +170,26 @@ func findOrCreateSession(repoPath string) (string, error) {
 
 func resolveSymlinks(path string) (string, error) {
 	return filepath.EvalSymlinks(path)
+}
+
+// directiveTitle extracts a title from directive markdown content.
+// Takes the first non-empty, non-special line, truncated to 80 chars.
+func directiveTitle(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Skip code refs and image blocks
+		if strings.HasPrefix(line, "@") || strings.HasPrefix(line, "![") {
+			continue
+		}
+		// Strip markdown heading prefix
+		line = strings.TrimLeft(line, "# ")
+		if len(line) > 80 {
+			return line[:77] + "..."
+		}
+		return line
+	}
+	return "Untitled directive"
 }

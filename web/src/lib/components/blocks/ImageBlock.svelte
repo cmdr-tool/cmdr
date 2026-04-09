@@ -71,11 +71,11 @@
 	</button>
 {:else}
 	<!-- Image preview -->
-	<div class="rounded-lg border border-bourbon-800 overflow-hidden bg-bourbon-950">
+	<div class="rounded-lg border border-bourbon-700 overflow-hidden bg-bourbon-800/50">
 		<img
 			{src}
 			alt={block.caption || 'image'}
-			class="max-h-48 object-contain"
+			class="w-full max-h-[400px] object-contain"
 		/>
 		{#if block.caption}
 			<div class="px-3 py-1.5 text-[10px] text-bourbon-500 font-mono border-t border-bourbon-800/50">

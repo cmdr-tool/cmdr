@@ -248,7 +248,7 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 
 	// Directives (draft → submit via claude_tasks)
 	mux.HandleFunc("/api/directives/create", handleCreateDirective(database))
-	mux.HandleFunc("/api/directives/save", handleSaveDirective(database))
+	mux.HandleFunc("/api/directives/save", handleSaveDirective(database, bus))
 	mux.HandleFunc("/api/directives/submit", handleSubmitDirective(database))
 
 	// Code + Images (for directive composer)
