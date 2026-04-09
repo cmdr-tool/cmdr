@@ -40,8 +40,10 @@ export interface ParsedReview {
 //   ### [1 — Architectural] `editMenu` defined but never registered
 //   ### [P1] `updateSocialPost` handler passes raw `req.body`
 //   ## [P1] finding title
-//   ### 5. DRY] finding title (missing opening bracket — LLM inconsistency)
-const SECTION_RE = /^#{2,3} \[?(?:P)?(\d+)(?:[\.\s—\-–]+([^\]]*))?\]\s*(.+)$/;
+//   ### 5. DRY] finding title (missing opening bracket)
+//   ### 1. Architectural Soundness — finding title (no brackets at all)
+const SECTION_RE_BRACKET = /^#{2,3} \[?(?:P)?(\d+)(?:[\.\s—\-–]+([^\]]*))?\]\s*(.+)$/;
+const SECTION_RE_PLAIN = /^#{2,3} (?:P)?(\d+)[\.\s]+(\w[\w\s/]*?)\s*[—\-–]\s*(.+)$/;
 
 /**
  * Parse review markdown into preamble + sections.
@@ -53,7 +55,7 @@ export function parseReviewSections(md: string): ParsedReview | null {
 	// Find all section start indices
 	const sectionStarts: { index: number; number: number; category: string; title: string }[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		const m = lines[i].match(SECTION_RE);
+		const m = lines[i].match(SECTION_RE_BRACKET) || lines[i].match(SECTION_RE_PLAIN);
 		if (m) {
 			sectionStarts.push({ index: i, number: parseInt(m[1]), category: (m[2] || '').trim(), title: m[3].trim() });
 		}
