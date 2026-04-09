@@ -7,17 +7,19 @@
 		width,
 		height,
 		strokes: initialStrokes,
+		hideDone = false,
 		onchange,
 		ondone
 	}: {
 		width: number;
 		height: number;
 		strokes: StrokeData[];
+		hideDone?: boolean;
 		onchange: (strokes: StrokeData[]) => void;
 		ondone: () => void;
 	} = $props();
 
-	const COLORS = ['#ff4444', '#ffaa00', '#44ff44', '#4488ff', '#ff44ff', '#ffffff'];
+	const COLORS = ['#ff4444', '#ffaa00', '#44ff44', '#4488ff', '#ff44ff', '#ffffff', '#000000'];
 
 	let svgEl: SVGSVGElement | undefined = $state(undefined);
 	let strokes = $state<StrokeData[]>([]);
@@ -29,7 +31,7 @@
 	let drawing = $state(false);
 	let tool = $state<'pen' | 'eraser'>('pen');
 	let color = $state('#ff4444');
-	let strokeSize = $state(3);
+	let strokeSize = $state(5);
 	let showColors = $state(false);
 
 	function getPointerPos(e: PointerEvent): number[] {
@@ -141,7 +143,7 @@
 </svg>
 
 <!-- Toolbar -->
-<div class="flex items-center gap-1.5 px-3 py-1.5 bg-bourbon-900 border-t border-bourbon-800">
+<div class="flex items-center gap-1.5 px-3 h-10 bg-bourbon-900 border-t border-bourbon-800">
 	<button
 		onclick={() => { tool = 'pen'; }}
 		class="p-1.5 rounded transition-colors cursor-pointer
@@ -159,9 +161,8 @@
 		<Eraser size={14} />
 	</button>
 
-	{#if tool === 'pen'}
-		<!-- Color picker -->
-		<div class="relative">
+	<!-- Color picker -->
+	<div class="relative {tool !== 'pen' ? 'opacity-30 pointer-events-none' : ''}">
 			<button
 				onclick={() => { showColors = !showColors; }}
 				class="p-1.5 rounded transition-colors cursor-pointer text-bourbon-600 hover:text-bourbon-400"
@@ -185,15 +186,14 @@
 			{/if}
 		</div>
 
-		<!-- Stroke size -->
-		<input
-			type="range"
-			min="1"
-			max="8"
-			bind:value={strokeSize}
-			class="w-16 h-1 accent-cmd-500"
-		/>
-	{/if}
+	<!-- Stroke size -->
+	<input
+		type="range"
+		min="1"
+		max="8"
+		bind:value={strokeSize}
+		class="w-16 h-1 accent-cmd-500 {tool !== 'pen' ? 'opacity-30 pointer-events-none' : ''}"
+	/>
 
 	<button
 		onclick={clearAll}
@@ -206,11 +206,13 @@
 
 	<div class="flex-1"></div>
 
-	<button
-		onclick={ondone}
-		class="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer"
-	>
-		<Check size={12} />
-		done
-	</button>
+	{#if !hideDone}
+		<button
+			onclick={ondone}
+			class="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer"
+		>
+			<Check size={12} />
+			done
+		</button>
+	{/if}
 </div>

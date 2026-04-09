@@ -138,7 +138,7 @@
 		}
 	}
 
-	function insertBlock(index: number, type: 'text' | 'coderef' | 'image') {
+	function insertBlock(index: number, type: 'text' | 'coderef' | 'image' | 'sketch') {
 		// Don't insert text next to text — just focus the adjacent one
 		if (type === 'text') {
 			const next = index < blocks.length ? blocks[index] : null;
@@ -164,6 +164,8 @@
 		let block: Block;
 		if (type === 'image') {
 			block = createImageBlock('');
+		} else if (type === 'sketch') {
+			block = createImageBlock('sketch');
 		} else if (type === 'coderef') {
 			block = createCodeRefBlock();
 		} else {

@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { Plus, Type, FileCode, Image } from 'lucide-svelte';
+	import { Plus, Type, FileCode, Image, PenLine } from 'lucide-svelte';
 
 	let {
 		oninsert,
 		last = false
 	}: {
-		oninsert: (type: 'text' | 'coderef' | 'image') => void;
+		oninsert: (type: 'text' | 'coderef' | 'image' | 'sketch') => void;
 		last?: boolean;
 	} = $props();
 
 	let open = $state(false);
 
-	function select(type: 'text' | 'coderef' | 'image') {
+	function select(type: 'text' | 'coderef' | 'image' | 'sketch') {
 		open = false;
 		oninsert(type);
 	}
@@ -59,6 +59,13 @@
 			>
 				<Image size={12} />
 				Image
+			</button>
+			<button
+				onclick={() => select('sketch')}
+				class="flex items-center gap-2 w-full px-3 py-1.5 text-[10px] font-mono text-bourbon-300 hover:bg-bourbon-800 transition-colors cursor-pointer"
+			>
+				<PenLine size={12} />
+				Sketch
 			</button>
 		</div>
 	{/if}

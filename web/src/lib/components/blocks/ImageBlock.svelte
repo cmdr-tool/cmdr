@@ -37,9 +37,26 @@
 	let dragging = $state(false);
 	let uploading = $state(false);
 	let imgEl: HTMLImageElement | undefined = $state(undefined);
+	let containerEl: HTMLDivElement | undefined = $state(undefined);
 	let imgWidth = $state(0);
 	let imgHeight = $state(0);
 	let annotating = $state(false);
+	let isSketch = $derived(block.path === 'sketch');
+
+	// Auto-enter annotation mode for sketches
+	$effect(() => {
+		if (isSketch && !annotating) {
+			annotating = true;
+		}
+	});
+
+	// For sketches, use container width and a fixed aspect ratio
+	$effect(() => {
+		if (isSketch && containerEl) {
+			imgWidth = containerEl.clientWidth;
+			imgHeight = Math.round(imgWidth * 9 / 16); // 16:9 aspect ratio
+		}
+	});
 
 	let src = $derived(
 		!block.path ? '' :
@@ -110,24 +127,30 @@
 		{/if}
 	</button>
 {:else}
-	<!-- Image with annotation layer -->
-	<div class="rounded-lg border border-bourbon-700 overflow-hidden bg-bourbon-800/50">
-		<div class="relative">
-			<img
-				bind:this={imgEl}
-				{src}
-				alt={block.caption || 'image'}
-				class="w-full max-h-[400px] object-contain"
-				onload={handleImageLoad}
-			/>
+	<!-- Image/sketch with annotation layer -->
+	<div bind:this={containerEl} class="rounded-lg border border-bourbon-700 overflow-hidden {isSketch ? 'bg-bourbon-200' : 'bg-bourbon-800/50'}">
+		<div class="relative overflow-hidden rounded-t-lg">
+			{#if !isSketch}
+				<img
+					bind:this={imgEl}
+					{src}
+					alt={block.caption || 'image'}
+					class="w-full max-h-[400px] object-contain"
+					onload={handleImageLoad}
+				/>
+			{:else}
+				<!-- Blank sketch canvas -->
+				<div style="width: {imgWidth}px; height: {imgHeight}px;"></div>
+			{/if}
 
 			{#if annotating && imgWidth > 0}
 				<AnnotationOverlay
 					width={imgWidth}
 					height={imgHeight}
 					strokes={strokes}
+					hideDone={isSketch}
 					onchange={handleStrokesChange}
-					ondone={() => { annotating = false; }}
+					ondone={() => { if (!isSketch) annotating = false; }}
 				/>
 			{:else if strokes.length > 0 && imgWidth > 0}
 				<!-- Read-only stroke preview -->
