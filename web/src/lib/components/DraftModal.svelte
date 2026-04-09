@@ -173,7 +173,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<!-- Block editor -->
 		<div
-			class="flex-1 overflow-y-auto bg-bourbon-950 px-6 py-4"
+			class="flex-1 overflow-y-auto bg-bourbon-950 px-8 py-4"
 			onclick={(e) => {
 				// Click on empty area focuses the last text block
 				if (e.target === e.currentTarget && editorRef) editorRef.focusLast();

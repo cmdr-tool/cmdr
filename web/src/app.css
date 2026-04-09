@@ -53,6 +53,16 @@
 .diff-hunk { color: #22d3ee; }
 .diff-dim { opacity: 0.5; }
 
+/* Grip dot pattern (drag handles) */
+.bg-grip {
+	background-image: radial-gradient(circle, var(--color-bourbon-700) 0.75px, transparent 0.75px);
+	background-size: 4px 4px;
+}
+.bg-grip-hover {
+	background-image: radial-gradient(circle, var(--color-bourbon-500) 0.75px, transparent 0.75px);
+	background-size: 4px 4px;
+}
+
 /* Background patterns */
 .bg-hatch {
 	background-color: rgba(101,84,64,0.12);

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { GripVertical, X } from 'lucide-svelte';
+	import { X } from 'lucide-svelte';
 	import { uploadImage } from '$lib/api';
 	import {
 		type Block,
@@ -288,21 +288,19 @@
 			ondrop={handleDrop}
 		>
 			<!-- Gutter -->
-			<div class="w-8 shrink-0 flex flex-col items-center pt-1.5 gap-0.5 opacity-0 group-hover/block:opacity-100 transition-opacity">
+			<div class="w-8 -ml-8 shrink-0 flex flex-col items-center pt-1 gap-1 opacity-0 group-hover/block:opacity-100 transition-opacity">
 				{#if blocks.length > 1 || block.type !== 'text'}
 					<button
 						draggable="true"
 						ondragstart={(e) => handleDragStart(e, i)}
 						ondragend={handleDragEnd}
-						class="text-bourbon-700 hover:text-bourbon-400 cursor-grab active:cursor-grabbing"
-					>
-						<GripVertical size={12} />
-					</button>
+						class="w-3 h-5 rounded cursor-grab active:cursor-grabbing bg-grip hover:bg-grip-hover"
+					></button>
 					<button
 						onclick={() => removeBlock(i)}
-						class="text-bourbon-700 hover:text-red-400 cursor-pointer"
+						class="text-bourbon-700 hover:text-red-400 cursor-pointer py-1"
 					>
-						<X size={10} />
+						<X size={14} />
 					</button>
 				{/if}
 			</div>
@@ -319,6 +317,7 @@
 				{:else if block.type === 'coderef'}
 					<CodeRefBlock
 						{block}
+						{repoPath}
 						onchange={(ref) => updateBlock(i, { ref })}
 						ontrigger={(type, query, rect) => handleTrigger(type, query, rect, i)}
 					/>

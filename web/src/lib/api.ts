@@ -424,6 +424,21 @@ export function submitDirective(id: number): Promise<{ status: string; target: s
 
 // --- Code + Images ---
 
+export interface CodeSnippet {
+	file: string;
+	start: number;
+	end: number;
+	totalLines: number;
+	lines: string[];
+}
+
+export function getCodeSnippet(repo: string, file: string, start?: number, end?: number): Promise<CodeSnippet> {
+	const params = new URLSearchParams({ repo, file });
+	if (start) params.set('start', String(start));
+	if (end) params.set('end', String(end));
+	return request(`/code/snippet?${params}`);
+}
+
 export function getCodeFiles(repo: string, q?: string): Promise<string[]> {
 	const params = new URLSearchParams({ repo });
 	if (q) params.set('q', q);

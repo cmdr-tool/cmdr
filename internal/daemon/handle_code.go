@@ -3,7 +3,10 @@ package daemon
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -100,4 +103,63 @@ func fuzzyMatch(target, query string) bool {
 		}
 	}
 	return qi == len(query)
+}
+
+// handleCodeSnippet reads a file from a repo and returns a line range.
+// Query params: repo (required), file (required), start (optional), end (optional).
+func handleCodeSnippet() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repoPath := r.URL.Query().Get("repo")
+		file := r.URL.Query().Get("file")
+		if repoPath == "" || file == "" {
+			http.Error(w, `{"error":"repo and file are required"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Prevent path traversal
+		if strings.Contains(file, "..") {
+			http.Error(w, `{"error":"invalid file path"}`, http.StatusBadRequest)
+			return
+		}
+
+		fullPath := filepath.Join(repoPath, file)
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			http.Error(w, `{"error":"file not found"}`, http.StatusNotFound)
+			return
+		}
+
+		lines := strings.Split(string(data), "\n")
+		totalLines := len(lines)
+
+		start := 1
+		end := totalLines
+		if s := r.URL.Query().Get("start"); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n > 0 {
+				start = n
+			}
+		}
+		if e := r.URL.Query().Get("end"); e != "" {
+			if n, err := strconv.Atoi(e); err == nil && n > 0 {
+				end = n
+			}
+		}
+
+		// Clamp to valid range
+		if start > totalLines { start = totalLines }
+		if end > totalLines { end = totalLines }
+		if start > end { start = end }
+
+		// Extract the line range (1-indexed)
+		snippet := lines[start-1 : end]
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"file":       file,
+			"start":      start,
+			"end":        end,
+			"totalLines": totalLines,
+			"lines":      snippet,
+		})
+	}
 }

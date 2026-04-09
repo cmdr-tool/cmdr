@@ -253,6 +253,7 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 
 	// Code + Images (for directive composer)
 	mux.HandleFunc("/api/code/files", handleCodeFiles())
+	mux.HandleFunc("/api/code/snippet", handleCodeSnippet())
 	mux.HandleFunc("/api/images/upload", handleImageUpload())
 	mux.HandleFunc("/api/images/", handleImageServe())
 }
