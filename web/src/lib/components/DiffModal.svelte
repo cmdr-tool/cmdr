@@ -539,7 +539,7 @@
 					bind:value={commitNote}
 					placeholder="General notes about this commit..."
 					class="w-full bg-bourbon-950 border border-bourbon-800 rounded-lg px-3 py-2 text-xs text-bourbon-200 resize-none focus:outline-none focus:border-run-500/50 placeholder:text-bourbon-700"
-					rows="3"
+					rows="4"
 					onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveCommitNote(); } }}
 				></textarea>
 			</div>
