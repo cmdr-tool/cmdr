@@ -73,13 +73,19 @@ export function initCommitStore() {
 	});
 }
 
+let refreshing = false;
+
 async function refreshWithNotification() {
+	if (refreshing) return;
+	refreshing = true;
+
 	const prev = get(commits);
 	const loaded = get(commitsLoaded);
 
 	const c = await getCommits();
 	knownLatestId = Math.max(knownLatestId, ...c.map((x) => x.id));
 	commits.set(c);
+	refreshing = false;
 
 	const newUnseen = c.filter((x) => !x.seen && !prev.find((p) => p.id === x.id));
 	if (loaded && newUnseen.length > 0) {
