@@ -38,8 +38,9 @@ export interface ParsedReview {
 // Matches lines like:
 //   ### [1. Architectural] `truncate` called in both layers
 //   ### [1 — Architectural] `editMenu` defined but never registered
-//   ### [1 - Architectural] some title
-const SECTION_RE = /^### \[(\d+)[\.\s—\-–]+([^\]]+)\]\s*(.+)$/;
+//   ### [P1] `updateSocialPost` handler passes raw `req.body`
+//   ## [P1] finding title
+const SECTION_RE = /^#{2,3} \[(?:P)?(\d+)(?:[\.\s—\-–]+([^\]]*))?\]\s*(.+)$/;
 
 /**
  * Parse review markdown into preamble + sections.
@@ -53,7 +54,7 @@ export function parseReviewSections(md: string): ParsedReview | null {
 	for (let i = 0; i < lines.length; i++) {
 		const m = lines[i].match(SECTION_RE);
 		if (m) {
-			sectionStarts.push({ index: i, number: parseInt(m[1]), category: m[2].trim(), title: m[3].trim() });
+			sectionStarts.push({ index: i, number: parseInt(m[1]), category: (m[2] || '').trim(), title: m[3].trim() });
 		}
 	}
 

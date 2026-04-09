@@ -70,12 +70,10 @@
 			{/each}
 		</div>
 		{#if total > 1}
-			<div class="mt-3 pt-3 border-t border-bourbon-800">
+			<div class="mt-3 pt-3 border-t border-bourbon-800 flex items-center gap-2 h-5">
 				{#if upgrading === 'all'}
-					<div class="flex items-center gap-2 text-bourbon-600">
-						<div class="w-3 h-3 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
-						<span class="text-[10px] font-mono">upgrading all</span>
-					</div>
+					<div class="w-3 h-3 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
+					<span class="text-[10px] font-mono text-bourbon-600">upgrading all</span>
 				{:else}
 					<button
 						onclick={() => handleUpgrade()}

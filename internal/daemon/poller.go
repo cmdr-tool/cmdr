@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -214,11 +215,16 @@ func findAncestorPane(pid int, ppidMap map[int]int, shellPIDs map[int]*claudePan
 	return nil
 }
 
-// checkRefactoringTasks finds tasks stuck in "refactoring" and resolves them
-// when their tmux window no longer exists (Claude finished or was closed).
-// If a PR URL is found via `gh`, the task is marked resolved with the URL.
-// Otherwise it's marked completed so it's no longer stuck.
+// checkRefactoringTasks manages the lifecycle of refactoring tasks:
+//   - refactoring: scrape tmux pane for PR URL → resolved; or window gone → completed
+//   - resolved: check if PR is merged/closed AND worktree is gone → completed
 func checkRefactoringTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
+	checkRefactoringInProgress(db, bus, tmuxSessions)
+	checkResolvedPRs(db, bus)
+}
+
+// checkRefactoringInProgress handles tasks in "refactoring" status.
+func checkRefactoringInProgress(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 	rows, err := db.Query(`SELECT id, repo_path FROM claude_tasks WHERE status = 'refactoring'`)
 	if err != nil {
 		return
@@ -240,52 +246,131 @@ func checkRefactoringTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Sessio
 		id       int
 		repoPath string
 	}
-	var done []task
+	var tasks []task
 	for rows.Next() {
 		var t task
 		if err := rows.Scan(&t.id, &t.repoPath); err != nil {
 			continue
 		}
-		worktreeName := fmt.Sprintf("refactor-review-%d", t.id)
-		windowName := fmt.Sprintf("review-%d", t.id)
-		windowAlive := refactorWindows[windowName]
-		worktreeExists := isDir(filepath.Join(t.repoPath, ".claude", "worktrees", worktreeName))
-
-		// Only resolve when both the tmux window is gone AND the worktree is pruned.
-		// Window gone + worktree exists = Claude finished but work is still there.
-		if !windowAlive && !worktreeExists {
-			done = append(done, t)
-		}
+		tasks = append(tasks, t)
 	}
 
-	for _, t := range done {
-		worktreeName := fmt.Sprintf("refactor-review-%d", t.id)
-		prUrl := findPRForBranch(t.repoPath, worktreeName)
+	for _, t := range tasks {
+		windowName := fmt.Sprintf("review-%d", t.id)
+		windowAlive := refactorWindows[windowName]
+		target := fmt.Sprintf("claude_refactor:%s", windowName)
 
-		now := time.Now().Format(time.RFC3339)
-		if prUrl != "" {
+		// Try to scrape a PR URL from the pane output
+		if prUrl := scrapePaneForPR(target); prUrl != "" {
+			now := time.Now().Format(time.RFC3339)
 			db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
 				"id": t.id, "status": "resolved", "prUrl": prUrl,
 			}})
-			log.Printf("cmdr: task %d auto-resolved (PR: %s)", t.id, prUrl)
-		} else {
+			log.Printf("cmdr: task %d resolved via pane scrape (PR: %s)", t.id, prUrl)
+			continue
+		}
+
+		// Window gone and no PR found — cancelled/failed
+		if !windowAlive {
+			now := time.Now().Format(time.RFC3339)
 			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
 				"id": t.id, "status": "completed",
 			}})
-			log.Printf("cmdr: task %d auto-completed (worktree pruned, no PR found)", t.id)
+			log.Printf("cmdr: task %d completed (window closed, no PR found)", t.id)
+			cleanupRefactorMarker(t.id)
 		}
-
-		// Clean up marker file
-		markerPath := filepath.Join(os.Getenv("HOME"), ".cmdr", "refactors", worktreeName)
-		os.Remove(markerPath)
 	}
 }
 
-func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
+// checkResolvedPRs handles tasks in "resolved" status — checks if the PR has
+// been merged/closed AND the worktree is gone, then marks completed.
+func checkResolvedPRs(db *sql.DB, bus *EventBus) {
+	rows, err := db.Query(`SELECT id, repo_path, COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved'`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type task struct {
+		id       int
+		repoPath string
+		prUrl    string
+	}
+	var tasks []task
+	for rows.Next() {
+		var t task
+		if err := rows.Scan(&t.id, &t.repoPath, &t.prUrl); err != nil {
+			continue
+		}
+		tasks = append(tasks, t)
+	}
+
+	for _, t := range tasks {
+		worktreeName := fmt.Sprintf("refactor-review-%d", t.id)
+		worktreeExists := worktreeAlive(t.repoPath, worktreeName)
+		prOpen := t.prUrl != "" && isPROpen(t.repoPath, t.prUrl)
+
+		// Only complete when PR is no longer open AND worktree is gone
+		if !prOpen && !worktreeExists {
+			now := time.Now().Format(time.RFC3339)
+			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
+			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				"id": t.id, "status": "completed",
+			}})
+			log.Printf("cmdr: task %d completed (PR merged/closed, worktree gone)", t.id)
+			cleanupRefactorMarker(t.id)
+		}
+	}
+}
+
+// worktreeAlive checks if a named worktree exists in the repo.
+func worktreeAlive(repoPath, worktreeName string) bool {
+	out, err := exec.Command("git", "-C", repoPath, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		return false
+	}
+	target := filepath.Join(".claude", "worktrees", worktreeName)
+	return strings.Contains(string(out), target)
+}
+
+// isPROpen checks if a PR URL is still open (not merged or closed).
+func isPROpen(repoPath, prUrl string) bool {
+	// Extract PR number from URL
+	re := regexp.MustCompile(`/pull/(\d+)$`)
+	matches := re.FindStringSubmatch(prUrl)
+	if len(matches) < 2 {
+		return false
+	}
+	cmd := exec.Command("gh", "pr", "view", matches[1], "--json", "state", "-q", ".state")
+	cmd.Dir = repoPath
+	out, err := cmd.Output()
+	if err != nil {
+		return false // can't check, assume not open
+	}
+	return strings.TrimSpace(string(out)) == "OPEN"
+}
+
+// scrapePaneForPR captures a tmux pane's content and looks for a GitHub PR URL.
+func scrapePaneForPR(target string) string {
+	out, err := exec.Command("tmux", "capture-pane", "-t", target, "-p", "-S", "-100").Output()
+	if err != nil {
+		return ""
+	}
+	// Match GitHub PR URLs like https://github.com/owner/repo/pull/123
+	re := regexp.MustCompile(`https://github\.com/[^\s]+/pull/\d+`)
+	if match := re.Find(out); match != nil {
+		return string(match)
+	}
+	return ""
+}
+
+// cleanupRefactorMarker removes the marker file for a resolved/completed task.
+func cleanupRefactorMarker(taskID int) {
+	worktreeName := fmt.Sprintf("refactor-review-%d", taskID)
+	markerPath := filepath.Join(os.Getenv("HOME"), ".cmdr", "refactors", worktreeName)
+	os.Remove(markerPath)
 }
 
 // publishCommitWatermark sends the latest commit ID so the frontend can detect staleness.
@@ -293,23 +378,6 @@ func publishCommitWatermark(bus *EventBus, db *sql.DB) {
 	var latestID int
 	db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM commits`).Scan(&latestID)
 	bus.Publish(Event{Type: "commits:watermark", Data: map[string]any{"latestId": latestID}})
-}
-
-// findPRForBranch uses `gh` to find an open or merged PR for a branch.
-func findPRForBranch(repoPath, branch string) string {
-	// Check open first, then merged
-	for _, state := range []string{"open", "merged"} {
-		cmd := exec.Command("gh", "pr", "list", "--head", branch, "--state", state, "--json", "url", "--limit", "1", "-q", ".[0].url")
-		cmd.Dir = repoPath
-		out, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-		if url := strings.TrimSpace(string(out)); url != "" {
-			return url
-		}
-	}
-	return ""
 }
 
 // getParentPIDs returns a map of PID → PPID for all processes.

@@ -14,12 +14,7 @@ You are a senior engineer reviewing a commit for **codebase health**. Your job i
 
 ## Project Context
 
-Before reviewing, read the project's convention docs to understand established patterns:
-- Check `docs/PATTERNS*.md` files if any exist — these define architectural patterns, layer responsibilities, and anti-patterns specific to this project
-- Check `.claude/skills/` for any review-related skills — these contain targeted review checklists for specific types of changes (e.g. prompt changes, handler changes)
-- Use what you already know from CLAUDE.md (loaded automatically) as baseline project context
-
-Only reference patterns that are **relevant to the files touched in this diff**. Do not review against every pattern doc — focus on the ones that apply.
+Before reviewing, check `docs/PATTERNS*.md` files if any exist — these define architectural patterns, layer responsibilities, and anti-patterns specific to this project. Only reference patterns that are **relevant to the files touched in this diff**.
 {{if .Annotations}}
 
 ## Reviewer's Annotations
@@ -76,7 +71,7 @@ Does the change introduce duplication? Look for:
 ### Reviewer's Annotations
 Address each annotation directly:
 - Is the concern valid given the project's conventions?
-- If yes, suggest a concrete fix referencing specific lines
+- If yes, incorporate the reviewer's direction into the finding's plan
 - If no, explain why the current approach is acceptable
 {{end}}
 
@@ -85,12 +80,18 @@ Address each annotation directly:
 For each finding, use:
 
 ```
-### [Priority] Finding Title
-**Lines:** X–Y
+### [N. Category] Finding Title
+**Lines:** X–Y (diff), `file/path`
 **Issue:** One-sentence description of what's wrong
 **Why it matters:** How this degrades the codebase over time
-**Suggestion:** Concrete fix or refactoring direction
+**Plan:**
+1. [Step]: what to do and where (file:method/function), not how to write the code
+2. [Step]: ...
 ```
+
+Where N is the priority number (1–5) and Category is the priority name (e.g. "Architectural", "Structural", "Organizational", "Consistency", "DRY").
+
+The plan should be a sequence of steps that a refactoring agent can follow. Each step should point at a **location and intention** — e.g. "Extract the media resolution block from `derive()` in `createSocialPost.js` into a new `productService.resolveVariantMedia()` method". Do not include code snippets or exact implementations — the agent will figure that out. Keep steps scoped to the finding; do not combine multiple findings into one plan.
 
 Skip priority levels with no findings. If the change is clean, say so in one sentence — do not pad with praise or generic observations.
 

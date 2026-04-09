@@ -238,7 +238,7 @@
 								<div class="flex items-center gap-3 px-4 py-2.5">
 									<span class="text-[10px] font-display font-bold uppercase tracking-widest
 										{isStaged ? 'text-red-400/50 line-through' : 'text-cmd-400'}">
-										{section.number}. {section.category}
+										{section.category ? `${section.number}. ${section.category}` : `P${section.number}`}
 									</span>
 									<span class="text-xs truncate flex-1
 										{isStaged ? 'text-bourbon-500 line-through' : 'text-bourbon-200'}">
@@ -283,19 +283,19 @@
 
 									<!-- Existing user note -->
 									{#if section.userNote && noteSectionIdx !== idx}
-										<div class="mx-4 mb-3 flex items-center gap-2 bg-run-500/8 border border-run-500/20 rounded-lg px-3 py-2">
-											<span class="text-[10px] font-mono text-run-400 shrink-0">your note:</span>
+										<div class="mx-4 mb-3 flex items-start gap-2 bg-run-500/8 border border-run-500/20 rounded-lg px-3 py-2">
+											<span class="text-[10px] font-mono text-run-400 shrink-0 mt-0.5">your note:</span>
 											<span class="text-xs text-bourbon-200 flex-1 select-text">{section.userNote}</span>
 											<button
 												onclick={() => startNote(idx)}
-												class="shrink-0 text-bourbon-600 hover:text-run-400 transition-colors cursor-pointer"
+												class="shrink-0 text-bourbon-600 hover:text-run-400 transition-colors cursor-pointer mt-0.5"
 												title="Edit note"
 											>
 												<Pencil size={14} />
 											</button>
 											<button
 												onclick={() => removeNote(idx)}
-												class="shrink-0 text-bourbon-600 hover:text-red-400 transition-colors cursor-pointer"
+												class="shrink-0 text-bourbon-600 hover:text-red-400 transition-colors cursor-pointer mt-0.5"
 												title="Remove note"
 											>
 												<Trash2 size={14} />

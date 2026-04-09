@@ -13,9 +13,10 @@
 	let tasks = $state<ClaudeTask[]>([]);
 	let loaded = $state(false);
 	let unsub: (() => void) | null = null;
+	let unsubStatus: (() => void) | null = null;
 
-	// Hide tasks that have completed their full lifecycle (refactored + done)
-	let visibleTasks = $derived(tasks.filter(t => !(t.refactored && (t.status === 'completed' || t.status === 'resolved'))));
+	// Hide tasks that have completed their full lifecycle (refactored + completed)
+	let visibleTasks = $derived(tasks.filter(t => !(t.refactored && t.status === 'completed')));
 	let activeCount = $derived(visibleTasks.filter(t => t.status === 'running' || t.status === 'pending' || t.status === 'refactoring').length);
 	let dismissableCount = $derived(visibleTasks.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'resolved' || t.status === 'refactoring').length);
 
@@ -37,10 +38,18 @@
 				getClaudeTasks().then(t => { tasks = t; }).catch(() => {});
 			}
 		});
+
+		// Refetch on SSE reconnect to catch any missed events
+		let firstStatus = true;
+		unsubStatus = events.on('status', () => {
+			if (firstStatus) { firstStatus = false; return; } // skip initial connect
+			getClaudeTasks().then(t => { tasks = t; }).catch(() => {});
+		});
 	});
 
 	onDestroy(() => {
 		if (unsub) unsub();
+		if (unsubStatus) unsubStatus();
 	});
 
 	async function viewResult(task: ClaudeTask) {
