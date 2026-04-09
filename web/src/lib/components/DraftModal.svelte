@@ -196,7 +196,7 @@
 			{#if submitting}
 				<div class="flex items-center gap-2 text-bourbon-600">
 					<div class="w-3 h-3 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
-					<span class="text-[10px] font-mono">launching</span>
+					<span class="text-[10px] font-mono">dispatching</span>
 				</div>
 			{:else}
 				<button
@@ -206,7 +206,7 @@
 						disabled:opacity-40 disabled:cursor-not-allowed"
 				>
 					<Send size={12} />
-					Launch Claude
+					Dispatch to Claude
 				</button>
 			{/if}
 		</div>

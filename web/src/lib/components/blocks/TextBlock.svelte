@@ -22,11 +22,16 @@
 	});
 
 	// Auto-resize textarea to fit content
-	$effect(() => {
+	function resize() {
 		if (textarea) {
 			textarea.style.height = 'auto';
 			textarea.style.height = textarea.scrollHeight + 'px';
 		}
+	}
+
+	$effect(() => {
+		void localContent;
+		requestAnimationFrame(resize);
 	});
 
 	function handleInput() {
@@ -84,6 +89,6 @@
 	oninput={handleInput}
 	onpaste={handlePaste}
 	placeholder="Type here... Use @ to reference files"
-	class="w-full bg-transparent text-sm text-bourbon-200 resize-none focus:outline-none placeholder:text-bourbon-700 font-mono leading-relaxed select-text min-h-[2rem]"
+	class="w-full bg-transparent text-sm text-bourbon-200 resize-none overflow-hidden focus:outline-none placeholder:text-bourbon-700 font-mono leading-relaxed select-text min-h-[2rem]"
 	rows="1"
 ></textarea>

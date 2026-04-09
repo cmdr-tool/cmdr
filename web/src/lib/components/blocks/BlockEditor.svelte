@@ -294,6 +294,7 @@
 						draggable="true"
 						ondragstart={(e) => handleDragStart(e, i)}
 						ondragend={handleDragEnd}
+						aria-label="Drag to reorder"
 						class="w-3 h-5 rounded cursor-grab active:cursor-grabbing bg-grip hover:bg-grip-hover"
 					></button>
 					<button
