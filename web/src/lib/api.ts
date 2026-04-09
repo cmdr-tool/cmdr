@@ -146,6 +146,7 @@ export interface GitCommit {
 	reviewCount: number;
 	repoName: string;
 	repoPath: string;
+	local: boolean;
 }
 
 export function getRepos(): Promise<MonitoredRepo[]> {
@@ -213,7 +214,7 @@ export function toggleCommitFlag(id: number, flagged: boolean): Promise<{ flagge
 }
 
 export function syncRepos(): Promise<{ status: string }> {
-	return request('/sync', { method: 'POST' });
+	return request('/repos/sync', { method: 'POST' });
 }
 
 // Analytics
@@ -384,5 +385,13 @@ export function openInEditor(repoPath: string, file: string, line: number): Prom
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ repoPath, file, line })
+	});
+}
+
+export function pullRepo(repoPath: string): Promise<{ status: string; message: string }> {
+	return request('/repos/pull', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ repoPath })
 	});
 }

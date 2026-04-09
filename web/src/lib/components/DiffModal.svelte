@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { X, ExternalLink, Flag, Send, Trash2, Plus, Pencil, MessageSquare, FileCode } from 'lucide-svelte';
+	import { X, ExternalLink, Flag, Send, Trash2, Plus, Pencil, MessageSquare, FileCode, Download } from 'lucide-svelte';
 	import {
 		getReviewComments,
 		saveReviewComment,
 		deleteReviewComment,
 		submitReview,
 		openInEditor,
+		pullRepo,
 		type GitCommit,
 		type ReviewComment
 	} from '$lib/api';
@@ -38,6 +39,22 @@
 	let commentDraft = $state('');
 	let submitting = $state(false);
 	let dragging = $state(false);
+	let pulling = $state(false);
+	let pullResult: { status: string; message: string } | null = $state(null);
+
+	async function handlePull() {
+		pulling = true;
+		pullResult = null;
+		try {
+			pullResult = await pullRepo(commit.repoPath);
+			if (pullResult.status === 'ok') {
+				commit.local = true;
+			}
+		} catch {
+			pullResult = { status: 'error', message: 'Failed to pull' };
+		}
+		pulling = false;
+	}
 
 	let diffLines = $derived(diff ? diff.split('\n') : []);
 
@@ -239,6 +256,25 @@
 					<Flag size={14} fill={commit.flagged ? 'currentColor' : 'none'} />
 				</button>
 				<span class="font-mono text-sm text-cmd-400">{shortSha(commit.sha)}</span>
+				{#if commit.local}
+					<span class="text-[9px] font-mono text-green-500 bg-green-950/40 border border-green-800/30 px-1.5 py-0.5 rounded">local</span>
+				{:else}
+					<button
+						onclick={handlePull}
+						disabled={pulling}
+						class="flex items-center gap-1 text-[9px] font-mono text-run-400 bg-run-700/20 border border-run-500/30 px-1.5 py-0.5 rounded hover:bg-run-700/40 transition-colors cursor-pointer disabled:opacity-50"
+					>
+						{#if pulling}
+							<div class="w-2.5 h-2.5 border border-run-400 border-t-transparent rounded-full animate-spin"></div>
+						{:else}
+							<Download size={10} />
+						{/if}
+						{pulling ? 'syncing' : 'sync'}
+					</button>
+				{/if}
+				{#if pullResult && pullResult.status !== 'ok'}
+					<span class="text-[9px] font-mono text-red-400">{pullResult.message}</span>
+				{/if}
 				<span class="text-bourbon-200 truncate">{firstLine(commit.message)}</span>
 			</div>
 			<div class="flex items-center gap-3 shrink-0">

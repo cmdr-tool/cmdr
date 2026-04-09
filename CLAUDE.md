@@ -88,4 +88,6 @@ Key rules:
 | `/api/commits/files` | GET | List files changed in a commit (query: `repo` path, `sha`) |
 | `/api/commits/diff` | GET | Get diff for a commit via difft/git (query: `repo` path, `sha`) |
 | `/api/commits/seen` | POST | Mark commits as seen `{"ids": [1,2,3]}` |
-| `/api/sync` | POST | Trigger `git fetch` + commit sync for all monitored repos |
+| `/api/repos/sync` | POST | Trigger `git fetch` + commit sync for all monitored repos |
+| `/api/repos/pull` | POST | Fast-forward/rebase local branch to origin `{"repoPath": "..."}` |
+| `/api/editor/open` | POST | Open file in nvim via tmux `{"repoPath", "file", "line"}` |

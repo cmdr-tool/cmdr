@@ -248,20 +248,6 @@ func handleListCommits(db *sql.DB) http.HandlerFunc {
 		}
 		defer rows.Close()
 
-		type commit struct {
-			ID            int    `json:"id"`
-			SHA           string `json:"sha"`
-			Author        string `json:"author"`
-			Message       string `json:"message"`
-			CommittedAt   string `json:"committedAt"`
-			URL           string `json:"url"`
-			Seen          bool   `json:"seen"`
-			Flagged       bool   `json:"flagged"`
-			RepoName      string `json:"repoName"`
-			RepoPath      string `json:"repoPath"`
-			ReviewCount   int    `json:"reviewCount"`
-		}
-
 		var commits []commit
 		for rows.Next() {
 			var c commit
@@ -275,9 +261,55 @@ func handleListCommits(db *sql.DB) http.HandlerFunc {
 			commits = []commit{}
 		}
 
+		// Mark commits that are already in the local branch
+		markLocalCommits(commits)
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(commits)
 	}
+}
+
+// markLocalCommits checks which commits exist in the local branch for each repo.
+// Groups commits by repo, runs one `git log` per repo, and marks matches.
+func markLocalCommits(commits []commit) {
+	// Group SHAs by repo path
+	repoSHAs := make(map[string][]int) // repoPath → indices into commits
+	for i, c := range commits {
+		repoSHAs[c.RepoPath] = append(repoSHAs[c.RepoPath], i)
+	}
+
+	for repoPath, indices := range repoSHAs {
+		// Get local HEAD commit SHAs (enough to cover what we show)
+		out, err := exec.Command("git", "-C", repoPath, "log", "--format=%H", "-n", "100", "HEAD").Output()
+		if err != nil {
+			continue
+		}
+		localSet := make(map[string]bool)
+		for _, sha := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if sha != "" {
+				localSet[sha] = true
+			}
+		}
+		for _, idx := range indices {
+			commits[idx].Local = localSet[commits[idx].SHA]
+		}
+	}
+}
+
+// commit is the response type for the commits list API.
+type commit struct {
+	ID          int    `json:"id"`
+	SHA         string `json:"sha"`
+	Author      string `json:"author"`
+	Message     string `json:"message"`
+	CommittedAt string `json:"committedAt"`
+	URL         string `json:"url"`
+	Seen        bool   `json:"seen"`
+	Flagged     bool   `json:"flagged"`
+	RepoName    string `json:"repoName"`
+	RepoPath    string `json:"repoPath"`
+	ReviewCount int    `json:"reviewCount"`
+	Local       bool   `json:"local"`
 }
 
 func handleCommitFiles(db *sql.DB) http.HandlerFunc {
@@ -400,6 +432,84 @@ func handleSyncRepos(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "sync started"})
 	}
+}
+
+// handleRepoPull fast-forwards the local branch to match origin.
+// Checks if fast-forward is possible first, then rebases.
+func handleRepoPull(bus *EventBus) http.HandlerFunc {
+	type pullReq struct {
+		RepoPath string `json:"repoPath"`
+	}
+	type pullResp struct {
+		Status  string `json:"status"`  // "ok", "conflict", "error"
+		Message string `json:"message"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req pullReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RepoPath == "" {
+			http.Error(w, `{"error":"repoPath is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Get the default branch from the repo
+		branch := detectDefaultBranch(req.RepoPath)
+
+		// Check if fast-forward is possible: is HEAD an ancestor of origin/<branch>?
+		canFF := exec.Command("git", "-C", req.RepoPath, "merge-base", "--is-ancestor", "HEAD", "origin/"+branch).Run() == nil
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if canFF {
+			// Safe fast-forward via rebase (no-op if already up to date)
+			out, err := exec.Command("git", "-C", req.RepoPath, "rebase", "origin/"+branch).CombinedOutput()
+			if err != nil {
+				// Shouldn't happen if --is-ancestor passed, but handle it
+				exec.Command("git", "-C", req.RepoPath, "rebase", "--abort").Run()
+				log.Printf("cmdr: pull: %s: ff rebase failed: %s", req.RepoPath, strings.TrimSpace(string(out)))
+				json.NewEncoder(w).Encode(pullResp{Status: "error", Message: strings.TrimSpace(string(out))})
+				return
+			}
+			log.Printf("cmdr: pull: %s: fast-forwarded to origin/%s", req.RepoPath, branch)
+			bus.Publish(Event{Type: "commits:sync", Data: true})
+			json.NewEncoder(w).Encode(pullResp{Status: "ok", Message: fmt.Sprintf("Fast-forwarded to origin/%s", branch)})
+		} else {
+			// Diverged — attempt rebase
+			out, err := exec.Command("git", "-C", req.RepoPath, "rebase", "origin/"+branch).CombinedOutput()
+			if err != nil {
+				// Rebase hit conflicts — abort and report
+				exec.Command("git", "-C", req.RepoPath, "rebase", "--abort").Run()
+				log.Printf("cmdr: pull: %s: rebase conflict: %s", req.RepoPath, strings.TrimSpace(string(out)))
+				json.NewEncoder(w).Encode(pullResp{Status: "conflict", Message: "Rebase conflicts detected. Resolve manually or use Claude to help."})
+				return
+			}
+			log.Printf("cmdr: pull: %s: rebased onto origin/%s", req.RepoPath, branch)
+			bus.Publish(Event{Type: "commits:sync", Data: true})
+			json.NewEncoder(w).Encode(pullResp{Status: "ok", Message: fmt.Sprintf("Rebased onto origin/%s", branch)})
+		}
+	}
+}
+
+// detectDefaultBranch returns the default branch for a repo (main or master).
+func detectDefaultBranch(repoPath string) string {
+	out, err := exec.Command("git", "-C", repoPath, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
+	if err == nil {
+		ref := strings.TrimSpace(string(out))
+		parts := strings.Split(ref, "/")
+		if len(parts) > 0 {
+			return parts[len(parts)-1]
+		}
+	}
+	// Fallback: check if main exists, else master
+	if exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "origin/main").Run() == nil {
+		return "main"
+	}
+	return "master"
 }
 
 func jsonErr(err error) string {

@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { ChevronDown, ChevronRight, ExternalLink, FileText, FilePlus, FileMinus, FilePenLine, Maximize2, Flag, MessageSquarePlus } from 'lucide-svelte';
+	import { ChevronDown, ChevronRight, ExternalLink, FileText, FilePlus, FileMinus, FilePenLine, Maximize2, Flag, MessageSquarePlus, Download } from 'lucide-svelte';
 	import {
 		getCommitFiles,
 		getCommitDiff,
 		markCommitsSeen,
 		toggleCommitFlag,
+		pullRepo,
 		type GitCommit,
 		type CommitFile
 	} from '$lib/api';
@@ -46,6 +47,16 @@
 	let inReviewByRepo = $derived(groupByRepo(commits.filter(c => c.reviewCount > 0)));
 	let flaggedByRepo = $derived(groupByRepo(commits.filter(c => c.flagged && c.reviewCount === 0)));
 	let seenByRepo = $derived(groupByRepo(commits.filter(c => c.seen && !c.flagged && c.reviewCount === 0)));
+
+	let pullingRepo: string | null = $state(null);
+
+	async function handlePullRepo(repoPath: string) {
+		pullingRepo = repoPath;
+		try {
+			await pullRepo(repoPath);
+		} catch { /* silent */ }
+		pullingRepo = null;
+	}
 
 	async function toggleFiles(commit: GitCommit) {
 		const key = `${commit.repoPath}:${commit.sha}`;
@@ -295,8 +306,26 @@
 			{#if showSeen}
 				<div class="flex flex-col gap-5 mt-3">
 					{#each seenByRepo as group}
+						{@const ahead = group.commits.filter(c => !c.local).length}
 						<div class="break-inside-avoid">
-							<h3 class="text-xs font-semibold text-bourbon-500 mb-2">{group.name}</h3>
+							<div class="flex items-center mb-2">
+								<h3 class="text-xs font-semibold text-bourbon-500">{group.name}</h3>
+								{#if ahead > 0}<span class="ml-auto"></span>
+									<button
+										onclick={() => handlePullRepo(group.path)}
+										disabled={pullingRepo === group.path}
+										class="flex items-center gap-1 text-[9px] font-mono text-bourbon-600 hover:text-run-400 transition-colors cursor-pointer disabled:opacity-50"
+									>
+										{#if pullingRepo === group.path}
+											<div class="w-2.5 h-2.5 border border-bourbon-600 border-t-run-400 rounded-full animate-spin"></div>
+											syncing
+										{:else}
+											<Download size={10} />
+											pull {ahead}
+										{/if}
+									</button>
+								{/if}
+							</div>
 							{@render commitList(group.commits)}
 						</div>
 					{/each}
