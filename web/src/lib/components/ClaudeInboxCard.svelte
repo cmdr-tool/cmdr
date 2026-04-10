@@ -95,10 +95,11 @@
 					<!-- Content -->
 					<div class="flex flex-col gap-1 min-w-0 flex-1">
 						<!-- Row 1: Title -->
-						<span class="text-bourbon-100 text-xs leading-snug truncate">
+						<span class="text-xs leading-snug truncate
+							{task.status === 'completed' || task.status === 'resolved' ? 'text-bourbon-400 line-through' : task.status === 'failed' ? 'text-bourbon-400 line-through' : 'text-bourbon-100'}">
 							{task.title || `${repoName(task.repoPath)}/${task.commitSha ? shortSha(task.commitSha) : ''}`}
 						</span>
-						<!-- Row 2: Type badge + repo + sha + time -->
+						<!-- Row 2: Type badge + status + repo + sha + time -->
 						<div class="flex items-center gap-2 text-[10px]">
 							<span class="font-mono text-cmd-400 bg-cmd-700/30 px-1.5 py-0.5 rounded-full">{task.type}</span>
 							<span class="font-mono text-bourbon-500">{repoName(task.repoPath)}</span>
