@@ -128,17 +128,9 @@
 			{/each}
 		</div>
 
-		{#if $dismissableCountStore > 1}
-			<div class="mt-3 pt-3 border-t border-bourbon-800">
-				<button
-					onclick={clearAllCompleted}
-					class="text-[10px] font-mono text-bourbon-600 hover:text-bourbon-400 transition-colors cursor-pointer"
-				>clear all completed</button>
-			</div>
-		{/if}
 		{/if}
 
-		<div class="mt-3 pt-3 border-t border-bourbon-800">
+		<div class="mt-3 pt-3 border-t border-bourbon-800 flex items-center">
 			<button
 				onclick={() => ondraft()}
 				class="flex items-center gap-1.5 text-[10px] font-mono text-bourbon-600 hover:text-cmd-400 transition-colors cursor-pointer"
@@ -146,6 +138,12 @@
 				<Plus size={12} />
 				new directive
 			</button>
+			{#if $dismissableCountStore > 0}
+				<button
+					onclick={clearAllCompleted}
+					class="ml-auto text-[10px] font-mono text-bourbon-600 hover:text-bourbon-400 transition-colors cursor-pointer"
+				>clear all</button>
+			{/if}
 		</div>
 	</div>
 {/if}

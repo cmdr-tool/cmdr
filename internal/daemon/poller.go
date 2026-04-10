@@ -83,9 +83,10 @@ func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tick
 		publishAnalytics(bus, db, now)
 	}
 
-	// Check for completed refactors every 60s (12 ticks)
+	// Check for completed tasks every 60s (12 ticks)
 	if tickCount%12 == 0 {
 		checkRefactoringTasks(db, bus, tmuxSessions)
+		checkRunningDirectives(db, bus, tmuxSessions)
 		publishCommitWatermark(bus, db)
 	}
 
@@ -321,6 +322,50 @@ func checkResolvedPRs(db *sql.DB, bus *EventBus) {
 			}})
 			log.Printf("cmdr: task %d completed (PR merged/closed, worktree gone)", t.id)
 			cleanupRefactorMarker(t.id)
+		}
+	}
+}
+
+// checkRunningDirectives monitors directive tasks in "running" status.
+// When the tmux window (task-{id}) is gone, the task is marked completed.
+func checkRunningDirectives(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
+	rows, err := db.Query(`SELECT id, repo_path FROM claude_tasks WHERE type='directive' AND status='running'`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	// Collect all window names across all sessions
+	allWindows := make(map[string]bool)
+	for _, s := range tmuxSessions {
+		for _, w := range s.Windows {
+			allWindows[w.Name] = true
+		}
+	}
+
+	type task struct {
+		id       int
+		repoPath string
+	}
+	var tasks []task
+	for rows.Next() {
+		var t task
+		if err := rows.Scan(&t.id, &t.repoPath); err != nil {
+			continue
+		}
+		tasks = append(tasks, t)
+	}
+
+	for _, t := range tasks {
+		windowName := fmt.Sprintf("task-%d", t.id)
+		if !allWindows[windowName] {
+			// Window gone — directive completed
+			now := time.Now().Format(time.RFC3339)
+			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
+			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				"id": t.id, "status": "completed",
+			}})
+			log.Printf("cmdr: directive task %d completed (window closed)", t.id)
 		}
 	}
 }

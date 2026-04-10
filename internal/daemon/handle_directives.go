@@ -70,15 +70,26 @@ func handleSaveDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		}
 
 		// Read old values to diff against
-		var oldRepo string
-		db.QueryRow(`SELECT COALESCE(repo_path, '') FROM claude_tasks WHERE id=?`, body.ID).Scan(&oldRepo)
+		var oldRepo, oldIntent string
+		db.QueryRow(`SELECT COALESCE(repo_path, ''), COALESCE(intent, '') FROM claude_tasks WHERE id=?`, body.ID).
+			Scan(&oldRepo, &oldIntent)
 
 		db.Exec(`UPDATE claude_tasks SET repo_path=?, prompt=?, intent=? WHERE id=? AND status='draft'`,
 			body.RepoPath, body.Content, body.Intent, body.ID)
 
-		if body.RepoPath != oldRepo {
+		if body.RepoPath != oldRepo || body.Intent != oldIntent {
+			// Derive title for the SSE event
+			title := directiveTitle(body.Content)
+			if body.Intent != "" {
+				for _, intent := range prompts.ListIntents() {
+					if intent.ID == body.Intent {
+						title = strings.ToLower(intent.Name) + ": " + title
+						break
+					}
+				}
+			}
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": body.ID, "status": "draft", "repoPath": body.RepoPath,
+				"id": body.ID, "status": "draft", "title": title,
 			}})
 		}
 
@@ -88,7 +99,7 @@ func handleSaveDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 }
 
 // handleSubmitDirective launches Claude with the draft's prompt in a tmux window.
-func handleSubmitDirective(db *sql.DB) http.HandlerFunc {
+func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -125,22 +136,24 @@ func handleSubmitDirective(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Launch claude in a new window
+		// Launch claude in a new window with worktree isolation
 		escaped := strings.ReplaceAll(prompt, "'", "'\\''")
 		windowName := fmt.Sprintf("task-%d", body.ID)
+		worktreeName := fmt.Sprintf("directive-%d", body.ID)
 
 		// Build command with optional intent system prompt
+		baseCmd := fmt.Sprintf("claude -w %s --name 'cmdr-task-%d'", worktreeName, body.ID)
 		var cmd string
 		if body.Intent != "" {
 			intentPrompt, err := prompts.GetIntentPrompt(body.Intent)
 			if err == nil {
 				escapedIntent := strings.ReplaceAll(intentPrompt, "'", "'\\''")
-				cmd = fmt.Sprintf("claude --name 'cmdr-task-%d' --append-system-prompt '%s' '%s'", body.ID, escapedIntent, escaped)
+				cmd = fmt.Sprintf("%s --append-system-prompt '%s' '%s'", baseCmd, escapedIntent, escaped)
 			} else {
-				cmd = fmt.Sprintf("claude --name 'cmdr-task-%d' '%s'", body.ID, escaped)
+				cmd = fmt.Sprintf("%s '%s'", baseCmd, escaped)
 			}
 		} else {
-			cmd = fmt.Sprintf("claude --name 'cmdr-task-%d' '%s'", body.ID, escaped)
+			cmd = fmt.Sprintf("%s '%s'", baseCmd, escaped)
 		}
 
 		target, err := tmux.CreateDraftWindow(sessionName, windowName, repoPath, cmd)
@@ -150,22 +163,12 @@ func handleSubmitDirective(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Update task status and prefix title with intent
+		// Update task status — title is derived on read
 		now := time.Now().Format(time.RFC3339)
-		if body.Intent != "" {
-			// Find the intent name for the title prefix
-			for _, intent := range prompts.ListIntents() {
-				if intent.ID == body.Intent {
-					var currentTitle string
-					db.QueryRow(`SELECT COALESCE(title, '') FROM claude_tasks WHERE id=?`, body.ID).Scan(&currentTitle)
-					prefixed := strings.ToLower(intent.Name) + ": " + currentTitle
-					db.Exec(`UPDATE claude_tasks SET status='running', started_at=?, title=? WHERE id=?`, now, prefixed, body.ID)
-					break
-				}
-			}
-		} else {
-			db.Exec(`UPDATE claude_tasks SET status='running', started_at=? WHERE id=?`, now, body.ID)
-		}
+		db.Exec(`UPDATE claude_tasks SET status='running', started_at=? WHERE id=?`, now, body.ID)
+		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+			"id": body.ID, "status": "running",
+		}})
 
 		log.Printf("cmdr: directive submitted (task %d, session %s, target %s)", body.ID, sessionName, target)
 

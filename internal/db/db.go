@@ -155,8 +155,8 @@ func migrate(d *sql.DB) error {
 		d.Exec(`ALTER TABLE claude_tasks ADD COLUMN intent TEXT NOT NULL DEFAULT ''`)
 	}
 
-	// Clear stale titles on draft directives (now derived on read)
-	d.Exec(`UPDATE claude_tasks SET title='' WHERE type='directive' AND status='draft'`)
+	// Clear stale titles on directives (now derived on read)
+	d.Exec(`UPDATE claude_tasks SET title='' WHERE type='directive'`)
 
 	// Clean up unused drafts table if it exists
 	d.Exec(`DROP TABLE IF EXISTS drafts`)

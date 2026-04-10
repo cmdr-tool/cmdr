@@ -61,8 +61,24 @@
 			return;
 		}
 
-		const rect = textarea.getBoundingClientRect();
-		ontrigger('file', query, rect);
+		const cursorRect = getCursorRect(textarea, pos);
+		ontrigger('file', query, cursorRect);
+	}
+
+	function getCursorRect(el: HTMLTextAreaElement, pos: number): DOMRect {
+		const elRect = el.getBoundingClientRect();
+		const style = getComputedStyle(el);
+
+		// Count lines up to cursor position
+		const textBefore = el.value.slice(0, pos);
+		const lines = textBefore.split('\n');
+		const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5;
+		const paddingTop = parseFloat(style.paddingTop) || 0;
+
+		const cursorLine = lines.length - 1;
+		const cursorY = elRect.top + paddingTop + (cursorLine * lineHeight) - el.scrollTop;
+
+		return new DOMRect(elRect.left, cursorY + lineHeight, 0, lineHeight);
 	}
 
 	export function focus() {
