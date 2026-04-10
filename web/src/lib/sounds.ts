@@ -101,5 +101,6 @@ export function preload(...srcs: string[]) {
 export const SFX = {
 	newCommits: '/nba-draft-sound.mp3',
 	hover: '/sfx-hover.mp3',
-	click: '/sfx-click.mp3'
+	click: '/sfx-click.mp3',
+	dispatch: '/sfx-magic-dispatch.mp3'
 } as const;

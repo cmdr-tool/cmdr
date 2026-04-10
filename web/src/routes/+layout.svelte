@@ -12,7 +12,7 @@
 	import { initCommitStore } from '$lib/commitStore';
 
 	onMount(() => {
-		preload(SFX.hover, SFX.click, SFX.newCommits);
+		preload(SFX.hover, SFX.click, SFX.newCommits, SFX.dispatch);
 		initTaskStore();
 		initSessionStore();
 		initCommitStore();
