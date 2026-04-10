@@ -6,7 +6,9 @@
 		createTextBlock,
 		createCodeRefBlock,
 		createImageBlock,
-		ensureTrailingTextBlock
+		ensureTrailingTextBlock,
+		containsBlockSyntax,
+		parseBlocks
 	} from '$lib/blocks';
 
 	import TextBlockComponent from './TextBlock.svelte';
@@ -195,11 +197,12 @@
 		});
 	}
 
-	// --- Image paste handling ---
+	// --- Paste handling ---
 	async function handlePaste(e: ClipboardEvent, blockIndex: number) {
 		const items = e.clipboardData?.items;
 		if (!items) return;
 
+		// Image paste — insert as image block
 		for (const item of items) {
 			if (item.type.startsWith('image/')) {
 				e.preventDefault();
@@ -213,6 +216,34 @@
 				return;
 			}
 		}
+
+		// Text paste — check if it contains @refs or image syntax
+		const pastedText = e.clipboardData?.getData('text/plain');
+		if (!pastedText || !containsBlockSyntax(pastedText)) return;
+
+		e.preventDefault();
+
+		// Merge paste with existing text block content at cursor position
+		const currentBlock = blocks[blockIndex];
+		if (currentBlock.type !== 'text') return;
+
+		const textarea = container?.querySelectorAll('textarea')[
+			blocks.slice(0, blockIndex).filter(b => b.type === 'text').length
+		] as HTMLTextAreaElement | undefined;
+
+		const cursorStart = textarea?.selectionStart ?? currentBlock.content.length;
+		const cursorEnd = textarea?.selectionEnd ?? cursorStart;
+		const before = currentBlock.content.slice(0, cursorStart);
+		const after = currentBlock.content.slice(cursorEnd);
+		const merged = [before, pastedText, after].filter(s => s).join('\n');
+
+		// Re-parse merged content into blocks
+		const parsed = parseBlocks(merged);
+
+		// Replace the text block with the parsed blocks
+		blocks.splice(blockIndex, 1, ...parsed);
+		blocks = ensureTrailingTextBlock([...blocks]);
+		onchange();
 	}
 
 	// --- Drag and drop ---

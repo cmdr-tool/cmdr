@@ -178,7 +178,7 @@
 	tabindex="-1"
 >
 	<div
-		class="bg-bourbon-900 border border-bourbon-800 rounded-2xl w-[90vw] max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+		class="bg-bourbon-900 border border-bourbon-800 rounded-2xl w-[90vw] max-w-5xl max-h-[85vh] flex flex-col overflow-hidden"
 	>
 		<!-- Header -->
 		<div class="flex items-center justify-between px-6 py-4 border-b border-bourbon-800 shrink-0">

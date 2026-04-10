@@ -67,6 +67,17 @@ const IMAGE_RE = /^!\[([^\]]*)\]\(([^)]+)\)$/;
 const CODEREF_RE = /^@([\w./_\-\\][\w./_\-\\:L0-9]*)$/;
 
 /**
+ * Check if a string contains lines that would parse as non-text blocks
+ * (code refs or images). Used to detect when pasted text needs re-parsing.
+ */
+export function containsBlockSyntax(text: string): boolean {
+	return text.split('\n').some(line => {
+		const trimmed = line.trim();
+		return CODEREF_RE.test(trimmed) || IMAGE_RE.test(trimmed);
+	});
+}
+
+/**
  * Parse a markdown string into an array of blocks.
  *
  * Rules:
