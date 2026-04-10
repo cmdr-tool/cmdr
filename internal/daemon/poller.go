@@ -242,10 +242,13 @@ func taskWindowName(taskType string, taskID int) string {
 // For PR-producing tasks: scrapes tmux pane for PR URL → resolved.
 // When the tmux window is gone: marks completed.
 func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
+	// Exclude type='review' with status='running' — those are headless (claude -p)
+	// and managed by runClaudeReview, not tmux window liveness.
 	rows, err := db.Query(`
 		SELECT id, type, repo_path, COALESCE(intent, ''), status
 		FROM claude_tasks
 		WHERE status IN ('running', 'refactoring', 'implementing')
+		  AND NOT (type = 'review' AND status = 'running')
 	`)
 	if err != nil {
 		return
