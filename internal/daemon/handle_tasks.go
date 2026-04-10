@@ -1,0 +1,513 @@
+package daemon
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/mikehu/cmdr/internal/prompts"
+	"github.com/mikehu/cmdr/internal/tmux"
+)
+
+// --- Task CRUD ---
+
+func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		query := `SELECT id, type, status, repo_path, commit_sha, COALESCE(title, ''), COALESCE(pr_url, ''), error_msg, created_at, started_at, completed_at, COALESCE(prompt, ''), COALESCE(intent, '')
+			FROM claude_tasks ORDER BY created_at DESC LIMIT 50`
+		rows, err := db.Query(query)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		type task struct {
+			ID          int     `json:"id"`
+			Type        string  `json:"type"`
+			Status      string  `json:"status"`
+			RepoPath    string  `json:"repoPath"`
+			CommitSHA   string  `json:"commitSha"`
+			Title       string  `json:"title,omitempty"`
+			PRUrl       string  `json:"prUrl,omitempty"`
+			ErrorMsg    string  `json:"errorMsg,omitempty"`
+			CreatedAt   string  `json:"createdAt"`
+			StartedAt   *string `json:"startedAt"`
+			CompletedAt *string `json:"completedAt"`
+			prompt      string
+			intent      string
+		}
+
+		var taskList []task
+		for rows.Next() {
+			var t task
+			if err := rows.Scan(&t.ID, &t.Type, &t.Status, &t.RepoPath, &t.CommitSHA, &t.Title, &t.PRUrl,
+				&t.ErrorMsg, &t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.prompt, &t.intent); err != nil {
+				continue
+			}
+			// Derive title if not set
+			if t.Title == "" && t.prompt != "" {
+				t.Title = directiveTitle(t.prompt)
+				if t.intent != "" {
+					for _, intent := range prompts.ListIntents() {
+						if intent.ID == t.intent {
+							t.Title = strings.ToLower(intent.Name) + ": " + t.Title
+							break
+						}
+					}
+				}
+			}
+			taskList = append(taskList, t)
+		}
+		if taskList == nil {
+			taskList = []task{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(taskList)
+	}
+}
+
+func handleGetClaudeTaskResult(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, `{"error":"missing id"}`, http.StatusBadRequest)
+			return
+		}
+
+		var result, prompt, status, errMsg, intent string
+		err := db.QueryRow(`SELECT result, prompt, status, error_msg, COALESCE(intent, '') FROM claude_tasks WHERE id = ?`, id).
+			Scan(&result, &prompt, &status, &errMsg, &intent)
+		if err != nil {
+			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
+			return
+		}
+
+		// For draft tasks, return the prompt as the result
+		content := result
+		if status == "draft" {
+			content = prompt
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"result":   content,
+			"status":   status,
+			"errorMsg": errMsg,
+			"intent":   intent,
+		})
+	}
+}
+
+func handleUpdateClaudeTaskResult(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			ID     int    `json:"id"`
+			Result string `json:"result"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == 0 {
+			http.Error(w, `{"error":"missing id or result"}`, http.StatusBadRequest)
+			return
+		}
+
+		title := extractTitle(body.Result)
+		db.Exec(`UPDATE claude_tasks SET result=?, title=? WHERE id=?`, body.Result, title, body.ID)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}
+}
+
+func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			ID    int    `json:"id"`
+			All   string `json:"all"`   // "completed" to clear all completed
+			Force bool   `json:"force"` // required to dismiss running tasks
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, jsonErr(err), http.StatusBadRequest)
+			return
+		}
+
+		// Guard: don't dismiss running tasks without explicit confirmation
+		if body.ID > 0 {
+			var status string
+			if err := db.QueryRow(`SELECT status FROM claude_tasks WHERE id = ?`, body.ID).Scan(&status); err == nil {
+				if (status == "running" || status == "refactoring") && !body.Force {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusConflict)
+					json.NewEncoder(w).Encode(map[string]any{
+						"error":         "task is still running",
+						"requiresForce": true,
+						"status":        status,
+					})
+					return
+				}
+			}
+		}
+
+		// Clean up worktrees and kill tmux windows for tasks being dismissed
+		if body.ID > 0 {
+			killTaskWindow(db, body.ID)
+			cleanupTaskWorktree(db, body.ID)
+		} else if body.All == "completed" {
+			cleanupAllTaskWorktrees(db)
+		}
+
+		var res sql.Result
+		var err error
+		if body.All == "completed" {
+			res, err = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('completed', 'failed', 'resolved', 'refactoring')`)
+		} else if body.ID > 0 {
+			res, err = db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, body.ID)
+		} else {
+			http.Error(w, `{"error":"missing id or all"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		n, _ := res.RowsAffected()
+
+		if body.ID > 0 && n > 0 {
+			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				"id": body.ID, "status": "dismissed",
+			}})
+		} else if body.All == "completed" && n > 0 {
+			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				"id": 0, "status": "dismissed",
+			}})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int64{"dismissed": n})
+	}
+}
+
+// killTaskWindow kills the tmux window for a task if it's still alive.
+func killTaskWindow(db *sql.DB, taskID int) {
+	var taskType string
+	if err := db.QueryRow(`SELECT type FROM claude_tasks WHERE id = ?`, taskID).Scan(&taskType); err != nil {
+		return
+	}
+	windowName := taskWindowName(taskType, taskID)
+
+	// Find the window across all sessions and kill it
+	sessions, err := tmux.ListSessions()
+	if err != nil {
+		return
+	}
+	for _, s := range sessions {
+		for _, w := range s.Windows {
+			if w.Name == windowName {
+				target := fmt.Sprintf("%s:%s", s.Name, w.Name)
+				exec.Command("tmux", "kill-window", "-t", target).Run()
+				log.Printf("cmdr: killed tmux window %s (task %d)", target, taskID)
+				return
+			}
+		}
+	}
+}
+
+func handleResolveTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			ID    int    `json:"id"`
+			PRUrl string `json:"prUrl"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == 0 {
+			http.Error(w, `{"error":"missing id"}`, http.StatusBadRequest)
+			return
+		}
+
+		now := time.Now().Format(time.RFC3339)
+		db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`,
+			body.PRUrl, now, body.ID)
+
+		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+			"id": body.ID, "status": "resolved", "prUrl": body.PRUrl,
+		}})
+
+		log.Printf("cmdr: task %d resolved (PR: %s)", body.ID, body.PRUrl)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "resolved", "prUrl": body.PRUrl})
+	}
+}
+
+// --- Task launch (config-driven) ---
+
+// TaskLaunchConfig describes how to launch a Claude session in tmux.
+type TaskLaunchConfig struct {
+	TaskID         int
+	Intent         string // optional intent ID for --append-system-prompt
+	UserPrompt     string // the content to send to Claude
+	RepoPath       string
+	Session        string // explicit session name, or "" for auto-detect from repo
+	WindowPrefix   string // e.g. "review", "task" → "review-42", "task-42"
+	WorktreePrefix string // e.g. "refactor-review", "directive" → "refactor-review-42"
+	MarkerDir      string // optional dir for writing task ID marker file (e.g. ~/.cmdr/refactors)
+	RunningStatus  string // status to set on launch: "running" or "refactoring"
+}
+
+// TaskLaunchResult is returned from launchTask with session/window info.
+type TaskLaunchResult struct {
+	Target  string // tmux target "session:window"
+	Session string
+	Window  string
+}
+
+// launchTask launches a Claude session in tmux based on the given config.
+func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResult, error) {
+	windowName := fmt.Sprintf("%s-%d", cfg.WindowPrefix, cfg.TaskID)
+	worktreeName := fmt.Sprintf("%s-%d", cfg.WorktreePrefix, cfg.TaskID)
+
+	// Write optional marker file
+	if cfg.MarkerDir != "" {
+		os.MkdirAll(cfg.MarkerDir, 0o700)
+		os.WriteFile(filepath.Join(cfg.MarkerDir, worktreeName), []byte(strconv.Itoa(cfg.TaskID)), 0o644)
+	}
+
+	// Build claude command
+	escaped := strings.ReplaceAll(cfg.UserPrompt, "'", "'\\''")
+	baseCmd := fmt.Sprintf("claude -w %s --name 'cmdr-task-%d'", worktreeName, cfg.TaskID)
+	var cmd string
+	if cfg.Intent != "" {
+		intentPrompt, err := prompts.GetIntentPrompt(cfg.Intent)
+		if err == nil {
+			escapedIntent := strings.ReplaceAll(intentPrompt, "'", "'\\''")
+			cmd = fmt.Sprintf("%s --append-system-prompt '%s' '%s'", baseCmd, escapedIntent, escaped)
+		} else {
+			cmd = fmt.Sprintf("%s '%s'", baseCmd, escaped)
+		}
+	} else {
+		cmd = fmt.Sprintf("%s '%s'", baseCmd, escaped)
+	}
+
+	// Resolve session and create window
+	var target string
+	var sessionName string
+	var err error
+
+	if cfg.Session != "" {
+		// Explicit session (e.g. "claude_refactor")
+		target, err = tmux.CreateRefactorWindow(windowName, cfg.RepoPath, cmd)
+		sessionName = cfg.Session
+	} else {
+		// Auto-detect session from repo path
+		sessionName, err = findOrCreateSession(cfg.RepoPath)
+		if err != nil {
+			return TaskLaunchResult{}, fmt.Errorf("session: %w", err)
+		}
+		target, err = tmux.CreateDraftWindow(sessionName, windowName, cfg.RepoPath, cmd)
+	}
+	if err != nil {
+		return TaskLaunchResult{}, fmt.Errorf("window: %w", err)
+	}
+
+	// Update task status
+	status := cfg.RunningStatus
+	if status == "" {
+		status = "running"
+	}
+	now := time.Now().Format(time.RFC3339)
+	db.Exec(`UPDATE claude_tasks SET status=?, intent=?, started_at=? WHERE id=?`,
+		status, cfg.Intent, now, cfg.TaskID)
+	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+		"id": cfg.TaskID, "status": status,
+	}})
+
+	log.Printf("cmdr: task %d launched (session %s, target %s, intent %q)", cfg.TaskID, sessionName, target, cfg.Intent)
+
+	return TaskLaunchResult{Target: target, Session: sessionName, Window: windowName}, nil
+}
+
+// --- Launch refactor from review findings ---
+
+func handleStartRefactor(db *sql.DB, bus *EventBus) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			TaskID int `json:"taskId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TaskID == 0 {
+			http.Error(w, `{"error":"missing taskId"}`, http.StatusBadRequest)
+			return
+		}
+
+		var result, repoPath, commitSha string
+		err := db.QueryRow(`SELECT result, repo_path, commit_sha FROM claude_tasks WHERE id = ?`, body.TaskID).
+			Scan(&result, &repoPath, &commitSha)
+		if err != nil {
+			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
+			return
+		}
+
+		shortSha := commitSha
+		if len(shortSha) > 7 {
+			shortSha = shortSha[:7]
+		}
+
+		res, err := launchTask(db, bus, TaskLaunchConfig{
+			TaskID:   body.TaskID,
+			Intent:   "refactor",
+			RepoPath: repoPath,
+			UserPrompt: fmt.Sprintf(
+				"Address the following code review findings from commit %s.\n\n"+
+					"## How to read these findings\n\n"+
+					"- Each finding has a priority, location, issue description, and a step-by-step plan\n"+
+					"- If a finding contains a `> User response:` blockquote, treat it as explicit guidance — follow it\n"+
+					"- If a finding has multiple valid approaches and no user response, pick the cleanest one\n"+
+					"- If a finding was removed from the review, the reviewer decided it's not applicable — skip it\n"+
+					"- Only ask me if there is genuine ambiguity that requires a judgment call\n\n"+
+					"## Review Findings\n\n%s",
+				shortSha, result,
+			),
+			Session:        "claude_refactor",
+			WindowPrefix:   "review",
+			WorktreePrefix: "refactor-review",
+			MarkerDir:      filepath.Join(os.Getenv("HOME"), ".cmdr", "refactors"),
+			RunningStatus:  "refactoring",
+		})
+		if err != nil {
+			log.Printf("cmdr: refactor launch failed: %v", err)
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"target": res.Target, "session": res.Session, "window": res.Window})
+	}
+}
+
+// --- Helpers ---
+
+// extractTitle pulls a display title from the review result.
+var headingRe = regexp.MustCompile(`(?m)^#{1,3}\s+(.+)$`)
+
+func extractTitle(result string) string {
+	var raw string
+	if m := headingRe.FindStringSubmatch(result); len(m) > 1 {
+		raw = m[1]
+	} else {
+		for _, line := range strings.SplitN(result, "\n", 10) {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				raw = line
+				break
+			}
+		}
+	}
+	raw = strings.ReplaceAll(raw, "`", "")
+	raw = strings.ReplaceAll(raw, "**", "")
+	raw = strings.ReplaceAll(raw, "*", "")
+	raw = strings.TrimSpace(raw)
+	if len(raw) > 120 {
+		raw = raw[:117] + "..."
+	}
+	return raw
+}
+
+var htmlTagRe = regexp.MustCompile(`<[^>]+>`)
+
+func stripHTML(s string) string {
+	return htmlTagRe.ReplaceAllString(s, "")
+}
+
+// --- Worktree cleanup (unified) ---
+
+// taskWorktreeInfo returns the worktree name and marker path for a task based on its type.
+func taskWorktreeInfo(taskType string, taskID int) (worktreeName string, markerPath string) {
+	switch taskType {
+	case "directive":
+		worktreeName = fmt.Sprintf("directive-%d", taskID)
+	default:
+		// review-triggered refactors
+		worktreeName = fmt.Sprintf("refactor-review-%d", taskID)
+		markerPath = filepath.Join(os.Getenv("HOME"), ".cmdr", "refactors", worktreeName)
+	}
+	return
+}
+
+// cleanupTaskWorktree removes the worktree (and marker file if applicable) for a single task.
+func cleanupTaskWorktree(db *sql.DB, taskID int) {
+	var repoPath, taskType, status string
+	err := db.QueryRow(`SELECT repo_path, type, status FROM claude_tasks WHERE id = ?`, taskID).
+		Scan(&repoPath, &taskType, &status)
+	if err != nil {
+		return
+	}
+	// Only clean up tasks that are in a worktree-using state
+	if status != "refactoring" && status != "resolved" && status != "completed" && status != "running" {
+		return
+	}
+
+	worktreeName, markerPath := taskWorktreeInfo(taskType, taskID)
+	removeWorktree(repoPath, taskID, worktreeName, markerPath)
+}
+
+// cleanupAllTaskWorktrees removes worktrees for all completed/resolved/refactoring tasks.
+func cleanupAllTaskWorktrees(db *sql.DB) {
+	rows, err := db.Query(`SELECT id, type, repo_path FROM claude_tasks WHERE status IN ('completed', 'resolved', 'refactoring')`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		var taskType, repoPath string
+		if err := rows.Scan(&id, &taskType, &repoPath); err != nil {
+			continue
+		}
+		worktreeName, markerPath := taskWorktreeInfo(taskType, id)
+		removeWorktree(repoPath, id, worktreeName, markerPath)
+	}
+}
+
+// removeWorktree removes a git worktree and optional marker file.
+func removeWorktree(repoPath string, taskID int, worktreeName, markerPath string) {
+	worktreePath := filepath.Join(repoPath, ".claude", "worktrees", worktreeName)
+	if _, err := os.Stat(worktreePath); err == nil {
+		cmd := exec.Command("git", "-C", repoPath, "worktree", "remove", worktreePath, "--force")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Printf("cmdr: worktree remove failed (task %d): %s: %v", taskID, strings.TrimSpace(string(out)), err)
+		} else {
+			log.Printf("cmdr: pruned worktree %s (task %d)", worktreeName, taskID)
+		}
+	}
+	if markerPath != "" {
+		os.Remove(markerPath)
+	}
+}

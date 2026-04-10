@@ -34,11 +34,20 @@ func PruneCommits(db *sql.DB) func() error {
 			log.Printf("cmdr: prune: deleted %d old claude tasks", rc)
 		}
 
-		// Stale pending/running tasks (stuck for >1 hour)
-		res, _ = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('pending','running')
+		// Stale pending tasks that never launched (stuck for >1 hour).
+		res, _ = db.Exec(`DELETE FROM claude_tasks WHERE status = 'pending'
 			AND created_at < datetime('now', '-1 hour')`)
 		if rc, _ := res.RowsAffected(); rc > 0 {
-			log.Printf("cmdr: prune: deleted %d stuck claude tasks", rc)
+			log.Printf("cmdr: prune: deleted %d stuck pending tasks", rc)
+		}
+
+		// Stuck headless review tasks (type='review', status='running') — these run
+		// via `claude -p` and should complete in minutes. Interactive tmux sessions
+		// (directives, refactors) are managed by the poller's window-alive check.
+		res, _ = db.Exec(`DELETE FROM claude_tasks WHERE type = 'review' AND status = 'running'
+			AND created_at < datetime('now', '-1 hour')`)
+		if rc, _ := res.RowsAffected(); rc > 0 {
+			log.Printf("cmdr: prune: deleted %d stuck headless review tasks", rc)
 		}
 
 		return nil

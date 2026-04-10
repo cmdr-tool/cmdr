@@ -51,8 +51,16 @@ func Review(data ReviewData) (string, error) {
 
 // Intent represents a predefined directive intent.
 type Intent struct {
-	ID   string `json:"id"`   // e.g. "bug-fix"
-	Name string `json:"name"` // e.g. "Bug Fix"
+	ID         string `json:"id"`         // e.g. "bug-fix"
+	Name       string `json:"name"`       // e.g. "Bug Fix"
+	ProducesPR bool   `json:"producesPR"` // true if this intent is expected to create a PR
+}
+
+// Intents that are expected to produce a PR as their artifact.
+var prIntents = map[string]bool{
+	"refactor":    true,
+	"bug-fix":     true,
+	"new-feature": true,
 }
 
 // ListIntents returns all available intent presets.
@@ -73,9 +81,14 @@ func ListIntents() []Intent {
 		for i, w := range words {
 			words[i] = strings.ToUpper(w[:1]) + w[1:]
 		}
-		intents = append(intents, Intent{ID: id, Name: strings.Join(words, " ")})
+		intents = append(intents, Intent{ID: id, Name: strings.Join(words, " "), ProducesPR: prIntents[id]})
 	}
 	return intents
+}
+
+// IntentProducesPR returns whether the given intent is expected to produce a PR.
+func IntentProducesPR(id string) bool {
+	return prIntents[id]
 }
 
 // GetIntentPrompt returns the system prompt for a given intent ID.

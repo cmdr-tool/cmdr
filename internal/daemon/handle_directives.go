@@ -3,7 +3,6 @@ package daemon
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"path/filepath"
@@ -128,55 +127,26 @@ func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		// Find or create the tmux session for this repo
-		sessionName, err := findOrCreateSession(repoPath)
+		res, err := launchTask(db, bus, TaskLaunchConfig{
+			TaskID:         body.ID,
+			Intent:         body.Intent,
+			UserPrompt:     prompt,
+			RepoPath:       repoPath,
+			Session:        "", // auto-detect from repo
+			WindowPrefix:   "task",
+			WorktreePrefix: "directive",
+		})
 		if err != nil {
-			log.Printf("cmdr: directive/submit: session: %v", err)
+			log.Printf("cmdr: directive/submit: %v", err)
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
 		}
-
-		// Launch claude in a new window with worktree isolation
-		escaped := strings.ReplaceAll(prompt, "'", "'\\''")
-		windowName := fmt.Sprintf("task-%d", body.ID)
-		worktreeName := fmt.Sprintf("directive-%d", body.ID)
-
-		// Build command with optional intent system prompt
-		baseCmd := fmt.Sprintf("claude -w %s --name 'cmdr-task-%d'", worktreeName, body.ID)
-		var cmd string
-		if body.Intent != "" {
-			intentPrompt, err := prompts.GetIntentPrompt(body.Intent)
-			if err == nil {
-				escapedIntent := strings.ReplaceAll(intentPrompt, "'", "'\\''")
-				cmd = fmt.Sprintf("%s --append-system-prompt '%s' '%s'", baseCmd, escapedIntent, escaped)
-			} else {
-				cmd = fmt.Sprintf("%s '%s'", baseCmd, escaped)
-			}
-		} else {
-			cmd = fmt.Sprintf("%s '%s'", baseCmd, escaped)
-		}
-
-		target, err := tmux.CreateDraftWindow(sessionName, windowName, repoPath, cmd)
-		if err != nil {
-			log.Printf("cmdr: directive/submit: window: %v", err)
-			http.Error(w, jsonErr(err), http.StatusInternalServerError)
-			return
-		}
-
-		// Update task status — title is derived on read
-		now := time.Now().Format(time.RFC3339)
-		db.Exec(`UPDATE claude_tasks SET status='running', started_at=? WHERE id=?`, now, body.ID)
-		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-			"id": body.ID, "status": "running",
-		}})
-
-		log.Printf("cmdr: directive submitted (task %d, session %s, target %s)", body.ID, sessionName, target)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "ok",
-			"target":  target,
-			"session": sessionName,
+			"target":  res.Target,
+			"session": res.Session,
 		})
 	}
 }

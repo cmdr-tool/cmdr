@@ -425,6 +425,7 @@ export function submitDirective(id: number, intent?: string): Promise<{ status: 
 export interface DirectiveIntent {
 	id: string;
 	name: string;
+	producesPR: boolean;
 }
 
 export function getDirectiveIntents(): Promise<DirectiveIntent[]> {

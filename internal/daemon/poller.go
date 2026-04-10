@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mikehu/cmdr/internal/claude"
+	"github.com/mikehu/cmdr/internal/prompts"
 	"github.com/mikehu/cmdr/internal/scheduler"
 	"github.com/mikehu/cmdr/internal/tmux"
 )
@@ -63,9 +64,9 @@ func startPoller(bus *EventBus, s *scheduler.Scheduler, db *sql.DB) func() {
 func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tickCount int) {
 	publishStatus(bus, s)
 
-	tmuxSessions, err := tmux.ListSessions()
-	if err != nil {
-		log.Printf("cmdr: poller: tmux list error: %v", err)
+	tmuxSessions, tmuxErr := tmux.ListSessions()
+	if tmuxErr != nil {
+		log.Printf("cmdr: poller: tmux list error: %v", tmuxErr)
 		tmuxSessions = []tmux.Session{}
 	}
 
@@ -85,8 +86,12 @@ func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tick
 
 	// Check for completed tasks every 60s (12 ticks)
 	if tickCount%12 == 0 {
-		checkRefactoringTasks(db, bus, tmuxSessions)
-		checkRunningDirectives(db, bus, tmuxSessions)
+		// Only check task lifecycle if tmux listing succeeded —
+		// an empty list would falsely mark all running tasks as completed
+		if tmuxErr == nil {
+			checkRunningTasks(db, bus, tmuxSessions)
+		}
+		checkResolvedTasks(db, bus)
 		publishCommitWatermark(bus, db)
 	}
 
@@ -216,79 +221,99 @@ func findAncestorPane(pid int, ppidMap map[int]int, shellPIDs map[int]*claudePan
 	return nil
 }
 
-// checkRefactoringTasks manages the lifecycle of refactoring tasks:
-//   - refactoring: scrape tmux pane for PR URL → resolved; or window gone → completed
-//   - resolved: check if PR is merged/closed AND worktree is gone → completed
-func checkRefactoringTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
-	checkRefactoringInProgress(db, bus, tmuxSessions)
-	checkResolvedPRs(db, bus)
+// --- Unified task lifecycle polling ---
+//
+// All task types (review→refactor, directive) follow the same state machine:
+//   running/refactoring → scrape pane for PR → resolved; or window gone → completed
+//   resolved → PR closed + worktree gone → completed
+//
+// The only differences are the window name and worktree name conventions,
+// which are derived from task type and ID via taskWindowName/taskWorktreeInfo.
+
+// taskWindowName returns the tmux window name for a task based on its type.
+func taskWindowName(taskType string, taskID int) string {
+	if taskType == "directive" {
+		return fmt.Sprintf("task-%d", taskID)
+	}
+	return fmt.Sprintf("review-%d", taskID) // review-triggered refactors
 }
 
-// checkRefactoringInProgress handles tasks in "refactoring" status.
-func checkRefactoringInProgress(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
-	rows, err := db.Query(`SELECT id, repo_path FROM claude_tasks WHERE status = 'refactoring'`)
+// checkRunningTasks monitors all tasks in running/refactoring status.
+// For PR-producing tasks: scrapes tmux pane for PR URL → resolved.
+// When the tmux window is gone: marks completed.
+func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
+	rows, err := db.Query(`
+		SELECT id, type, repo_path, COALESCE(intent, '')
+		FROM claude_tasks
+		WHERE status IN ('running', 'refactoring')
+	`)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
-	// Collect all window names in the claude_refactor session
-	refactorWindows := make(map[string]bool)
+	// Build window lookup: windowName → "session:window" target for pane scraping
+	allWindows := make(map[string]bool)
+	windowTargets := make(map[string]string)
 	for _, s := range tmuxSessions {
-		if s.Name != "claude_refactor" {
-			continue
-		}
 		for _, w := range s.Windows {
-			refactorWindows[w.Name] = true
+			allWindows[w.Name] = true
+			windowTargets[w.Name] = fmt.Sprintf("%s:%s", s.Name, w.Name)
 		}
 	}
 
 	type task struct {
 		id       int
+		taskType string
 		repoPath string
+		intent   string
 	}
 	var tasks []task
 	for rows.Next() {
 		var t task
-		if err := rows.Scan(&t.id, &t.repoPath); err != nil {
+		if err := rows.Scan(&t.id, &t.taskType, &t.repoPath, &t.intent); err != nil {
 			continue
 		}
 		tasks = append(tasks, t)
 	}
 
 	for _, t := range tasks {
-		windowName := fmt.Sprintf("review-%d", t.id)
-		windowAlive := refactorWindows[windowName]
-		target := fmt.Sprintf("claude_refactor:%s", windowName)
+		windowName := taskWindowName(t.taskType, t.id)
+		windowAlive := allWindows[windowName]
 
-		// Try to scrape a PR URL from the pane output
-		if prUrl := scrapePaneForPR(target); prUrl != "" {
-			now := time.Now().Format(time.RFC3339)
-			db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": t.id, "status": "resolved", "prUrl": prUrl,
-			}})
-			log.Printf("cmdr: task %d resolved via pane scrape (PR: %s)", t.id, prUrl)
-			continue
+		// Scrape for PR URL if this task is expected to produce one
+		// Review-triggered refactors always produce PRs; directives check intent
+		shouldScrape := t.taskType == "review" || prompts.IntentProducesPR(t.intent)
+		if shouldScrape {
+			if target, ok := windowTargets[windowName]; ok {
+				if prUrl := scrapePaneForPR(target); prUrl != "" {
+					now := time.Now().Format(time.RFC3339)
+					db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
+					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+						"id": t.id, "status": "resolved", "prUrl": prUrl,
+					}})
+					log.Printf("cmdr: task %d resolved via pane scrape (PR: %s)", t.id, prUrl)
+					continue
+				}
+			}
 		}
 
-		// Window gone and no PR found — cancelled/failed
+		// Window gone — task completed
 		if !windowAlive {
 			now := time.Now().Format(time.RFC3339)
 			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
 				"id": t.id, "status": "completed",
 			}})
-			log.Printf("cmdr: task %d completed (window closed, no PR found)", t.id)
-			cleanupRefactorMarker(t.id)
+			log.Printf("cmdr: task %d completed (window closed)", t.id)
 		}
 	}
 }
 
-// checkResolvedPRs handles tasks in "resolved" status — checks if the PR has
-// been merged/closed AND the worktree is gone, then marks completed.
-func checkResolvedPRs(db *sql.DB, bus *EventBus) {
-	rows, err := db.Query(`SELECT id, repo_path, COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved'`)
+// checkResolvedTasks monitors all tasks in "resolved" status.
+// When the PR is merged/closed AND the worktree is gone, marks completed.
+func checkResolvedTasks(db *sql.DB, bus *EventBus) {
+	rows, err := db.Query(`SELECT id, type, repo_path, COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved'`)
 	if err != nil {
 		return
 	}
@@ -296,24 +321,24 @@ func checkResolvedPRs(db *sql.DB, bus *EventBus) {
 
 	type task struct {
 		id       int
+		taskType string
 		repoPath string
 		prUrl    string
 	}
 	var tasks []task
 	for rows.Next() {
 		var t task
-		if err := rows.Scan(&t.id, &t.repoPath, &t.prUrl); err != nil {
+		if err := rows.Scan(&t.id, &t.taskType, &t.repoPath, &t.prUrl); err != nil {
 			continue
 		}
 		tasks = append(tasks, t)
 	}
 
 	for _, t := range tasks {
-		worktreeName := fmt.Sprintf("refactor-review-%d", t.id)
+		worktreeName, _ := taskWorktreeInfo(t.taskType, t.id)
 		worktreeExists := worktreeAlive(t.repoPath, worktreeName)
 		prOpen := t.prUrl != "" && isPROpen(t.repoPath, t.prUrl)
 
-		// Only complete when PR is no longer open AND worktree is gone
 		if !prOpen && !worktreeExists {
 			now := time.Now().Format(time.RFC3339)
 			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
@@ -321,54 +346,11 @@ func checkResolvedPRs(db *sql.DB, bus *EventBus) {
 				"id": t.id, "status": "completed",
 			}})
 			log.Printf("cmdr: task %d completed (PR merged/closed, worktree gone)", t.id)
-			cleanupRefactorMarker(t.id)
 		}
 	}
 }
 
-// checkRunningDirectives monitors directive tasks in "running" status.
-// When the tmux window (task-{id}) is gone, the task is marked completed.
-func checkRunningDirectives(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
-	rows, err := db.Query(`SELECT id, repo_path FROM claude_tasks WHERE type='directive' AND status='running'`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-
-	// Collect all window names across all sessions
-	allWindows := make(map[string]bool)
-	for _, s := range tmuxSessions {
-		for _, w := range s.Windows {
-			allWindows[w.Name] = true
-		}
-	}
-
-	type task struct {
-		id       int
-		repoPath string
-	}
-	var tasks []task
-	for rows.Next() {
-		var t task
-		if err := rows.Scan(&t.id, &t.repoPath); err != nil {
-			continue
-		}
-		tasks = append(tasks, t)
-	}
-
-	for _, t := range tasks {
-		windowName := fmt.Sprintf("task-%d", t.id)
-		if !allWindows[windowName] {
-			// Window gone — directive completed
-			now := time.Now().Format(time.RFC3339)
-			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": t.id, "status": "completed",
-			}})
-			log.Printf("cmdr: directive task %d completed (window closed)", t.id)
-		}
-	}
-}
+// --- PR + worktree helpers ---
 
 // worktreeAlive checks if a named worktree exists in the repo.
 func worktreeAlive(repoPath, worktreeName string) bool {
@@ -382,7 +364,6 @@ func worktreeAlive(repoPath, worktreeName string) bool {
 
 // isPROpen checks if a PR URL is still open (not merged or closed).
 func isPROpen(repoPath, prUrl string) bool {
-	// Extract PR number from URL
 	re := regexp.MustCompile(`/pull/(\d+)$`)
 	matches := re.FindStringSubmatch(prUrl)
 	if len(matches) < 2 {
@@ -392,7 +373,7 @@ func isPROpen(repoPath, prUrl string) bool {
 	cmd.Dir = repoPath
 	out, err := cmd.Output()
 	if err != nil {
-		return false // can't check, assume not open
+		return false
 	}
 	return strings.TrimSpace(string(out)) == "OPEN"
 }
@@ -403,19 +384,11 @@ func scrapePaneForPR(target string) string {
 	if err != nil {
 		return ""
 	}
-	// Match GitHub PR URLs like https://github.com/owner/repo/pull/123
 	re := regexp.MustCompile(`https://github\.com/[^\s]+/pull/\d+`)
 	if match := re.Find(out); match != nil {
 		return string(match)
 	}
 	return ""
-}
-
-// cleanupRefactorMarker removes the marker file for a resolved/completed task.
-func cleanupRefactorMarker(taskID int) {
-	worktreeName := fmt.Sprintf("refactor-review-%d", taskID)
-	markerPath := filepath.Join(os.Getenv("HOME"), ".cmdr", "refactors", worktreeName)
-	os.Remove(markerPath)
 }
 
 // publishCommitWatermark sends the latest commit ID so the frontend can detect staleness.
