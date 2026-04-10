@@ -88,7 +88,7 @@ func handleSaveDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 				}
 			}
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": body.ID, "status": "draft", "title": title,
+				"id": body.ID, "status": "draft", "title": title, "repoPath": body.RepoPath,
 			}})
 		}
 

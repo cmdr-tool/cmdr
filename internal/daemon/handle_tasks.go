@@ -296,8 +296,11 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 		os.WriteFile(filepath.Join(cfg.MarkerDir, worktreeName), []byte(strconv.Itoa(cfg.TaskID)), 0o644)
 	}
 
+	// Resolve image references to absolute paths Claude can read
+	prompt := resolveImageRefs(cfg.UserPrompt)
+
 	// Build claude command
-	escaped := strings.ReplaceAll(cfg.UserPrompt, "'", "'\\''")
+	escaped := strings.ReplaceAll(prompt, "'", "'\\''")
 	baseCmd := fmt.Sprintf("claude -w %s --name 'cmdr-task-%d'", worktreeName, cfg.TaskID)
 	var cmd string
 	if cfg.Intent != "" {
@@ -444,6 +447,28 @@ var htmlTagRe = regexp.MustCompile(`<[^>]+>`)
 
 func stripHTML(s string) string {
 	return htmlTagRe.ReplaceAllString(s, "")
+}
+
+// resolveImageRefs rewrites markdown image syntax ![caption](/api/images/filename)
+// to absolute file path references that Claude Code can read with its Read tool.
+// e.g. ![sketch](/api/images/abc.png) → [image: ~/.cmdr/images/abc.png]
+var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(/api/images/([\w.\-]+)\)`)
+
+func resolveImageRefs(content string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return content
+	}
+	imgDir := filepath.Join(home, ".cmdr", "images")
+	return markdownImageRe.ReplaceAllStringFunc(content, func(match string) string {
+		parts := markdownImageRe.FindStringSubmatch(match)
+		caption := parts[1]
+		absPath := filepath.Join(imgDir, parts[2])
+		if caption != "" {
+			return fmt.Sprintf("[image (%s): %s]", caption, absPath)
+		}
+		return fmt.Sprintf("[image: %s]", absPath)
+	})
 }
 
 // --- Worktree cleanup (unified) ---
