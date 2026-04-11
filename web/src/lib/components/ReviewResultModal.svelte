@@ -28,6 +28,8 @@
 	let draft = $state('');
 	let saving = $state(false);
 	let refactoring = $state(false);
+	let bodyEl: HTMLDivElement | undefined = $state(undefined);
+	let editHeight: number | null = $state(null);
 
 	// Section note editing
 	let noteSectionIdx: number | null = $state(null);
@@ -187,7 +189,7 @@
 				<h2 class="font-display text-xs font-bold uppercase tracking-widest text-run-500">Review Result</h2>
 				{#if !editing}
 					<button
-						onclick={() => { draft = result; editing = true; }}
+						onclick={() => { if (bodyEl) editHeight = bodyEl.offsetHeight; draft = result; editing = true; }}
 						class="flex items-center gap-1 text-[10px] font-mono text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
 					>
 						<Pencil size={10} />
@@ -217,15 +219,15 @@
 
 		<!-- Body -->
 		{#if editing}
-			<div class="overflow-auto bg-bourbon-950">
+			<div class="overflow-auto bg-bourbon-950" style:height={editHeight ? `${editHeight}px` : 'calc(85vh - 7rem)'}>
 				<textarea
 					bind:value={draft}
-					class="w-full h-[60vh] bg-transparent text-xs font-mono text-bourbon-300 px-6 py-4 resize-none focus:outline-none select-text leading-relaxed"
+					class="w-full h-full bg-transparent text-xs font-mono text-bourbon-300 px-6 py-4 resize-none focus:outline-none select-text leading-relaxed"
 				></textarea>
 			</div>
 		{:else if hasSections}
 			<!-- Structured section view -->
-			<div class="overflow-auto flex-1 bg-bourbon-950">
+			<div bind:this={bodyEl} class="overflow-auto flex-1 bg-bourbon-950">
 				<!-- Preamble -->
 				{#if parsedReview && parsedReview.preamble.trim()}
 					<div class="px-6 pt-4 pb-2">
@@ -341,7 +343,7 @@
 			</div>
 		{:else}
 			<!-- Fallback: full rendered markdown -->
-			<div class="overflow-auto flex-1 px-6 py-4 bg-bourbon-950">
+			<div bind:this={bodyEl} class="overflow-auto flex-1 px-6 py-4 bg-bourbon-950">
 				<div class={proseClasses}>
 					{@html fullHtml}
 				</div>
