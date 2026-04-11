@@ -287,8 +287,11 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 
 		// Scrape for PR URL if this task is expected to produce one:
 		// - refactoring/implementing statuses always produce PRs
-		// - running tasks check intent-level flag
-		shouldScrape := t.status == "refactoring" || t.status == "implementing" || prompts.IntentProducesPR(t.intent)
+		// - running tasks check intent-level flag, but NOT during design phase
+		//   (design phase produces an ADR, not a PR — scraping would pick up
+		//   incidental PR URLs from the conversation)
+		inDesignPhase := t.status == "running" && prompts.IntentHasDesignPhase(t.intent)
+		shouldScrape := t.status == "refactoring" || t.status == "implementing" || (prompts.IntentProducesPR(t.intent) && !inDesignPhase)
 		if shouldScrape {
 			if target, ok := windowTargets[windowName]; ok {
 				if prUrl := scrapePaneForPR(target); prUrl != "" {
@@ -306,6 +309,22 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 		// Window gone — task completed
 		if !windowAlive {
 			now := time.Now().Format(time.RFC3339)
+
+			// Design-phase tasks: scrape ADR from worktree before marking complete
+			if t.status == "running" && prompts.IntentHasDesignPhase(t.intent) {
+				worktreeName := fmt.Sprintf("directive-%d", t.id)
+				if adr := scrapeADRFromWorktree(t.repoPath, worktreeName); adr != "" {
+					title := extractTitle(adr)
+					db.Exec(`UPDATE claude_tasks SET status='completed', result=?, title=?, completed_at=? WHERE id=?`,
+						adr, title, now, t.id)
+					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+						"id": t.id, "status": "completed", "title": title,
+					}})
+					log.Printf("cmdr: task %d completed (design phase, ADR captured)", t.id)
+					continue
+				}
+			}
+
 			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
 				"id": t.id, "status": "completed",
@@ -394,6 +413,40 @@ func scrapePaneForPR(target string) string {
 		return string(match)
 	}
 	return ""
+}
+
+// scrapeADRFromWorktree finds the most recently modified ADR-*.md file in the
+// worktree's docs/ directory and returns its contents. Uses mtime so the newly
+// written ADR is picked up even if the worktree inherited older ADRs.
+func scrapeADRFromWorktree(repoPath, worktreeName string) string {
+	docsDir := filepath.Join(repoPath, ".claude", "worktrees", worktreeName, "docs")
+	entries, err := os.ReadDir(docsDir)
+	if err != nil {
+		return ""
+	}
+	var latestName string
+	var latestMod time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(strings.ToUpper(e.Name()), "ADR-") || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(latestMod) {
+			latestMod = info.ModTime()
+			latestName = e.Name()
+		}
+	}
+	if latestName == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(docsDir, latestName))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // publishCommitWatermark sends the latest commit ID so the frontend can detect staleness.
