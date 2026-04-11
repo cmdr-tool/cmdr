@@ -27,8 +27,8 @@ func PruneCommits(db *sql.DB) func() error {
 			log.Printf("cmdr: prune: deleted %d orphaned review comments", rc)
 		}
 
-		// Completed/failed Claude tasks older than 30 days
-		res, _ = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('completed','failed')
+		// Terminal Claude tasks older than 30 days
+		res, _ = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('done','failed')
 			AND completed_at < datetime('now', '-30 days')`)
 		if rc, _ := res.RowsAffected(); rc > 0 {
 			log.Printf("cmdr: prune: deleted %d old claude tasks", rc)

@@ -95,6 +95,8 @@
 							<span class="text-green-400"><GitPullRequestArrow size={15} /></span>
 						{:else if task.status === 'completed'}
 							<span class="text-green-400"><CheckCircle size={15} /></span>
+						{:else if task.status === 'done'}
+							<span class="text-bourbon-500"><CheckCircle size={15} /></span>
 						{:else}
 							<span class="text-red-400"><XCircle size={15} /></span>
 						{/if}
@@ -104,7 +106,7 @@
 					<div class="flex flex-col gap-1 min-w-0 flex-1">
 						<!-- Row 1: Title -->
 						<span class="text-xs leading-snug truncate
-							{task.status === 'completed' || task.status === 'resolved' ? 'text-bourbon-400 line-through' : task.status === 'failed' ? 'text-bourbon-400 line-through' : 'text-bourbon-100'}">
+							{task.status === 'failed' || task.status === 'done' ? 'text-bourbon-400 line-through' : task.status === 'completed' || task.status === 'resolved' ? 'text-bourbon-300' : 'text-bourbon-100'}">
 							{task.title || `${repoName(task.repoPath)}/${task.commitSha ? shortSha(task.commitSha) : ''}`}
 						</span>
 						<!-- Row 2: Type badge + status + repo + sha + time -->
@@ -151,7 +153,7 @@
 				<button
 					onclick={clearAllCompleted}
 					class="ml-auto text-[10px] font-mono text-bourbon-600 hover:text-bourbon-400 transition-colors cursor-pointer"
-				>clear completed</button>
+				>clear done</button>
 			{/if}
 		</div>
 	</div>

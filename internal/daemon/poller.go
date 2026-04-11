@@ -365,11 +365,11 @@ func checkResolvedTasks(db *sql.DB, bus *EventBus) {
 
 		if !prOpen && !worktreeExists {
 			now := time.Now().Format(time.RFC3339)
-			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
+			db.Exec(`UPDATE claude_tasks SET status='done', completed_at=? WHERE id=?`, now, t.id)
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": t.id, "status": "completed",
+				"id": t.id, "status": "done",
 			}})
-			log.Printf("cmdr: task %d completed (PR merged/closed, worktree gone)", t.id)
+			log.Printf("cmdr: task %d done (PR merged/closed, worktree gone)", t.id)
 		}
 	}
 }
