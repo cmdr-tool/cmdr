@@ -45,6 +45,21 @@
 	function repoName(path: string): string {
 		return path.split('/').pop() ?? path;
 	}
+
+	function parsePrUrl(url: string): string {
+		const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+		if (m) return `${m[2]}#${m[3]}`;
+		return url.length > 30 ? url.slice(0, 27) + '...' : url;
+	}
+
+	function badgeColor(type: string): string {
+		switch (type) {
+			case 'review': return 'text-teal-400 bg-teal-700/30';
+			case 'directive': return 'text-cmd-400 bg-cmd-700/30';
+			case 'ask': return 'text-bourbon-400 bg-bourbon-700/30';
+			default: return 'text-bourbon-500 bg-bourbon-800/30';
+		}
+	}
 </script>
 
 {#if $loadedStore}
@@ -104,17 +119,32 @@
 
 					<!-- Content -->
 					<div class="flex flex-col gap-1 min-w-0 flex-1">
-						<!-- Row 1: Title -->
-						<span class="text-xs leading-snug truncate
-							{task.status === 'failed' || task.status === 'done' ? 'text-bourbon-400 line-through' : task.status === 'completed' || task.status === 'resolved' ? 'text-bourbon-300' : 'text-bourbon-100'}">
-							{task.title || `${repoName(task.repoPath)}/${task.commitSha ? shortSha(task.commitSha) : ''}`}
-						</span>
-						<!-- Row 2: Type badge + status + repo + sha + time -->
+						<!-- Row 1: Title + type badge -->
+						<div class="flex items-center gap-2">
+							<span class="text-xs leading-snug truncate min-w-0 flex-1
+								{task.status === 'failed' || task.status === 'done' ? 'text-bourbon-400 line-through' : task.status === 'completed' || task.status === 'resolved' ? 'text-bourbon-300' : 'text-bourbon-100'}">
+								{task.title || `${repoName(task.repoPath)}/${task.commitSha ? shortSha(task.commitSha) : ''}`}
+							</span>
+							<span class="font-mono text-[10px] px-1.5 py-0.5 rounded-full shrink-0 {badgeColor(task.type)}">{task.type}</span>
+						</div>
+						<!-- Row 2: Contextual metadata + timestamp -->
 						<div class="flex items-center gap-2 text-[10px]">
-							<span class="font-mono text-cmd-400 bg-cmd-700/30 px-1.5 py-0.5 rounded-full">{task.type}</span>
-							<span class="font-mono text-bourbon-500">{repoName(task.repoPath)}</span>
-							{#if task.commitSha}
-								<span class="font-mono text-bourbon-600">{shortSha(task.commitSha)}</span>
+							{#if task.type === 'review'}
+								{#if task.repoPath}<span class="font-mono text-bourbon-500">{repoName(task.repoPath)}</span>{/if}
+								{#if task.repoPath && task.commitSha}<span class="text-bourbon-700">·</span>{/if}
+								{#if task.commitSha}<span class="font-mono text-bourbon-600">{shortSha(task.commitSha)}</span>{/if}
+							{:else if task.type === 'directive'}
+								{#if task.prUrl && (task.status === 'resolved' || task.status === 'implementing')}
+									{#if task.repoPath}<span class="font-mono text-bourbon-500">{repoName(task.repoPath)}</span>{/if}
+									{#if task.repoPath}<span class="text-bourbon-700">·</span>{/if}
+									<span class="font-mono text-cmd-400">{parsePrUrl(task.prUrl)}</span>
+								{:else}
+									{#if task.intent}<span class="font-mono text-bourbon-500">{task.intent.replaceAll('-', ' ')}</span>{/if}
+									{#if task.intent && task.repoPath}<span class="text-bourbon-700">·</span>{/if}
+									{#if task.repoPath}<span class="font-mono text-bourbon-500">{repoName(task.repoPath)}</span>{/if}
+								{/if}
+							{:else}
+								{#if task.repoPath}<span class="font-mono text-bourbon-500">{repoName(task.repoPath)}</span>{/if}
 							{/if}
 							<span class="text-bourbon-700 ml-auto">{timeAgo(task.createdAt)}</span>
 						</div>
