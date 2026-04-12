@@ -266,6 +266,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMe
         // Disable right-click context menu
         let noCtxMenu = WKUserScript(source: "document.addEventListener('contextmenu', e => e.preventDefault());", injectionTime: .atDocumentStart, forMainFrameOnly: false)
         config.userContentController.addUserScript(noCtxMenu)
+        // Block backspace/delete from triggering back navigation (SPA has no history to navigate)
+        let noBackNav = WKUserScript(source: """
+            document.addEventListener('keydown', function(e) {
+                if ((e.key === 'Backspace' || e.key === 'Delete') &&
+                    !['INPUT','TEXTAREA'].includes(e.target.tagName) &&
+                    !e.target.isContentEditable) {
+                    e.preventDefault();
+                }
+            });
+            """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        config.userContentController.addUserScript(noBackNav)
         // Register message handler for native notifications
         config.userContentController.add(self, name: "notify")
         webView = WKWebView(frame: container.bounds, configuration: config)

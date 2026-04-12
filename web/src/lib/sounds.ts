@@ -70,16 +70,22 @@ async function getBuffer(src: string): Promise<AudioBuffer> {
 	return buffer;
 }
 
-export async function playSound(src: string, volume = 0.5) {
-	const audioCtx = await ensureResumed();
-	const cached = buffers.get(src);
+export function playSound(src: string, volume = 0.5) {
+	const audioCtx = getContext();
 
-	if (cached) {
-		fire(audioCtx, cached, volume);
-	} else {
-		const buf = await getBuffer(src);
-		fire(audioCtx, buf, volume);
+	// Fast path: context is running and buffer is decoded — fire synchronously
+	if (audioCtx.state === 'running') {
+		const cached = buffers.get(src);
+		if (cached) {
+			fire(audioCtx, cached, volume);
+			return;
+		}
 	}
+
+	// Slow path: need to resume context or decode buffer
+	ensureResumed().then((ctx) =>
+		getBuffer(src).then((buf) => fire(ctx, buf, volume))
+	);
 }
 
 function fire(audioCtx: AudioContext, buffer: AudioBuffer, volume: number) {
@@ -93,9 +99,9 @@ function fire(audioCtx: AudioContext, buffer: AudioBuffer, volume: number) {
 	source.start();
 }
 
-// Preload raw audio data (no AudioContext needed)
+// Preload and eagerly decode audio data so first playback is instant
 export function preload(...srcs: string[]) {
-	srcs.forEach(fetchRaw);
+	srcs.forEach((src) => getBuffer(src).catch(() => {}));
 }
 
 export const SFX = {
