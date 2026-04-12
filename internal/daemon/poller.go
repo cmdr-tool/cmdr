@@ -289,22 +289,28 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 		windowAlive := allWindows[windowName]
 		inDesignPhase := t.status == "running" && prompts.IntentHasDesignPhase(t.intent)
 
-		// Design-phase tasks: proactively capture ADR from worktree while
-		// window is still alive, so it's safe even if the user prunes the
-		// worktree on exit. We store the result but keep status as running.
-		if inDesignPhase && windowAlive {
+		// Design-phase tasks: capture ADR from worktree as soon as it appears.
+		// The ADR is the deliverable — once captured, the task is complete
+		// regardless of whether the window is still open.
+		if inDesignPhase {
 			var existingResult string
 			db.QueryRow(`SELECT COALESCE(result, '') FROM claude_tasks WHERE id=?`, t.id).Scan(&existingResult)
 			if existingResult == "" {
 				worktreeName := fmt.Sprintf("directive-%d", t.id)
 				if adr := scrapeADRFromWorktree(t.repoPath, worktreeName); adr != "" {
+					now := time.Now().Format(time.RFC3339)
 					title := extractTitle(adr)
-					db.Exec(`UPDATE claude_tasks SET result=?, title=? WHERE id=?`, adr, title, t.id)
+					db.Exec(`UPDATE claude_tasks SET status='completed', result=?, title=?, completed_at=? WHERE id=?`,
+						adr, title, now, t.id)
 					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-						"id": t.id, "status": "running", "title": title,
+						"id": t.id, "status": "completed", "title": title,
 					}})
-					log.Printf("cmdr: task %d ADR captured proactively (window still open)", t.id)
+					log.Printf("cmdr: task %d completed (ADR captured)", t.id)
+					continue
 				}
+			} else {
+				// ADR already captured — skip further processing
+				continue
 			}
 		}
 
@@ -328,32 +334,19 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 			}
 		}
 
-		// Window gone — task completed
+		// Window gone — task completed (or failed for design tasks with no ADR)
 		if !windowAlive {
 			now := time.Now().Format(time.RFC3339)
 
-			// Design-phase tasks: check if ADR was already captured proactively,
-			// or try one last scrape before the worktree is gone
 			if inDesignPhase {
-				var existingResult string
-				db.QueryRow(`SELECT COALESCE(result, '') FROM claude_tasks WHERE id=?`, t.id).Scan(&existingResult)
-				if existingResult == "" {
-					// Last chance: try scraping before worktree cleanup
-					worktreeName := fmt.Sprintf("directive-%d", t.id)
-					if adr := scrapeADRFromWorktree(t.repoPath, worktreeName); adr != "" {
-						existingResult = adr
-						title := extractTitle(adr)
-						db.Exec(`UPDATE claude_tasks SET result=?, title=? WHERE id=?`, adr, title, t.id)
-					}
-				}
-				if existingResult != "" {
-					db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
-					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-						"id": t.id, "status": "completed",
-					}})
-					log.Printf("cmdr: task %d completed (design phase, ADR captured)", t.id)
-					continue
-				}
+				// If we reach here, the ADR was never captured
+				errMsg := "design session closed without producing an ADR"
+				db.Exec(`UPDATE claude_tasks SET status='failed', error_msg=?, completed_at=? WHERE id=?`, errMsg, now, t.id)
+				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+					"id": t.id, "status": "failed", "errorMsg": errMsg,
+				}})
+				log.Printf("cmdr: task %d failed (no ADR found)", t.id)
+				continue
 			}
 
 			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)

@@ -137,7 +137,9 @@
 						</div>
 						<!-- Row 2: Contextual metadata + timestamp -->
 						<div class="flex items-center gap-2 text-[10px]">
-							{#if task.type === 'review'}
+							{#if task.status === 'failed' && task.errorMsg}
+								<span class="font-mono text-red-400/70 truncate">{task.errorMsg}</span>
+							{:else if task.type === 'review'}
 								{#if task.repoPath}<span class="font-mono text-bourbon-500">{repoName(task.repoPath)}</span>{/if}
 								{#if task.repoPath && task.commitSha}<span class="text-bourbon-700">·</span>{/if}
 								{#if task.commitSha}<span class="font-mono text-bourbon-600">{shortSha(task.commitSha)}</span>{/if}
