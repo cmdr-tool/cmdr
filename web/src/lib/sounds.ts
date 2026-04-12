@@ -25,16 +25,22 @@ async function ensureResumed(): Promise<AudioContext> {
 	return audioCtx;
 }
 
-// After macOS sleep/wake, WKWebView may silently kill the audio session.
-// Recreate the context on visibility change to recover.
+// After macOS sleep/wake, WKWebView silently kills the audio session —
+// resume() resolves but produces no output. Since this is a native app,
+// visibilitychange only fires on app show/hide, so always rebuild.
+let hiddenAt = 0;
 if (typeof document !== 'undefined') {
 	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'visible' && ctx) {
-			ctx.resume().catch(() => {
-				ctx?.close().catch(() => {});
-				ctx = null;
-				buffers.clear();
-			});
+		if (document.visibilityState === 'hidden') {
+			hiddenAt = Date.now();
+		} else if (ctx && Date.now() - hiddenAt > 3_000) {
+			ctx.close().catch(() => {});
+			ctx = null;
+			buffers.clear();
+			// Re-decode all cached raw data on a fresh context
+			for (const src of rawData.keys()) {
+				getBuffer(src).catch(() => {});
+			}
 		}
 	});
 }
@@ -108,5 +114,5 @@ export const SFX = {
 	newCommits: '/nba-draft-sound.mp3',
 	hover: '/sfx-hover.mp3',
 	click: '/sfx-click.mp3',
-	dispatch: '/sfx-magic-dispatch.mp3'
+	dispatch: '/sfx-magic.mp3'
 } as const;

@@ -13,7 +13,7 @@
 		type DirectiveIntent
 	} from '$lib/api';
 	import { create as createTask, dismiss as dismissTask } from '$lib/taskStore';
-	import { playSound, SFX } from '$lib/sounds';
+
 	import {
 		type Block,
 		parseBlocks,
@@ -128,7 +128,6 @@
 			// Dispatch to Claude
 			submitProgress = 'dispatching';
 			await submitDirective(taskId, selectedIntent || undefined);
-			playSound(SFX.dispatch, 0.5);
 			onsubmit?.();
 			onclose();
 		} catch {

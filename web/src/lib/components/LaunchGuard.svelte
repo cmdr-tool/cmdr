@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { GitBranch, TriangleAlert } from 'lucide-svelte';
 	import { pushRepo } from '$lib/api';
+	import { playSound, SFX } from '$lib/sounds';
 	import type { Snippet } from 'svelte';
 
 	let {
@@ -46,6 +47,7 @@
 
 		try {
 			await action();
+			playSound(SFX.dispatch, 0.5);
 			onlaunched?.();
 		} catch { /* action failed for non-unpushed reasons */ }
 		launching = false;
