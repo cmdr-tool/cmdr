@@ -136,6 +136,8 @@ func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
+		enhanceTitle(db, bus, body.ID, truncate(prompt, 500))
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "ok",
