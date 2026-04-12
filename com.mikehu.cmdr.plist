@@ -24,6 +24,10 @@
       <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
       <key>CMDR_CODE_DIR</key>
       <string>~/Code</string>
+      <key>CMDR_OLLAMA_URL</key>
+      <string>https://ollama.106source.ca</string>
+      <key>CMDR_OLLAMA_MODEL</key>
+      <string>gemma4</string>
     </dict>
   </dict>
 </plist>

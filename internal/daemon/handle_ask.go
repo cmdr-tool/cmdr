@@ -152,6 +152,8 @@ func runAsk(db *sql.DB, bus *EventBus, taskID int, question string) {
 		"id": taskID, "status": "completed", "title": title,
 	}})
 
+	enhanceTitle(db, bus, taskID, truncate(finalResult, 1000))
+
 	log.Printf("cmdr: ask %d completed", taskID)
 }
 

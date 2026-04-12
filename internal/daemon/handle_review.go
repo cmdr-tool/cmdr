@@ -266,6 +266,8 @@ func runClaudeReview(db *sql.DB, bus *EventBus, taskID int, repoPath, sha, promp
 		"id": taskID, "status": "completed", "title": title,
 	}})
 
+	enhanceTitle(db, bus, taskID, truncate(result, 1000))
+
 	// Clean up review comments — they've been consumed
 	db.Exec(`DELETE FROM review_comments WHERE repo_path=? AND sha=?`, repoPath, sha)
 

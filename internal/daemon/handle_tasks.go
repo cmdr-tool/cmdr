@@ -109,7 +109,7 @@ func handleGetClaudeTaskResult(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func handleUpdateClaudeTaskResult(db *sql.DB) http.HandlerFunc {
+func handleUpdateClaudeTaskResult(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -127,6 +127,8 @@ func handleUpdateClaudeTaskResult(db *sql.DB) http.HandlerFunc {
 
 		title := extractTitle(body.Result)
 		db.Exec(`UPDATE claude_tasks SET result=?, title=? WHERE id=?`, body.Result, title, body.ID)
+
+		enhanceTitle(db, bus, body.ID, truncate(body.Result, 1000))
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

@@ -305,6 +305,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
 						"id": t.id, "status": "completed", "title": title,
 					}})
+					enhanceTitle(db, bus, t.id, truncate(adr, 1000))
 					log.Printf("cmdr: task %d completed (ADR captured)", t.id)
 					continue
 				}
