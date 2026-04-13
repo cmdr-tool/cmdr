@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <style>
+      line { stroke: #EF9F27; stroke-width: 0.5; }
+      circle { fill: #EF9F27; }
+    </style>
+  </defs>
+  <!-- Nodes -->
+  <circle cx="12" cy="8" r="1.5" opacity="0.3"/>
+  <circle cx="95" cy="15" r="1" opacity="0.2"/>
+  <circle cx="170" cy="22" r="1.5" opacity="0.25"/>
+  <circle cx="45" cy="52" r="1" opacity="0.2"/>
+  <circle cx="130" cy="45" r="1.5" opacity="0.3"/>
+  <circle cx="8" cy="95" r="1" opacity="0.15"/>
+  <circle cx="75" cy="88" r="1.5" opacity="0.25"/>
+  <circle cx="155" cy="92" r="1" opacity="0.2"/>
+  <circle cx="35" cy="140" r="1.5" opacity="0.2"/>
+  <circle cx="105" cy="135" r="1" opacity="0.25"/>
+  <circle cx="180" cy="148" r="1.5" opacity="0.3"/>
+  <circle cx="60" cy="180" r="1" opacity="0.15"/>
+  <circle cx="140" cy="185" r="1.5" opacity="0.2"/>
+  <circle cx="192" cy="72" r="1" opacity="0.2"/>
+  <circle cx="25" cy="185" r="1.5" opacity="0.25"/>
+  <!-- Edges -->
+  <line x1="12" y1="8" x2="95" y2="15" opacity="0.08"/>
+  <line x1="12" y1="8" x2="45" y2="52" opacity="0.1"/>
+  <line x1="95" y1="15" x2="170" y2="22" opacity="0.07"/>
+  <line x1="95" y1="15" x2="130" y2="45" opacity="0.09"/>
+  <line x1="95" y1="15" x2="45" y2="52" opacity="0.06"/>
+  <line x1="170" y1="22" x2="130" y2="45" opacity="0.08"/>
+  <line x1="170" y1="22" x2="192" y2="72" opacity="0.07"/>
+  <line x1="45" y1="52" x2="75" y2="88" opacity="0.09"/>
+  <line x1="45" y1="52" x2="8" y2="95" opacity="0.07"/>
+  <line x1="130" y1="45" x2="155" y2="92" opacity="0.08"/>
+  <line x1="130" y1="45" x2="75" y2="88" opacity="0.06"/>
+  <line x1="192" y1="72" x2="155" y2="92" opacity="0.09"/>
+  <line x1="8" y1="95" x2="75" y2="88" opacity="0.07"/>
+  <line x1="8" y1="95" x2="35" y2="140" opacity="0.08"/>
+  <line x1="75" y1="88" x2="105" y2="135" opacity="0.09"/>
+  <line x1="75" y1="88" x2="35" y2="140" opacity="0.06"/>
+  <line x1="155" y1="92" x2="105" y2="135" opacity="0.08"/>
+  <line x1="155" y1="92" x2="180" y2="148" opacity="0.07"/>
+  <line x1="35" y1="140" x2="105" y2="135" opacity="0.09"/>
+  <line x1="35" y1="140" x2="60" y2="180" opacity="0.07"/>
+  <line x1="35" y1="140" x2="25" y2="185" opacity="0.06"/>
+  <line x1="105" y1="135" x2="180" y2="148" opacity="0.08"/>
+  <line x1="105" y1="135" x2="140" y2="185" opacity="0.07"/>
+  <line x1="180" y1="148" x2="140" y2="185" opacity="0.09"/>
+  <line x1="60" y1="180" x2="140" y2="185" opacity="0.06"/>
+  <line x1="60" y1="180" x2="25" y2="185" opacity="0.08"/>
+  <!-- Cross-connections for density -->
+  <line x1="12" y1="8" x2="130" y2="45" opacity="0.04"/>
+  <line x1="170" y1="22" x2="155" y2="92" opacity="0.05"/>
+  <line x1="45" y1="52" x2="105" y2="135" opacity="0.04"/>
+  <line x1="8" y1="95" x2="105" y2="135" opacity="0.05"/>
+  <line x1="75" y1="88" x2="180" y2="148" opacity="0.04"/>
+  <line x1="130" y1="45" x2="35" y2="140" opacity="0.03"/>
+  <line x1="192" y1="72" x2="180" y2="148" opacity="0.05"/>
+  <line x1="25" y1="185" x2="140" y2="185" opacity="0.04"/>
+</svg>

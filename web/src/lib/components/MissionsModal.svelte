@@ -62,9 +62,9 @@
 <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onclick={onclose}></div>
 
 <!-- Panel -->
-<div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-5xl max-h-[80vh] overflow-y-auto bg-bourbon-950 rounded-2xl border border-bourbon-800">
+<div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-5xl max-h-[80vh] overflow-y-auto bg-bourbon-900 rounded-2xl border border-bourbon-800">
 	<!-- Header -->
-	<div class="sticky top-0 z-10 bg-bourbon-950/95 backdrop-blur px-6 py-4 border-b border-bourbon-800 flex items-center justify-between">
+	<div class="sticky top-0 z-10 bg-bourbon-900/95 backdrop-blur px-6 py-4 border-b border-bourbon-800 flex items-center justify-between">
 		<h2 class="font-display text-sm text-run-500 uppercase tracking-widest">
 			Squad Missions: {squad}
 		</h2>

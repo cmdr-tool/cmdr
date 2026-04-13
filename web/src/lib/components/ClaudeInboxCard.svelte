@@ -78,7 +78,7 @@
 		<div class="flex flex-col gap-2">
 			{#each $delegationSummaries as summary}
 				<button
-					class="group relative flex items-start gap-3 border-l-2 border-l-run-500 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors border border-bourbon-800 bg-bourbon-950/30 hover:bg-bourbon-800/50 cursor-pointer"
+					class="group relative flex items-start gap-3 border-l-2 border-l-run-500 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors border border-bourbon-800 bg-bourbon-950/30 bg-lattice hover:bg-bourbon-800/50 cursor-pointer"
 					onclick={() => onopenmissions(summary.squad)}
 				>
 					<div class="pt-0.5 shrink-0">
@@ -177,7 +177,7 @@
 
 					<!-- Overlay actions -->
 					{#if task.status !== 'running' && task.status !== 'pending'}
-						<div class="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-3 pl-10 opacity-0 group-hover:opacity-100 transition-opacity bg-linear-to-r from-transparent to-30% to-bourbon-800 rounded-r-lg">
+						<div class="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-3 pl-20 opacity-0 group-hover:opacity-100 transition-opacity bg-linear-to-r from-transparent to-30% to-bourbon-800 rounded-r-lg">
 							<span
 								role="button"
 								tabindex="0"

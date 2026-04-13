@@ -1,119 +1,163 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 @plugin '@tailwindcss/typography';
 
 @theme {
-	/* Dark bourbon palette */
-	--color-bourbon-950: #1a1510;
-	--color-bourbon-900: #241e16;
-	--color-bourbon-800: #332a1f;
-	--color-bourbon-700: #4a3d2e;
-	--color-bourbon-600: #655440;
-	--color-bourbon-500: #897562;
-	--color-bourbon-400: #a89580;
-	--color-bourbon-300: #c4b5a2;
-	--color-bourbon-200: #ddd2c4;
-	--color-bourbon-100: #f0ebe4;
-	--color-bourbon-50: #f8f5f1;
+  /* Dark bourbon palette */
+  --color-bourbon-950: #1a1510;
+  --color-bourbon-900: #241e16;
+  --color-bourbon-800: #332a1f;
+  --color-bourbon-700: #4a3d2e;
+  --color-bourbon-600: #655440;
+  --color-bourbon-500: #897562;
+  --color-bourbon-400: #a89580;
+  --color-bourbon-300: #c4b5a2;
+  --color-bourbon-200: #ddd2c4;
+  --color-bourbon-100: #f0ebe4;
+  --color-bourbon-50: #f8f5f1;
 
-	/* Accent: cmd purple */
-	--color-cmd-900: #1a1628;
-	--color-cmd-700: #26215C;
-	--color-cmd-600: #3d3690;
-	--color-cmd-500: #534AB7;
-	--color-cmd-400: #7F77DD;
-	--color-cmd-300: #EEEDFE;
+  /* Accent: cmd purple */
+  --color-cmd-900: #1a1628;
+  --color-cmd-700: #26215c;
+  --color-cmd-600: #3d3690;
+  --color-cmd-500: #534ab7;
+  --color-cmd-400: #7f77dd;
+  --color-cmd-300: #eeedfe;
 
-	/* Accent: run amber */
-	--color-run-700: #633806;
-	--color-run-600: #b36f0a;
-	--color-run-500: #EF9F27;
-	--color-run-400: #FAC775;
-	--color-run-300: #FDE9C4;
+  /* Accent: run amber */
+  --color-run-700: #633806;
+  --color-run-600: #b36f0a;
+  --color-run-500: #ef9f27;
+  --color-run-400: #fac775;
+  --color-run-300: #fde9c4;
 
-	/* Typography */
-	--font-display: 'Orbitron', sans-serif;
-	--font-body: 'Space Grotesk', sans-serif;
-	--font-sans: 'Space Grotesk', sans-serif;
+  /* Typography */
+  --font-display: "Orbitron", sans-serif;
+  --font-body: "Space Grotesk", sans-serif;
+  --font-sans: "Space Grotesk", sans-serif;
 }
 
 @theme {
-	--animate-fade-out: fade-out 1s 2s ease-out forwards;
+  --animate-fade-out: fade-out 1s 2s ease-out forwards;
 }
 
 @keyframes fade-out {
-	from { opacity: 1; }
-	to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 /* Difft syntax-aware diff colors */
-.diff-add { color: #4ade80; }
-.diff-del { color: #f87171; }
-.diff-file { color: #facc15; }
-.diff-info { color: #60a5fa; }
-.diff-meta { color: #c084fc; }
-.diff-hunk { color: #22d3ee; }
-.diff-dim { opacity: 0.5; }
+.diff-add {
+  color: #4ade80;
+}
+.diff-del {
+  color: #f87171;
+}
+.diff-file {
+  color: #facc15;
+}
+.diff-info {
+  color: #60a5fa;
+}
+.diff-meta {
+  color: #c084fc;
+}
+.diff-hunk {
+  color: #22d3ee;
+}
+.diff-dim {
+  opacity: 0.5;
+}
 
 /* Grip dot pattern (drag handles) */
 .bg-grip {
-	background-image: radial-gradient(circle, var(--color-bourbon-700) 0.75px, transparent 0.75px);
-	background-size: 4px 4px;
+  background-image: radial-gradient(
+    circle,
+    var(--color-bourbon-700) 0.75px,
+    transparent 0.75px
+  );
+  background-size: 4px 4px;
 }
 .bg-grip-hover {
-	background-image: radial-gradient(circle, var(--color-bourbon-500) 0.75px, transparent 0.75px);
-	background-size: 4px 4px;
+  background-image: radial-gradient(
+    circle,
+    var(--color-bourbon-500) 0.75px,
+    transparent 0.75px
+  );
+  background-size: 4px 4px;
 }
 
 /* Background patterns */
 .bg-hatch {
-	background-color: rgba(101,84,64,0.12);
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Cpath d='M0 6L6 0' stroke='%23655440' stroke-opacity='0.4' stroke-width='1'/%3E%3C/svg%3E");
-	background-size: 6px 6px;
+  background-color: rgba(101, 84, 64, 0.12);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Cpath d='M0 6L6 0' stroke='%23655440' stroke-opacity='0.4' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 6px 6px;
+}
+
+.bg-lattice {
+  background-image:
+    linear-gradient(90deg, var(--color-bourbon-950) 35%, transparent 80%),
+    url("/lattice.svg");
+  background-size:
+    100% 100%,
+    200px 200px;
 }
 
 .bg-crosshair {
-	background-image:
-		linear-gradient(rgba(239,159,39,0.05) 1px, transparent 1px),
-		linear-gradient(90deg, rgba(239,159,39,0.05) 1px, transparent 1px),
-		linear-gradient(rgba(239,159,39,0.12) 1px, transparent 1px),
-		linear-gradient(90deg, rgba(239,159,39,0.12) 1px, transparent 1px);
-	background-size: 14px 14px, 14px 14px, 70px 70px, 70px 70px;
+  background-image:
+    linear-gradient(rgba(239, 159, 39, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(239, 159, 39, 0.05) 1px, transparent 1px),
+    linear-gradient(rgba(239, 159, 39, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(239, 159, 39, 0.12) 1px, transparent 1px);
+  background-size:
+    14px 14px,
+    14px 14px,
+    70px 70px,
+    70px 70px;
 }
 
 /* Component classes — reusable design system patterns */
 @layer components {
-	/* Chiclet buttons: size variants with default color, compose with -danger/-alt for color */
-	.btn-chiclet, .btn-chiclet-sm {
-		@apply shrink-0 flex items-center justify-center
+  /* Chiclet buttons: size variants with default color, compose with -danger/-alt for color */
+  .btn-chiclet,
+  .btn-chiclet-sm {
+    @apply shrink-0 flex items-center justify-center
 			rounded-md border-t
 			hover:brightness-110
 			active:translate-y-0.5 active:shadow-none
 			transition-all cursor-pointer
 			bg-cmd-500 text-cmd-300 border-t-cmd-400/50
 			shadow-[0_2px_0_0_var(--color-cmd-700)];
-	}
+  }
 
-	.btn-chiclet { @apply w-8 h-8; }
-	.btn-chiclet-sm { @apply w-6 h-6; }
+  .btn-chiclet {
+    @apply w-8 h-8;
+  }
+  .btn-chiclet-sm {
+    @apply w-6 h-6;
+  }
 
-	.btn-chiclet-danger {
-		@apply bg-red-900 text-red-300 border-t-red-700/50
+  .btn-chiclet-danger {
+    @apply bg-red-900 text-red-300 border-t-red-700/50
 			shadow-[0_2px_0_0_var(--color-red-950)];
-	}
+  }
 
-	.btn-chiclet-alt {
-		@apply bg-run-500 text-run-700 border-t-run-400/50
+  .btn-chiclet-alt {
+    @apply bg-run-500 text-run-700 border-t-run-400/50
 			shadow-[0_2px_0_0_var(--color-run-700)];
-	}
+  }
 
-	.insight-callout {
-		@apply border border-cmd-700 rounded-xl my-4 overflow-hidden;
-	}
-	.insight-header {
-		@apply font-display text-[10px] font-bold uppercase tracking-widest
+  .insight-callout {
+    @apply border border-cmd-700 rounded-xl my-4 overflow-hidden;
+  }
+  .insight-header {
+    @apply font-display text-[10px] font-bold uppercase tracking-widest
 			text-cmd-400 px-4 py-2 border-b border-cmd-700 bg-cmd-700/20;
-	}
-	.insight-body {
-		@apply px-4 py-3 bg-cmd-700/10;
-	}
+  }
+  .insight-body {
+    @apply px-4 py-3 bg-cmd-700/10;
+  }
 }
