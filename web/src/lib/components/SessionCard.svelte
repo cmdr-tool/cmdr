@@ -220,7 +220,7 @@
 			{#each unmatchedClaude as instance}
 				<div class="flex items-center gap-3 bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5 min-w-0">
 					<span class="text-cmd-400 shrink-0"><Sparkles size={14} /></span>
-					<span class="font-semibold text-bourbon-100 shrink-0">{instance.project}</span>
+					<span class="text-xs font-semibold text-bourbon-100 shrink-0">{instance.project}</span>
 					<span
 						class="text-xs text-bourbon-600 font-mono truncate min-w-0"
 						style="direction: rtl; text-align: left;"

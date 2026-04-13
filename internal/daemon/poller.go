@@ -169,8 +169,14 @@ func enrichAndPublishClaude(bus *EventBus, tmuxSessions []tmux.Session) []claude
 		return nil
 	}
 
-	claudePanes := collectClaudePanes(tmuxSessions)
 	ppidMap := getParentPIDs()
+
+	// Collect panes that have a claude process as a direct or indirect child
+	claudePIDs := make(map[int]bool, len(sessions))
+	for _, s := range sessions {
+		claudePIDs[s.PID] = true
+	}
+	claudePanes := collectClaudePanes(tmuxSessions, claudePIDs, ppidMap)
 
 	shellPIDs := make(map[int]*claudePane)
 	for i := range claudePanes {
@@ -193,12 +199,28 @@ type claudePane struct {
 	shellPID int    // PID of the shell process in the pane
 }
 
-func collectClaudePanes(sessions []tmux.Session) []claudePane {
+// collectClaudePanes returns panes that are running claude, either directly
+// (pane command is "claude") or indirectly (e.g. bash -c '... | claude ...').
+func collectClaudePanes(sessions []tmux.Session, claudePIDs map[int]bool, ppidMap map[int]int) []claudePane {
+	// For each pane, check if any known claude PID is a descendant
+	paneAncestor := func(panePID int) bool {
+		for cPID := range claudePIDs {
+			visited := make(map[int]bool)
+			for cur := cPID; cur > 1 && !visited[cur]; cur = ppidMap[cur] {
+				visited[cur] = true
+				if cur == panePID {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
 	var panes []claudePane
 	for _, s := range sessions {
 		for _, w := range s.Windows {
 			for _, p := range w.Panes {
-				if p.Command == "claude" {
+				if p.Command == "claude" || paneAncestor(p.PID) {
 					target := fmt.Sprintf("%s:%d.%d", s.Name, w.Index, p.Index)
 					panes = append(panes, claudePane{target: target, shellPID: p.PID})
 				}
