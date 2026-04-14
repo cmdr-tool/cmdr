@@ -414,6 +414,7 @@ export interface ClaudeTask {
 	repoPath: string;
 	commitSha: string;
 	title?: string;
+	snippet?: string;
 	prUrl?: string;
 	intent?: string;
 	errorMsg?: string;

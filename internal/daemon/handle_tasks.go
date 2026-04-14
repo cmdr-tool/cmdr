@@ -46,6 +46,7 @@ func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
 			StartedAt   *string `json:"startedAt"`
 			CompletedAt *string `json:"completedAt"`
 			Intent      string  `json:"intent,omitempty"`
+			Snippet     string  `json:"snippet,omitempty"`
 			prompt      string
 		}
 
@@ -55,6 +56,10 @@ func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
 			if err := rows.Scan(&t.ID, &t.Type, &t.Status, &t.RepoPath, &t.CommitSHA, &t.Title, &t.PRUrl,
 				&t.ErrorMsg, &t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.prompt, &t.Intent); err != nil {
 				continue
+			}
+			// Derive a short snippet from the prompt for frontend fallback title
+			if t.Title == "" && t.prompt != "" {
+				t.Snippet = directiveTitle(t.prompt)
 			}
 			taskList = append(taskList, t)
 		}
