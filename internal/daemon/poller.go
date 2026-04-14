@@ -322,7 +322,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 			var existingResult string
 			db.QueryRow(`SELECT COALESCE(result, '') FROM claude_tasks WHERE id=?`, t.id).Scan(&existingResult)
 			if existingResult == "" {
-				worktreeName := fmt.Sprintf("directive-%d", t.id)
+				worktreeName := buildWorktreeName("directive", t.id)
 				if adr := scrapeADRFromWorktree(t.repoPath, worktreeName, t.startedAt); adr != "" {
 					now := time.Now().Format(time.RFC3339)
 					title := extractTitle(adr)

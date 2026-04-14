@@ -284,7 +284,7 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 	// Write optional marker file
 	var worktreeName string
 	if cfg.WorktreePrefix != "" {
-		worktreeName = fmt.Sprintf("%s-%d", cfg.WorktreePrefix, cfg.TaskID)
+		worktreeName = buildWorktreeName(cfg.WorktreePrefix, cfg.TaskID)
 		if cfg.MarkerDir != "" {
 			os.MkdirAll(cfg.MarkerDir, 0o700)
 			os.WriteFile(filepath.Join(cfg.MarkerDir, worktreeName), []byte(strconv.Itoa(cfg.TaskID)), 0o644)
@@ -631,6 +631,34 @@ func resolveImageRefs(content string) string {
 	})
 }
 
+// --- Worktree naming (user-namespaced) ---
+
+// ghUser caches the GitHub username for branch namespacing.
+var ghUser string
+
+// getGHUser returns the cached GitHub username, fetching it once via `gh api user`.
+func getGHUser() string {
+	if ghUser != "" {
+		return ghUser
+	}
+	out, err := exec.Command("gh", "api", "user", "-q", ".login").Output()
+	if err != nil {
+		return ""
+	}
+	ghUser = strings.TrimSpace(string(out))
+	return ghUser
+}
+
+// buildWorktreeName returns a namespaced worktree/branch name: "<ghUser>/<prefix>-<taskID>".
+// Falls back to "<prefix>-<taskID>" if the GitHub username can't be determined.
+func buildWorktreeName(prefix string, taskID int) string {
+	base := fmt.Sprintf("%s-%d", prefix, taskID)
+	if user := getGHUser(); user != "" {
+		return user + "/" + base
+	}
+	return base
+}
+
 // --- Worktree cleanup (unified) ---
 
 // taskWorktreeInfo returns the worktree name and marker path for a task based on its type.
@@ -640,15 +668,15 @@ func taskWorktreeInfo(taskType, status string, taskID int) (worktreeName string,
 		return
 	}
 	if taskType == "directive" && status == "implementing" {
-		worktreeName = fmt.Sprintf("impl-%d", taskID)
+		worktreeName = buildWorktreeName("impl", taskID)
 		return
 	}
 	switch taskType {
 	case "directive":
-		worktreeName = fmt.Sprintf("directive-%d", taskID)
+		worktreeName = buildWorktreeName("directive", taskID)
 	default:
 		// review-triggered refactors
-		worktreeName = fmt.Sprintf("refactor-review-%d", taskID)
+		worktreeName = buildWorktreeName("refactor-review", taskID)
 		markerPath = filepath.Join(os.Getenv("HOME"), ".cmdr", "refactors", worktreeName)
 	}
 	return
