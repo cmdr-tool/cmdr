@@ -1,4 +1,10 @@
 @import "tailwindcss";
+
+@property --shine-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
 @plugin '@tailwindcss/typography';
 
 @theme {
@@ -160,6 +166,37 @@
   .btn-chiclet-alt {
     @apply bg-run-500 text-run-700 border-t-run-400/50
 			shadow-[0_2px_0_0_var(--color-run-700)];
+  }
+
+  /* Animated border shine for active squad cards */
+  .border-shine {
+    --shine-from: var(--color-run-500);
+    position: relative;
+    border-color: transparent;
+  }
+  .border-shine::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(
+      from var(--shine-angle, 0deg),
+      transparent 0%,
+      var(--shine-from) 10%,
+      transparent 20%,
+      transparent 100%
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: shine-rotate 3s linear infinite;
+    pointer-events: none;
+  }
+
+  @keyframes shine-rotate {
+    to { --shine-angle: 360deg; }
   }
 
   .insight-callout {

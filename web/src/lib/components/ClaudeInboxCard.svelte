@@ -78,7 +78,8 @@
 		<div class="flex flex-col gap-2">
 			{#each $delegationSummaries as summary}
 				<button
-					class="group relative flex items-start gap-3 border-l-2 border-l-run-500 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors border border-bourbon-800 bg-bourbon-950/30 bg-lattice hover:bg-bourbon-800/50 cursor-pointer"
+					class="group relative flex items-start gap-3 border-l-2 border-l-run-500 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors border bg-bourbon-950/30 bg-lattice hover:bg-bourbon-800/50 cursor-pointer
+						{summary.activeCount > 0 ? 'border-shine' : 'border-bourbon-800'}"
 					onclick={() => onopenmissions(summary.squad)}
 				>
 					<div class="pt-0.5 shrink-0">
