@@ -41,7 +41,7 @@ func handleCreateDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		id, _ := result.LastInsertId()
 
 		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-			"id": int(id), "status": "draft", "snippet": directiveTitle(body.Content),
+			"id": int(id), "status": "draft",
 		}})
 
 		w.Header().Set("Content-Type", "application/json")
@@ -76,10 +76,11 @@ func handleSaveDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		db.Exec(`UPDATE claude_tasks SET repo_path=?, prompt=?, intent=? WHERE id=? AND status='draft'`,
 			body.RepoPath, body.Content, body.Intent, body.ID)
 
-		snippet := directiveTitle(body.Content)
-		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-			"id": body.ID, "status": "draft", "repoPath": body.RepoPath, "intent": body.Intent, "snippet": snippet,
-		}})
+		if body.RepoPath != oldRepo || body.Intent != oldIntent {
+			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				"id": body.ID, "status": "draft", "repoPath": body.RepoPath, "intent": body.Intent,
+			}})
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

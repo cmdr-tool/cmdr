@@ -38,10 +38,6 @@
 	}
 
 	function fallbackTitle(task: ClaudeTask): string {
-		if (task.snippet) {
-			if (task.intent) return `${task.intent.replaceAll('-', ' ')}: ${task.snippet}`;
-			return task.snippet;
-		}
 		const parts: string[] = [];
 		if (task.intent) parts.push(task.intent.replaceAll('-', ' '));
 		if (task.repoPath) parts.push(repoName(task.repoPath));
