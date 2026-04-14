@@ -28,10 +28,11 @@ func handleCreateDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&body)
 
 		now := time.Now().Format(time.RFC3339)
+		title := directiveTitle(body.Content)
 		result, err := db.Exec(
-			`INSERT INTO claude_tasks (type, status, repo_path, prompt, created_at, started_at)
-			 VALUES ('directive', 'draft', ?, ?, ?, ?)`,
-			body.RepoPath, body.Content, now, now,
+			`INSERT INTO claude_tasks (type, status, repo_path, prompt, title, created_at, started_at)
+			 VALUES ('directive', 'draft', ?, ?, ?, ?, ?)`,
+			body.RepoPath, body.Content, title, now, now,
 		)
 		if err != nil {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
@@ -73,8 +74,9 @@ func handleSaveDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		db.QueryRow(`SELECT COALESCE(repo_path, ''), COALESCE(intent, '') FROM claude_tasks WHERE id=?`, body.ID).
 			Scan(&oldRepo, &oldIntent)
 
-		db.Exec(`UPDATE claude_tasks SET repo_path=?, prompt=?, intent=? WHERE id=? AND status='draft'`,
-			body.RepoPath, body.Content, body.Intent, body.ID)
+		title := directiveTitle(body.Content)
+		db.Exec(`UPDATE claude_tasks SET repo_path=?, prompt=?, intent=?, title=? WHERE id=? AND status='draft'`,
+			body.RepoPath, body.Content, body.Intent, title, body.ID)
 
 		if body.RepoPath != oldRepo || body.Intent != oldIntent {
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
