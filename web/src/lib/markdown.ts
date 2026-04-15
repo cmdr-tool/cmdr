@@ -20,7 +20,9 @@ marked.setOptions({
 			const highlighted = grammar
 				? Prism.highlight(text, grammar, language)
 				: text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-			return `<pre class="language-${language}"><code class="language-${language}">${highlighted}</code></pre>`;
+			return `<pre class="language-${language} group/pre relative"><code class="language-${language}">${highlighted}</code>`
+				+ `<button onclick="let c=this.parentElement.querySelector('code').textContent;navigator.clipboard.writeText(c);this.textContent='copied!';setTimeout(()=>this.textContent='copy',1500)" class="absolute top-2 right-2 invisible group-hover/pre:visible text-[10px] font-mono text-bourbon-500 hover:text-bourbon-200 bg-bourbon-800 hover:bg-bourbon-700 border border-bourbon-700 px-2 py-0.5 rounded cursor-pointer transition-colors" aria-label="Copy code">copy</button>`
+				+ `</pre>`;
 		}
 	})
 });
