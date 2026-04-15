@@ -27,7 +27,7 @@
       <key>CMDR_OLLAMA_URL</key>
       <string>https://ollama.106source.ca</string>
       <key>CMDR_OLLAMA_MODEL</key>
-      <string>gemma4</string>
+      <string>gemma4:e4b</string>
     </dict>
   </dict>
 </plist>
