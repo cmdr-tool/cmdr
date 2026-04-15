@@ -249,6 +249,7 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 	mux.HandleFunc("/api/claude/tasks/dismiss", handleDismissClaudeTask(database, bus))
 	mux.HandleFunc("/api/claude/tasks/cancel", handleCancelTask(database, bus))
 	mux.HandleFunc("/api/claude/tasks/resolve", handleResolveTask(database, bus))
+	mux.HandleFunc("/api/claude/tasks/spawn", handleSpawnTask(database, bus))
 
 	// Directives
 	mux.HandleFunc("/api/directives/create", handleCreateDirective(database, bus))

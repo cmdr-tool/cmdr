@@ -24,7 +24,7 @@ import (
 
 func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		query := `SELECT id, type, status, repo_path, commit_sha, COALESCE(title, ''), COALESCE(pr_url, ''), error_msg, created_at, started_at, completed_at, COALESCE(prompt, ''), COALESCE(intent, '')
+		query := `SELECT id, type, status, repo_path, commit_sha, COALESCE(title, ''), COALESCE(pr_url, ''), error_msg, created_at, started_at, completed_at, COALESCE(prompt, ''), COALESCE(intent, ''), parent_id
 			FROM claude_tasks ORDER BY created_at DESC LIMIT 50`
 		rows, err := db.Query(query)
 		if err != nil {
@@ -46,6 +46,7 @@ func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
 			StartedAt   *string `json:"startedAt"`
 			CompletedAt *string `json:"completedAt"`
 			Intent      string  `json:"intent,omitempty"`
+			ParentID    *int    `json:"parentId,omitempty"`
 			prompt      string
 		}
 
@@ -53,7 +54,7 @@ func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
 		for rows.Next() {
 			var t task
 			if err := rows.Scan(&t.ID, &t.Type, &t.Status, &t.RepoPath, &t.CommitSHA, &t.Title, &t.PRUrl,
-				&t.ErrorMsg, &t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.prompt, &t.Intent); err != nil {
+				&t.ErrorMsg, &t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.prompt, &t.Intent, &t.ParentID); err != nil {
 				continue
 			}
 			taskList = append(taskList, t)
@@ -574,6 +575,138 @@ func handleStartImplementation(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"target": res.Target, "session": res.Session, "window": res.Window})
+	}
+}
+
+// --- Spawn child task from completed parent ---
+
+// handleSpawnTask creates a new child task from a completed parent's result.
+// The child inherits repo_path and gets a prompt built from the parent's context.
+func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			ParentID  int    `json:"parentId"`
+			Intent    string `json:"intent"`    // defaults to "implementation"
+			CommitADR bool   `json:"commitADR"` // for ADR→implementation: commit ADR to repo
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ParentID == 0 {
+			http.Error(w, `{"error":"missing parentId"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Load parent task
+		var parentType, parentIntent, parentResult, repoPath, commitSha string
+		err := db.QueryRow(
+			`SELECT type, COALESCE(intent, ''), COALESCE(result, ''), repo_path, COALESCE(commit_sha, '')
+			 FROM claude_tasks WHERE id = ? AND status = 'completed'`,
+			body.ParentID,
+		).Scan(&parentType, &parentIntent, &parentResult, &repoPath, &commitSha)
+		if err != nil {
+			http.Error(w, `{"error":"completed parent task not found"}`, http.StatusNotFound)
+			return
+		}
+
+		if checkUnpushed(w, repoPath) {
+			return
+		}
+
+		// Default intent for spawned tasks
+		intent := body.Intent
+		if intent == "" {
+			intent = "implementation"
+		}
+
+		// Build child prompt based on parent context
+		var childPrompt string
+		switch {
+		case parentIntent == "new-feature":
+			// ADR → implementation
+			if body.CommitADR {
+				childPrompt = fmt.Sprintf(
+					"## Approved ADR\n\n"+
+						"The following ADR has been approved. Commit it to `docs/` (follow the existing `ADR-NNNN-name.md` naming convention) as your first action before implementing.\n\n"+
+						"```markdown\n%s\n```\n\n"+
+						"## Instructions\n\nImplement the feature described in this ADR.",
+					parentResult,
+				)
+			} else {
+				childPrompt = fmt.Sprintf(
+					"## Approved ADR\n\n"+
+						"The following ADR has been approved for implementation. Do NOT commit the ADR itself to the repo — it is for context only.\n\n"+
+						"%s\n\n"+
+						"## Instructions\n\nImplement the feature described in this ADR.",
+					parentResult,
+				)
+			}
+
+		case parentType == "review":
+			// Review findings → implementation
+			shortSha := commitSha
+			if len(shortSha) > 7 {
+				shortSha = shortSha[:7]
+			}
+			childPrompt = fmt.Sprintf(
+				"Address the following code review findings from commit %s.\n\n"+
+					"## How to read these findings\n\n"+
+					"- Each finding has a priority, location, issue description, and a step-by-step plan\n"+
+					"- If a finding contains a `> User response:` blockquote, treat it as explicit guidance — follow it\n"+
+					"- If a finding has multiple valid approaches and no user response, pick the cleanest one\n"+
+					"- If a finding was removed from the review, the reviewer decided it's not applicable — skip it\n"+
+					"- Only ask me if there is genuine ambiguity that requires a judgment call\n\n"+
+					"## Review Findings\n\n%s",
+				shortSha, parentResult,
+			)
+
+		default:
+			// Generic: pass parent result as context
+			childPrompt = fmt.Sprintf("## Context from parent task\n\n%s\n\n## Instructions\n\nImplement the changes described above.", parentResult)
+		}
+
+		// Create child task
+		now := time.Now().Format(time.RFC3339)
+		title := directiveTitle(childPrompt)
+		res, err := db.Exec(
+			`INSERT INTO claude_tasks (type, status, repo_path, commit_sha, prompt, title, intent, parent_id, created_at, started_at)
+			 VALUES ('directive', 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`,
+			repoPath, commitSha, childPrompt, title, intent, body.ParentID, now, now,
+		)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+
+		childID, _ := res.LastInsertId()
+		id := int(childID)
+
+		// Launch immediately
+		launchRes, err := launchTask(db, bus, TaskLaunchConfig{
+			TaskID:       id,
+			Intent:       intent,
+			UserPrompt:   childPrompt,
+			RepoPath:     repoPath,
+			WindowPrefix: intent,
+		})
+		if err != nil {
+			log.Printf("cmdr: spawn from task %d failed: %v", body.ParentID, err)
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+
+		enhanceTitle(db, bus, id, truncate(childPrompt, 500))
+
+		log.Printf("cmdr: spawned task %d from parent %d (intent %q)", id, body.ParentID, intent)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":      id,
+			"target":  launchRes.Target,
+			"session": launchRes.Session,
+		})
 	}
 }
 

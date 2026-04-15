@@ -420,6 +420,7 @@ export interface ClaudeTask {
 	createdAt: string;
 	startedAt: string | null;
 	completedAt: string | null;
+	parentId?: number;
 }
 
 export interface ClaudeTaskResult {
@@ -556,6 +557,21 @@ export async function submitDirective(id: number, intent?: string): Promise<{ st
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ id, intent })
+	});
+	const data = await res.json();
+	if (!res.ok) {
+		const err = new Error(data.error || `${res.status} ${res.statusText}`) as Error & { unpushed?: number };
+		if (data.unpushed) err.unpushed = data.unpushed;
+		throw err;
+	}
+	return data;
+}
+
+export async function spawnTask(parentId: number, intent?: string, options?: { commitADR?: boolean }): Promise<{ id: number; target: string; session: string }> {
+	const res = await fetch(`${BASE}/claude/tasks/spawn`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ parentId, intent, commitADR: options?.commitADR })
 	});
 	const data = await res.json();
 	if (!res.ok) {
