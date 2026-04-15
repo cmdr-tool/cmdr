@@ -170,7 +170,7 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		var res sql.Result
 		var err error
 		if body.All == "completed" {
-			res, err = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('done', 'failed')`)
+			res, err = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('done', 'failed', 'completed') AND type != 'delegation'`)
 		} else if body.ID > 0 {
 			res, err = db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, body.ID)
 		} else {
@@ -201,11 +201,11 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 // killTaskWindow kills the tmux window for a task if it's still alive.
 func killTaskWindow(db *sql.DB, taskID int) {
-	var taskType, status string
-	if err := db.QueryRow(`SELECT type, status FROM claude_tasks WHERE id = ?`, taskID).Scan(&taskType, &status); err != nil {
+	var taskType, intent, status string
+	if err := db.QueryRow(`SELECT type, COALESCE(intent, ''), status FROM claude_tasks WHERE id = ?`, taskID).Scan(&taskType, &intent, &status); err != nil {
 		return
 	}
-	windowName := taskWindowName(taskType, status, taskID)
+	windowName := taskWindowName(taskType, intent, status, taskID)
 
 	// Find the window across all sessions and kill it
 	sessions, err := tmux.ListSessions()
@@ -263,9 +263,8 @@ type TaskLaunchConfig struct {
 	Intent         string // optional intent ID for --append-system-prompt
 	UserPrompt     string // the content to send to Claude
 	RepoPath       string
-	Session        string // explicit session name, or "" for auto-detect from repo
-	WindowPrefix   string // e.g. "review", "task" → "review-42", "task-42"
-	WorktreePrefix string // e.g. "refactor-review", "directive" → "refactor-review-42"
+	WindowPrefix   string // e.g. "refactor", "task" → "refactor-42", "task-42"
+	WorktreePrefix string // overrides WindowPrefix for worktree naming; defaults to WindowPrefix if empty
 	MarkerDir      string // optional dir for writing task ID marker file (e.g. ~/.cmdr/refactors)
 	RunningStatus  string // status to set on launch: "running" or "refactoring"
 }
@@ -281,10 +280,16 @@ type TaskLaunchResult struct {
 func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResult, error) {
 	windowName := fmt.Sprintf("%s-%d", cfg.WindowPrefix, cfg.TaskID)
 
+	// Worktree prefix defaults to window prefix when not explicitly set
+	worktreePrefix := cfg.WorktreePrefix
+	if worktreePrefix == "" {
+		worktreePrefix = cfg.WindowPrefix
+	}
+
 	// Write optional marker file
 	var worktreeName string
-	if cfg.WorktreePrefix != "" {
-		worktreeName = buildWorktreeName(cfg.WorktreePrefix, cfg.TaskID)
+	if worktreePrefix != "" {
+		worktreeName = buildWorktreeName(worktreePrefix, cfg.TaskID)
 		if cfg.MarkerDir != "" {
 			os.MkdirAll(cfg.MarkerDir, 0o700)
 			os.WriteFile(filepath.Join(cfg.MarkerDir, worktreeName), []byte(strconv.Itoa(cfg.TaskID)), 0o644)
@@ -331,26 +336,21 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 			cmd = fmt.Sprintf("exec %s < '%s'", baseCmd, promptFile)
 		}
 	} else {
-		cmd = fmt.Sprintf("exec %s < '%s'", baseCmd, promptFile)
+		// No explicit intent — apply generic guidance as baseline
+		if gp, err := prompts.GetIntentPrompt("generic"); err == nil {
+			escapedGeneric := strings.ReplaceAll(gp, "'", "'\\''")
+			cmd = fmt.Sprintf("exec %s --append-system-prompt '%s' < '%s'", baseCmd, escapedGeneric, promptFile)
+		} else {
+			cmd = fmt.Sprintf("exec %s < '%s'", baseCmd, promptFile)
+		}
 	}
 
 	// Resolve session and create window
-	var target string
-	var sessionName string
-	var err error
-
-	if cfg.Session != "" {
-		// Explicit session (e.g. "claude_refactor")
-		target, err = tmux.CreateRefactorWindow(windowName, cfg.RepoPath, cmd)
-		sessionName = cfg.Session
-	} else {
-		// Auto-detect session from repo path
-		sessionName, err = findOrCreateSession(cfg.RepoPath)
-		if err != nil {
-			return TaskLaunchResult{}, fmt.Errorf("session: %w", err)
-		}
-		target, err = tmux.CreateDraftWindow(sessionName, windowName, cfg.RepoPath, cmd)
+	sessionName, err := findOrCreateSession(cfg.RepoPath)
+	if err != nil {
+		return TaskLaunchResult{}, fmt.Errorf("session: %w", err)
 	}
+	target, err := tmux.CreateDraftWindow(sessionName, windowName, cfg.RepoPath, cmd)
 	if err != nil {
 		return TaskLaunchResult{}, fmt.Errorf("window: %w", err)
 	}
@@ -421,9 +421,7 @@ func handleStartRefactor(db *sql.DB, bus *EventBus) http.HandlerFunc {
 					"## Review Findings\n\n%s",
 				shortSha, result,
 			),
-			Session:        "claude_refactor",
-			WindowPrefix:   "review",
-			WorktreePrefix: "refactor-review",
+			WindowPrefix:   "refactor",
 			MarkerDir:      filepath.Join(os.Getenv("HOME"), ".cmdr", "refactors"),
 			RunningStatus:  "refactoring",
 		})
@@ -494,8 +492,7 @@ func handleStartImplementation(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			Intent:         "new-feature",
 			RepoPath:       repoPath,
 			UserPrompt:     prompt,
-			WindowPrefix:   "impl",
-			WorktreePrefix: "impl",
+			WindowPrefix:   "new-feature-impl",
 			RunningStatus:  "implementing",
 		})
 		if err != nil {
@@ -661,22 +658,25 @@ func buildWorktreeName(prefix string, taskID int) string {
 
 // --- Worktree cleanup (unified) ---
 
-// taskWorktreeInfo returns the worktree name and marker path for a task based on its type.
-func taskWorktreeInfo(taskType, status string, taskID int) (worktreeName string, markerPath string) {
-	// Delegations don't use worktrees
+// taskWorktreeInfo returns the worktree name and marker path for a task.
+// Uses the same intent-based naming as taskWindowName for consistency.
+func taskWorktreeInfo(taskType, intent, status string, taskID int) (worktreeName string, markerPath string) {
+	// Delegations don't use worktrees (yet — will migrate to launchTask)
 	if taskType == "delegation" {
 		return
 	}
-	if taskType == "directive" && status == "implementing" {
-		worktreeName = buildWorktreeName("impl", taskID)
+	if status == "implementing" {
+		worktreeName = buildWorktreeName("new-feature-impl", taskID)
 		return
 	}
-	switch taskType {
-	case "directive":
-		worktreeName = buildWorktreeName("directive", taskID)
-	default:
-		// review-triggered refactors
-		worktreeName = buildWorktreeName("refactor-review", taskID)
+	// Derive prefix from intent; fall back to "task" for no-intent directives
+	prefix := "task"
+	if intent != "" {
+		prefix = intent
+	}
+	worktreeName = buildWorktreeName(prefix, taskID)
+	// Review-triggered refactors use a marker file for tracking
+	if taskType != "directive" {
 		markerPath = filepath.Join(os.Getenv("HOME"), ".cmdr", "refactors", worktreeName)
 	}
 	return
@@ -684,9 +684,9 @@ func taskWorktreeInfo(taskType, status string, taskID int) (worktreeName string,
 
 // cleanupTaskWorktree removes the worktree (and marker file if applicable) for a single task.
 func cleanupTaskWorktree(db *sql.DB, taskID int) {
-	var repoPath, taskType, status string
-	err := db.QueryRow(`SELECT repo_path, type, status FROM claude_tasks WHERE id = ?`, taskID).
-		Scan(&repoPath, &taskType, &status)
+	var repoPath, taskType, intent, status string
+	err := db.QueryRow(`SELECT repo_path, type, COALESCE(intent, ''), status FROM claude_tasks WHERE id = ?`, taskID).
+		Scan(&repoPath, &taskType, &intent, &status)
 	if err != nil {
 		return
 	}
@@ -695,24 +695,24 @@ func cleanupTaskWorktree(db *sql.DB, taskID int) {
 		return
 	}
 
-	worktreeName, markerPath := taskWorktreeInfo(taskType, status, taskID)
+	worktreeName, markerPath := taskWorktreeInfo(taskType, intent, status, taskID)
 	removeWorktree(repoPath, taskID, worktreeName, markerPath)
 }
 
 // cleanupAllTaskWorktrees removes worktrees for all completed/resolved/refactoring tasks.
 func cleanupAllTaskWorktrees(db *sql.DB) {
-	rows, err := db.Query(`SELECT id, type, repo_path, status FROM claude_tasks WHERE status IN ('completed', 'resolved', 'refactoring', 'implementing')`)
+	rows, err := db.Query(`SELECT id, type, repo_path, COALESCE(intent, ''), status FROM claude_tasks WHERE status IN ('completed', 'resolved', 'refactoring', 'implementing')`)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id int
-		var taskType, repoPath, status string
-		if err := rows.Scan(&id, &taskType, &repoPath, &status); err != nil {
+		var taskType, repoPath, intent, status string
+		if err := rows.Scan(&id, &taskType, &repoPath, &intent, &status); err != nil {
 			continue
 		}
-		worktreeName, markerPath := taskWorktreeInfo(taskType, status, id)
+		worktreeName, markerPath := taskWorktreeInfo(taskType, intent, status, id)
 		removeWorktree(repoPath, id, worktreeName, markerPath)
 	}
 }

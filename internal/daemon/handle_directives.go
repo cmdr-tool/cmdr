@@ -123,14 +123,18 @@ func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
+		// Derive window prefix from intent; fall back to "task" for no-intent directives
+		windowPrefix := "task"
+		if body.Intent != "" {
+			windowPrefix = body.Intent
+		}
+
 		res, err := launchTask(db, bus, TaskLaunchConfig{
 			TaskID:         body.ID,
 			Intent:         body.Intent,
 			UserPrompt:     prompt,
 			RepoPath:       repoPath,
-			Session:        "", // auto-detect from repo
-			WindowPrefix:   "task",
-			WorktreePrefix: "directive",
+			WindowPrefix:   windowPrefix,
 		})
 		if err != nil {
 			log.Printf("cmdr: directive/submit: %v", err)

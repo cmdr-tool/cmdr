@@ -102,22 +102,25 @@
 				</button>
 			{/each}
 			{#each $visibleTasksStore as task}
-				<button
-					class="group relative flex items-start gap-3 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors hover:bg-bourbon-800/50
-						{task.type === 'ask' || task.status === 'draft' || (task.status === 'resolved' && task.prUrl) || ((task.status === 'completed' || task.status === 'done') && (task.type === 'review' || task.intent === 'new-feature')) ? 'cursor-pointer' : ''}"
-					onclick={() => {
-						if (task.type === 'ask') {
-							onask(task.id);
-						} else if (task.status === 'draft') {
-							ondraft(task.id, task.repoPath);
-						} else if (task.status === 'resolved' && task.prUrl) {
-							window.open(task.prUrl, '_blank');
-						} else if (task.status === 'completed' && (task.type === 'review' || task.intent === 'new-feature')) {
-							viewResult(task);
-						}
-					}}
-					disabled={task.type !== 'ask' && task.status !== 'draft' && !(task.status === 'resolved' && task.prUrl) && !(task.status === 'completed' && (task.type === 'review' || task.intent === 'new-feature'))}
-				>
+				<!-- Using div instead of button+disabled so the dismiss overlay always receives click events -->
+			<div
+				role="button"
+				tabindex="0"
+				class="group relative flex items-start gap-3 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors hover:bg-bourbon-800/50
+					{task.type === 'ask' || task.status === 'draft' || (task.status === 'resolved' && task.prUrl) || ((task.status === 'completed' || task.status === 'done') && (task.type === 'review' || task.intent === 'new-feature')) ? 'cursor-pointer' : ''}"
+				onclick={() => {
+					if (task.type === 'ask') {
+						onask(task.id);
+					} else if (task.status === 'draft') {
+						ondraft(task.id, task.repoPath);
+					} else if (task.status === 'resolved' && task.prUrl) {
+						window.open(task.prUrl, '_blank');
+					} else if (task.status === 'completed' && (task.type === 'review' || task.intent === 'new-feature')) {
+						viewResult(task);
+					}
+				}}
+				onkeydown={(e) => { if (e.key === 'Enter') e.currentTarget.click(); }}
+			>
 					<!-- Status icon -->
 					<div class="pt-0.5 shrink-0">
 						{#if task.type === 'ask' && task.status === 'completed'}
@@ -191,7 +194,7 @@
 							</span>
 						</div>
 					{/if}
-				</button>
+				</div>
 			{/each}
 		</div>
 

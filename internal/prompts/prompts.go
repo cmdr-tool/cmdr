@@ -59,7 +59,6 @@ type Intent struct {
 // Intents that are expected to produce a PR as their artifact.
 var prIntents = map[string]bool{
 	"refactor":    true,
-	"bug-fix":     true,
 	"new-feature": true,
 }
 
@@ -75,8 +74,8 @@ func ListIntents() []Intent {
 			continue
 		}
 		id := strings.TrimSuffix(e.Name(), ".md")
-		// Internal-only intents (used by cmdr CLI, not user-facing)
-		if id == "delegation" {
+		// Internal-only intents (used by cmdr CLI or as fallbacks, not user-facing)
+		if id == "delegation" || id == "generic" {
 			continue
 		}
 		name := strings.ReplaceAll(id, "-", " ")

@@ -253,17 +253,19 @@ func findAncestorPane(pid int, ppidMap map[int]int, shellPIDs map[int]*claudePan
 // which are derived from task type and ID via taskWindowName/taskWorktreeInfo.
 
 // taskWindowName returns the tmux window name for a task based on its type.
-func taskWindowName(taskType, status string, taskID int) string {
+func taskWindowName(taskType, intent, status string, taskID int) string {
 	if taskType == "delegation" {
 		return fmt.Sprintf("enlist-%d", taskID)
 	}
-	if taskType == "directive" && status == "implementing" {
-		return fmt.Sprintf("impl-%d", taskID)
+	if status == "implementing" {
+		return fmt.Sprintf("new-feature-impl-%d", taskID)
 	}
-	if taskType == "directive" {
-		return fmt.Sprintf("task-%d", taskID)
+	// Derive prefix from intent; fall back to "task" for no-intent directives
+	prefix := "task"
+	if intent != "" {
+		prefix = intent
 	}
-	return fmt.Sprintf("review-%d", taskID) // review-triggered refactors
+	return fmt.Sprintf("%s-%d", prefix, taskID)
 }
 
 // checkRunningTasks monitors all active tasks (running/refactoring/implementing).
@@ -311,7 +313,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 	}
 
 	for _, t := range tasks {
-		windowName := taskWindowName(t.taskType, t.status, t.id)
+		windowName := taskWindowName(t.taskType, t.intent, t.status, t.id)
 		windowAlive := allWindows[windowName]
 		inDesignPhase := t.status == "running" && prompts.IntentHasDesignPhase(t.intent)
 
@@ -322,7 +324,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 			var existingResult string
 			db.QueryRow(`SELECT COALESCE(result, '') FROM claude_tasks WHERE id=?`, t.id).Scan(&existingResult)
 			if existingResult == "" {
-				worktreeName := buildWorktreeName("directive", t.id)
+				worktreeName, _ := taskWorktreeInfo(t.taskType, t.intent, t.status, t.id)
 				if adr := scrapeADRFromWorktree(t.repoPath, worktreeName, t.startedAt); adr != "" {
 					now := time.Now().Format(time.RFC3339)
 					title := extractTitle(adr)
@@ -404,9 +406,16 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 				continue
 			}
 
-			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
+			// Plain directives (no PR-producing intent) have no further lifecycle
+			// steps — go straight to "done" instead of lingering in "completed"
+			finalStatus := "completed"
+			if t.taskType == "directive" && !prompts.IntentProducesPR(t.intent) {
+				finalStatus = "done"
+			}
+
+			db.Exec(`UPDATE claude_tasks SET status=?, completed_at=? WHERE id=?`, finalStatus, now, t.id)
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": t.id, "status": "completed",
+				"id": t.id, "status": finalStatus,
 			}})
 			// Publish delegation-specific event for squad summary refresh
 			if t.taskType == "delegation" {
@@ -426,7 +435,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 // checkResolvedTasks monitors all tasks in "resolved" status.
 // When the PR is merged/closed AND the worktree is gone, marks completed.
 func checkResolvedTasks(db *sql.DB, bus *EventBus) {
-	rows, err := db.Query(`SELECT id, type, repo_path, COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved'`)
+	rows, err := db.Query(`SELECT id, type, repo_path, COALESCE(intent, ''), COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved'`)
 	if err != nil {
 		return
 	}
@@ -436,19 +445,20 @@ func checkResolvedTasks(db *sql.DB, bus *EventBus) {
 		id       int
 		taskType string
 		repoPath string
+		intent   string
 		prUrl    string
 	}
 	var tasks []task
 	for rows.Next() {
 		var t task
-		if err := rows.Scan(&t.id, &t.taskType, &t.repoPath, &t.prUrl); err != nil {
+		if err := rows.Scan(&t.id, &t.taskType, &t.repoPath, &t.intent, &t.prUrl); err != nil {
 			continue
 		}
 		tasks = append(tasks, t)
 	}
 
 	for _, t := range tasks {
-		worktreeName, _ := taskWorktreeInfo(t.taskType, "resolved", t.id)
+		worktreeName, _ := taskWorktreeInfo(t.taskType, t.intent, "resolved", t.id)
 		worktreeExists := worktreeAlive(t.repoPath, worktreeName)
 		prOpen := t.prUrl != "" && isPROpen(t.repoPath, t.prUrl)
 
