@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ClaudeTask, GitCommit } from '$lib/api';
+	import { ScanSearch } from 'lucide-svelte';
 	import { connection } from '$lib/events';
 	import { sessions, claudeSessions } from '$lib/sessionStore';
 	import { commitsLoaded, unseenCount, toggleFlag, updateCommit } from '$lib/commitStore';
@@ -12,7 +13,7 @@
 	import DiffModal from '$lib/components/DiffModal.svelte';
 	import ReviewResultModal from '$lib/components/ReviewResultModal.svelte';
 	import DesignResultModal from '$lib/components/DesignResultModal.svelte';
-	import AskResultModal from '$lib/components/AskResultModal.svelte';
+	import ClaudeResultModal from '$lib/components/ClaudeResultModal.svelte';
 	import DraftModal from '$lib/components/DraftModal.svelte';
 	import MissionsModal from '$lib/components/MissionsModal.svelte';
 
@@ -55,8 +56,8 @@
 	let designResult: string | null = $state(null);
 	let designTask: ClaudeTask | null = $state(null);
 
-	// --- Ask modal ---
-	let askTaskId: number | null = $state(null);
+	// --- Claude result modal (ask, analysis, etc.) ---
+	let resultTask: ClaudeTask | null = $state(null);
 
 	// --- Missions modal ---
 	let missionsSquad: string | null = $state(null);
@@ -112,7 +113,7 @@
 				}
 			}}
 			ondraft={(taskId, repoPath) => openDraft(repoPath, undefined, taskId)}
-			onask={(id) => { askTaskId = id; }}
+			onask={(task) => { resultTask = task; }}
 			onopenmissions={(squad) => { missionsSquad = squad; }}
 		/>
 
@@ -161,9 +162,16 @@
 	/>
 {/if}
 
-<!-- Ask Result Modal -->
-{#if askTaskId}
-	<AskResultModal taskId={askTaskId} onclose={() => { askTaskId = null; }} />
+<!-- Claude Result Modal (ask, analysis, etc.) -->
+{#if resultTask}
+	<ClaudeResultModal
+		taskId={resultTask.id}
+		title={resultTask.intent === 'analysis' ? 'Analysis' : 'Ask Claude'}
+		titleClass={resultTask.intent === 'analysis' ? 'text-cmd-400' : 'text-run-500'}
+		icon={resultTask.intent === 'analysis' ? ScanSearch : undefined}
+		emptyHint={resultTask.intent === 'analysis' ? 'analyzing' : 'thinking'}
+		onclose={() => { resultTask = null; }}
+	/>
 {/if}
 
 <!-- Review Result Modal -->

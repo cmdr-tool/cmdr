@@ -89,7 +89,9 @@ func handleSaveDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	}
 }
 
-// handleSubmitDirective launches Claude with the draft's prompt in a tmux window.
+// handleSubmitDirective launches Claude with the draft's prompt.
+// Headless intents (e.g. analysis) run via claude -p with streaming.
+// Interactive intents launch in a tmux window.
 func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -116,6 +118,31 @@ func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 		if repoPath == "" || prompt == "" {
 			http.Error(w, `{"error":"draft must have a repo and content"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Headless intents: run via claude -p (no tmux window)
+		if prompts.IntentIsHeadless(body.Intent) {
+			now := time.Now().Format(time.RFC3339)
+			db.Exec(`UPDATE claude_tasks SET status='running', intent=?, started_at=? WHERE id=?`,
+				body.Intent, now, body.ID)
+			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				"id": body.ID, "status": "running", "intent": body.Intent, "repoPath": repoPath,
+			}})
+
+			systemPrompt, _ := prompts.GetIntentPrompt(body.Intent)
+
+			go runHeadless(db, bus, HeadlessConfig{
+				TaskID:       body.ID,
+				Prompt:       prompt,
+				WorkDir:      repoPath,
+				SystemPrompt: systemPrompt,
+			})
+
+			enhanceTitle(db, bus, body.ID, truncate(prompt, 500))
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 			return
 		}
 

@@ -59,7 +59,7 @@ func Run() error {
 	bus := NewEventBus()
 
 	// Mark any ask tasks orphaned by a previous daemon instance
-	cleanupOrphanedAskTasks(database)
+	cleanupOrphanedHeadlessTasks(database)
 
 	s := scheduler.New(database, scheduler.Hooks{
 		OnCommitsSync: func() {
@@ -259,7 +259,7 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 
 	// Ask
 	mux.HandleFunc("/api/ask", handleAsk(database, bus))
-	mux.HandleFunc("/api/ask/continue", handleContinueAsk(database))
+	mux.HandleFunc("/api/ask/continue", handleContinueSession(database))
 
 	// Analytics
 	mux.HandleFunc("/api/analytics/activity", handleActivityAnalytics(database))

@@ -272,8 +272,9 @@ func taskWindowName(taskType, intent, status string, taskID int) string {
 // For PR-producing tasks: scrapes tmux pane for PR URL → resolved.
 // When the tmux window is gone: marks completed.
 func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
-	// Exclude headless tasks (review, ask) — they run via claude -p, not tmux windows,
-	// so window liveness checks would falsely mark them as completed.
+	// Exclude headless tasks (review, ask, analysis directives) — they run via
+	// claude -p, not tmux windows, so window liveness checks would falsely
+	// mark them as completed. Headless intents are filtered in Go below.
 	rows, err := db.Query(`
 		SELECT id, type, repo_path, COALESCE(intent, ''), worktree, status, COALESCE(started_at, created_at)
 		FROM claude_tasks
@@ -314,6 +315,11 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 	}
 
 	for _, t := range tasks {
+		// Skip headless intent directives — they run via claude -p, not tmux
+		if t.taskType == "directive" && t.status == "running" && prompts.IntentIsHeadless(t.intent) {
+			continue
+		}
+
 		windowName := taskWindowName(t.taskType, t.intent, t.status, t.id)
 		windowAlive := allWindows[windowName]
 		inDesignPhase := t.status == "running" && prompts.IntentHasDesignPhase(t.intent)

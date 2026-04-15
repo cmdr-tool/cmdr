@@ -20,7 +20,7 @@
 	}: {
 		onviewresult: (task: ClaudeTask, result: string) => void;
 		ondraft: (taskId?: number, repoPath?: string) => void;
-		onask: (taskId: number) => void;
+		onask: (task: ClaudeTask) => void;
 		onopenmissions: (squad: string) => void;
 	} = $props();
 
@@ -55,8 +55,8 @@
 		switch (type) {
 			case 'review': return 'text-teal-400 bg-teal-700/30';
 			case 'directive': return 'text-blue-400 bg-blue-700/30';
-			case 'ask': return 'text-bourbon-400 bg-bourbon-700/30';
-			default: return 'text-cmd-400 bg-cmd-700/30';
+			case 'ask': return 'text-cmd-400 bg-cmd-700/30';
+			default: return 'text-bourbon-400 bg-bourbon-700/30';
 		}
 	}
 </script>
@@ -107,10 +107,12 @@
 				role="button"
 				tabindex="0"
 				class="group relative flex items-start gap-3 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors hover:bg-bourbon-800/50
-					{task.type === 'ask' || task.status === 'draft' || (task.status === 'resolved' && task.prUrl) || ((task.status === 'completed' || task.status === 'done') && (task.type === 'review' || task.intent === 'new-feature')) ? 'cursor-pointer' : ''}"
+					{task.type === 'ask' || task.status === 'draft' || (task.status === 'resolved' && task.prUrl) || ((task.status === 'completed' || task.status === 'done') && (task.type === 'review' || task.intent === 'new-feature' || task.intent === 'analysis')) ? 'cursor-pointer' : ''}"
 				onclick={() => {
 					if (task.type === 'ask') {
-						onask(task.id);
+						onask(task);
+					} else if (task.intent === 'analysis' && (task.status === 'completed' || task.status === 'running')) {
+						onask(task);
 					} else if (task.status === 'draft') {
 						ondraft(task.id, task.repoPath);
 					} else if (task.status === 'resolved' && task.prUrl) {

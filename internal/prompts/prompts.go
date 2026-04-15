@@ -62,6 +62,11 @@ var prIntents = map[string]bool{
 	"new-feature": true,
 }
 
+// Intents that run headless via claude -p (no interactive tmux window).
+var headlessIntents = map[string]bool{
+	"analysis": true,
+}
+
 // ListIntents returns all available intent presets.
 func ListIntents() []Intent {
 	var intents []Intent
@@ -127,4 +132,9 @@ func GetDesignPrompt(id string) (string, error) {
 func IntentHasDesignPhase(id string) bool {
 	_, ok := designPhase[id]
 	return ok
+}
+
+// IntentIsHeadless returns whether an intent runs via claude -p (no tmux window).
+func IntentIsHeadless(id string) bool {
+	return headlessIntents[id]
 }

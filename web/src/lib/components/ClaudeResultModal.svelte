@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Component } from 'svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { X, CircleQuestionMark, Terminal, Trash2 } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
@@ -8,10 +9,20 @@
 
 	let {
 		taskId,
-		onclose
+		onclose,
+		title = 'Ask Claude',
+		titleClass = 'text-run-500',
+		icon: Icon = CircleQuestionMark as Component<{ size: number; class: string }>,
+		emptyHint = 'thinking',
+		oncontinue,
 	}: {
 		taskId: number;
 		onclose: () => void;
+		title?: string;
+		titleClass?: string;
+		icon?: Component<{ size: number; class: string }>;
+		emptyHint?: string;
+		oncontinue?: (() => Promise<void>) | null;
 	} = $props();
 
 	let status = $state<'running' | 'completed' | 'failed'>('running');
@@ -48,15 +59,26 @@
 	// Friendly tool status messages
 	function toolStatusLabel(tool: string, detail: string): string {
 		switch (tool) {
-			case 'Glob': return detail ? `searching for ${detail}` : 'searching vault';
-			case 'Grep': return detail ? `searching for "${detail}"` : 'searching vault';
+			case 'Glob': return detail ? `searching for ${detail}` : 'searching files';
+			case 'Grep': return detail ? `searching for "${detail}"` : 'searching files';
 			case 'Read': return detail ? `reading ${detail}` : 'reading file';
 			default: return tool.toLowerCase();
 		}
 	}
 
+	async function handleContinue() {
+		try {
+			if (oncontinue) {
+				await oncontinue();
+			} else {
+				await continueAsk(taskId);
+			}
+			onclose();
+		} catch { /* silent */ }
+	}
+
 	onMount(async () => {
-		// Check if task is already completed (e.g., clicking a finished ask task)
+		// Check if task is already completed (e.g., clicking a finished task)
 		try {
 			const data = await getClaudeTaskResult(taskId);
 			if (data.status === 'completed' && data.result) {
@@ -117,15 +139,15 @@
 		<!-- Header -->
 		<div class="flex items-center justify-between px-6 py-4 border-b border-bourbon-800 shrink-0">
 			<div class="flex items-center gap-3">
-				<CircleQuestionMark size={14} class="text-run-500" />
-				<h2 class="font-display text-xs font-bold uppercase tracking-widest text-run-500">Ask Claude</h2>
+				<Icon size={14} class={titleClass} />
+				<h2 class="font-display text-xs font-bold uppercase tracking-widest {titleClass}">{title}</h2>
 				{#if status === 'running'}
 					<div class="flex items-center gap-2">
 						<div class="w-2.5 h-2.5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
 						{#if toolStatus}
 							<span class="text-[10px] font-mono text-bourbon-500 animate-pulse">{toolStatus}</span>
 						{:else if !streamedText}
-							<span class="text-[10px] font-mono text-bourbon-500 animate-pulse">thinking</span>
+							<span class="text-[10px] font-mono text-bourbon-500 animate-pulse">{emptyHint}</span>
 						{/if}
 					</div>
 				{/if}
@@ -153,7 +175,7 @@
 					{#if toolStatus}
 						<span class="text-xs font-mono text-bourbon-500">{toolStatus}</span>
 					{:else}
-						<span class="text-xs font-mono text-bourbon-500">searching your knowledge base</span>
+						<span class="text-xs font-mono text-bourbon-500">{emptyHint}</span>
 					{/if}
 				</div>
 			{/if}
@@ -174,12 +196,7 @@
 				</button>
 				{#if status === 'completed'}
 					<button
-						onclick={async () => {
-							try {
-								await continueAsk(taskId);
-								onclose();
-							} catch { /* silent */ }
-						}}
+						onclick={handleContinue}
 						class="flex items-center gap-1.5 text-[10px] font-mono text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer"
 					>
 						<Terminal size={12} />

@@ -224,8 +224,8 @@ func killTaskWindow(db *sql.DB, taskID int) {
 	}
 }
 
-// handleCancelTask stops a running task. For directives, restores to draft.
-// For ask tasks, kills the process and marks as cancelled.
+// handleCancelTask stops a running task. For interactive directives, restores
+// to draft. For headless tasks (ask, analysis directives), kills the process.
 func handleCancelTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -241,8 +241,8 @@ func handleCancelTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		var taskType, status string
-		err := db.QueryRow(`SELECT type, status FROM claude_tasks WHERE id = ?`, body.ID).Scan(&taskType, &status)
+		var taskType, status, intent string
+		err := db.QueryRow(`SELECT type, status, COALESCE(intent, '') FROM claude_tasks WHERE id = ?`, body.ID).Scan(&taskType, &status, &intent)
 		if err != nil {
 			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
 			return
@@ -252,30 +252,40 @@ func handleCancelTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		switch taskType {
-		case "directive":
+		// Headless tasks (ask, headless directives): kill process, mark cancelled
+		if taskType == "ask" || prompts.IntentIsHeadless(intent) {
+			cancelHeadlessProcess(body.ID)
+			now := time.Now().Format(time.RFC3339)
+			if taskType == "directive" {
+				// Headless directives reset to draft like interactive ones
+				db.Exec(`UPDATE claude_tasks SET status='draft', intent='', worktree='', started_at=NULL, completed_at=NULL, result='', error_msg='', pr_url='' WHERE id=?`, body.ID)
+				bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+					"id": body.ID, "type": "done",
+				}})
+				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+					"id": body.ID, "status": "draft",
+				}})
+				log.Printf("cmdr: headless directive %d cancelled, restored to draft", body.ID)
+			} else {
+				db.Exec(`UPDATE claude_tasks SET status='failed', error_msg='cancelled', completed_at=? WHERE id=?`, now, body.ID)
+				bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+					"id": body.ID, "type": "done",
+				}})
+				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+					"id": body.ID, "status": "failed",
+				}})
+				log.Printf("cmdr: ask %d cancelled", body.ID)
+			}
+		} else if taskType == "directive" {
+			// Interactive directives: kill tmux window, reset to draft
 			killTaskWindow(db, body.ID)
 			cleanupTaskWorktree(db, body.ID)
-			// Reset to draft — preserve prompt, repo_path, title; clear runtime state
 			db.Exec(`UPDATE claude_tasks SET status='draft', intent='', worktree='', started_at=NULL, completed_at=NULL, result='', error_msg='', pr_url='' WHERE id=?`, body.ID)
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
 				"id": body.ID, "status": "draft",
 			}})
 			log.Printf("cmdr: directive %d cancelled, restored to draft", body.ID)
-
-		case "ask":
-			cancelAskProcess(body.ID)
-			now := time.Now().Format(time.RFC3339)
-			db.Exec(`UPDATE claude_tasks SET status='failed', error_msg='cancelled', completed_at=? WHERE id=?`, now, body.ID)
-			bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
-				"id": body.ID, "type": "done",
-			}})
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": body.ID, "status": "failed",
-			}})
-			log.Printf("cmdr: ask %d cancelled", body.ID)
-
-		default:
+		} else {
 			http.Error(w, `{"error":"cancel not supported for this task type"}`, http.StatusBadRequest)
 			return
 		}
