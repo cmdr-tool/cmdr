@@ -48,12 +48,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMe
     var statusItem: NSStatusItem!
     var gradientView: TitlebarGradientView!
     private var trafficLightButtons: [NSButton] = []
+    private var menuBarIcon: NSImage?
+    private var menuBarIconActive: NSImage?
+    private var activityTimer: Timer?
+    private var isClaudeActive = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupNotifications()
         setupMenuBar()
         setupMainMenu()
         setupWindow()
+        startActivityPolling()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -176,6 +181,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMe
         if let button = statusItem.button {
             if let img = NSImage(contentsOfFile: Bundle.main.resourcePath! + "/menubarTemplate.png") {
                 img.isTemplate = true
+                menuBarIcon = img
+                menuBarIconActive = makeActiveIcon(from: img)
                 button.image = img
             }
             button.action = #selector(handleMenuBarClick(_:))
@@ -184,22 +191,152 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMe
         }
     }
 
+    /// Create a non-template copy of the icon with a green activity dot.
+    private func makeActiveIcon(from base: NSImage) -> NSImage {
+        let size = base.size
+        let icon = NSImage(size: size, flipped: false) { rect in
+            // Draw the base icon in menu bar color (black for light mode)
+            NSColor.black.setFill()
+            base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+
+            // Draw green dot (bottom-right corner)
+            let dotSize: CGFloat = 5
+            let dotRect = NSRect(
+                x: rect.width - dotSize - 0.5,
+                y: 0.5,
+                width: dotSize,
+                height: dotSize
+            )
+            NSColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 1.0).setFill()
+            NSBezierPath(ovalIn: dotRect).fill()
+            return true
+        }
+        // Non-template so the green dot retains its color
+        icon.isTemplate = false
+        return icon
+    }
+
     @objc private func handleMenuBarClick(_ sender: NSStatusBarButton) {
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp {
-            let menu = NSMenu()
-            menu.addItem(withTitle: "Quit cmdr", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
-            statusItem.menu = menu
-            sender.performClick(nil)
-            DispatchQueue.main.async { self.statusItem.menu = nil }
+            showRepoMenu(from: sender)
         } else {
             showWindow()
         }
     }
 
+    private func showRepoMenu(from sender: NSStatusBarButton) {
+        // Fetch synchronously — it's localhost so sub-millisecond
+        let repos = fetchReposSync()
+        let menu = buildRepoMenu(repos: repos)
+        statusItem.menu = menu
+        sender.performClick(nil)
+        DispatchQueue.main.async { self.statusItem.menu = nil }
+    }
+
+    private func buildRepoMenu(repos: [[String: Any]]) -> NSMenu {
+        let menu = NSMenu()
+
+        // Group repos by squad (empty squad = top-level)
+        var grouped: [(squad: String, repos: [[String: Any]])] = []
+        var bySquad: [String: [[String: Any]]] = [:]
+        var insertOrder: [String] = []
+        for repo in repos {
+            let squad = repo["squad"] as? String ?? ""
+            if bySquad[squad] == nil { insertOrder.append(squad) }
+            bySquad[squad, default: []].append(repo)
+        }
+        for squad in insertOrder {
+            grouped.append((squad: squad, repos: bySquad[squad]!))
+        }
+
+        for group in grouped {
+            if group.squad.isEmpty {
+                // Top-level repos
+                for repo in group.repos {
+                    addRepoMenuItem(to: menu, repo: repo)
+                }
+            } else {
+                // Squad submenu
+                let squadItem = NSMenuItem(title: group.squad, action: nil, keyEquivalent: "")
+                squadItem.image = folderIcon(size: 14)
+                let squadMenu = NSMenu()
+                for repo in group.repos {
+                    addRepoMenuItem(to: squadMenu, repo: repo)
+                }
+                squadItem.submenu = squadMenu
+                menu.addItem(squadItem)
+            }
+        }
+
+        if repos.isEmpty {
+            menu.addItem(withTitle: "No repos configured", action: nil, keyEquivalent: "")
+        }
+
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit cmdr", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+
+        return menu
+    }
+
+    private func addRepoMenuItem(to menu: NSMenu, repo: [String: Any]) {
+        let name = repo["name"] as? String ?? "unknown"
+        let path = repo["path"] as? String ?? ""
+        let displayName = name.split(separator: "/").last.map(String.init) ?? name
+
+        let item = NSMenuItem(title: displayName, action: nil, keyEquivalent: "")
+        item.image = folderIcon(size: 14)
+        let submenu = FolderSubmenu(path: path)
+        item.submenu = submenu
+        menu.addItem(item)
+    }
+
+    private func folderIcon(size: CGFloat) -> NSImage {
+        let img = NSWorkspace.shared.icon(for: .folder)
+        img.size = NSSize(width: size, height: size)
+        return img
+    }
+
     @objc private func showWindow() {
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Activity Polling
+
+    private func startActivityPolling() {
+        activityTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.pollActivity()
+        }
+    }
+
+    private func pollActivity() {
+        guard let url = URL(string: "http://127.0.0.1:7369/api/claude/tasks") else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let self = self, let data = data,
+                  let tasks = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+
+            let activeStatuses: Set<String> = ["running", "pending", "refactoring", "implementing"]
+            let hasActive = tasks.contains { task in
+                guard let status = task["status"] as? String else { return false }
+                return activeStatuses.contains(status)
+            }
+
+            DispatchQueue.main.async {
+                if hasActive != self.isClaudeActive {
+                    self.isClaudeActive = hasActive
+                    self.statusItem.button?.image = hasActive ? self.menuBarIconActive : self.menuBarIcon
+                }
+            }
+        }.resume()
+    }
+
+    // MARK: - API Helpers
+
+    private func fetchReposSync() -> [[String: Any]] {
+        guard let url = URL(string: "http://127.0.0.1:7369/api/repos") else { return [] }
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
     // MARK: - Traffic Lights
@@ -299,6 +436,145 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMe
 
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+}
+
+// MARK: - Lazy folder submenu
+
+/// A submenu that lazily populates its contents from the filesystem when opened.
+/// Each subdirectory gets its own FolderSubmenu for recursive drill-down.
+class FolderSubmenu: NSMenu, NSMenuDelegate {
+    let path: String
+    private var populated = false
+
+    init(path: String) {
+        self.path = path
+        super.init(title: path.split(separator: "/").last.map(String.init) ?? path)
+        self.delegate = self
+        // Placeholder so macOS shows the submenu arrow
+        addItem(withTitle: "Loading…", action: nil, keyEquivalent: "")
+    }
+
+    required init(coder: NSCoder) { fatalError() }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard !populated else { return }
+        populated = true
+        removeAllItems()
+
+        // "Show in Finder" action at top
+        let showItem = NSMenuItem(title: "Show in Finder", action: #selector(FolderMenuActions.openInFinder(_:)), keyEquivalent: "")
+        showItem.target = FolderMenuActions.shared
+        showItem.representedObject = path
+        showItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+        addItem(showItem)
+
+        // "Open in Terminal" action
+        let termItem = NSMenuItem(title: "Open in Terminal", action: #selector(FolderMenuActions.openInTerminal(_:)), keyEquivalent: "")
+        termItem.target = FolderMenuActions.shared
+        termItem.representedObject = path
+        termItem.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
+        addItem(termItem)
+
+        addItem(.separator())
+
+        // List directory contents
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: path) else {
+            addItem(withTitle: "(empty)", action: nil, keyEquivalent: "")
+            return
+        }
+
+        let visible = entries.filter { !$0.hasPrefix(".") }
+        let ignored = gitIgnored(in: path, entries: visible)
+        let sorted = visible.filter { !ignored.contains($0) }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+
+        // Directories first, then files
+        var dirs: [(String, String)] = []
+        var files: [(String, String)] = []
+        for entry in sorted {
+            let fullPath = (path as NSString).appendingPathComponent(entry)
+            var isDir: ObjCBool = false
+            FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDir)
+            if isDir.boolValue {
+                dirs.append((entry, fullPath))
+            } else {
+                files.append((entry, fullPath))
+            }
+        }
+
+        for (name, fullPath) in dirs {
+            let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+            item.image = NSWorkspace.shared.icon(for: .folder)
+            item.image?.size = NSSize(width: 14, height: 14)
+            item.submenu = FolderSubmenu(path: fullPath)
+            addItem(item)
+        }
+
+        if !dirs.isEmpty && !files.isEmpty {
+            addItem(.separator())
+        }
+
+        for (name, fullPath) in files {
+            let item = NSMenuItem(title: name, action: #selector(FolderMenuActions.openFile(_:)), keyEquivalent: "")
+            item.target = FolderMenuActions.shared
+            item.representedObject = fullPath
+            item.image = NSWorkspace.shared.icon(forFile: fullPath)
+            item.image?.size = NSSize(width: 14, height: 14)
+            addItem(item)
+        }
+
+        if dirs.isEmpty && files.isEmpty {
+            addItem(withTitle: "(empty)", action: nil, keyEquivalent: "")
+        }
+    }
+}
+
+/// Ask git which entries are ignored. Uses `git check-ignore` so it respects
+/// .gitignore, .git/info/exclude, nested ignores, and global ignores.
+/// Returns a set of ignored entry names. Falls back to empty if not a git repo.
+func gitIgnored(in dir: String, entries: [String]) -> Set<String> {
+    guard !entries.isEmpty else { return [] }
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    task.arguments = ["-C", dir, "check-ignore"] + entries
+    task.currentDirectoryURL = URL(fileURLWithPath: dir)
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    task.standardError = FileHandle.nullDevice
+    do { try task.run() } catch { return [] }
+    task.waitUntilExit()
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    let output = String(data: data, encoding: .utf8) ?? ""
+    var ignored = Set<String>()
+    for line in output.split(separator: "\n") {
+        let name = String(line).split(separator: "/").last.map(String.init) ?? String(line)
+        ignored.insert(name)
+    }
+    return ignored
+}
+
+/// Singleton target for menu item actions (avoids retain issues with NSMenuItem targets).
+class FolderMenuActions: NSObject {
+    static let shared = FolderMenuActions()
+
+    @objc func openInFinder(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
+    }
+
+    @objc func openInTerminal(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        let config = ["--args", "--working-directory=\(path)"]
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = ["-na", "Ghostty"] + config
+        try? task.run()
+    }
+
+    @objc func openFile(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 }
 
