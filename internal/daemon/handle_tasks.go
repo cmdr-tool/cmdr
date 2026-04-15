@@ -47,6 +47,7 @@ func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
 			CompletedAt *string `json:"completedAt"`
 			Intent      string  `json:"intent,omitempty"`
 			ParentID    *int    `json:"parentId,omitempty"`
+			Headless    bool    `json:"headless,omitempty"`
 			prompt      string
 		}
 
@@ -57,6 +58,7 @@ func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
 				&t.ErrorMsg, &t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.prompt, &t.Intent, &t.ParentID); err != nil {
 				continue
 			}
+			t.Headless = t.Type == "ask" || t.Type == "review" || prompts.IntentIsHeadless(t.Intent)
 			taskList = append(taskList, t)
 		}
 		if taskList == nil {
@@ -253,8 +255,8 @@ func handleCancelTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		// Headless tasks (ask, headless directives): kill process, mark cancelled
-		if taskType == "ask" || prompts.IntentIsHeadless(intent) {
+		// Headless tasks (ask, review, headless directives): kill process, mark cancelled
+		if taskType == "ask" || taskType == "review" || prompts.IntentIsHeadless(intent) {
 			cancelHeadlessProcess(body.ID)
 			now := time.Now().Format(time.RFC3339)
 			if taskType == "directive" {

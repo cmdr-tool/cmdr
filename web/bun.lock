@@ -10,6 +10,7 @@
         "d3-array": "^3.2.4",
         "d3-scale": "^4.0.2",
         "d3-shape": "^3.2.0",
+        "lucide": "^1.8.0",
         "lucide-svelte": "^1.0.1",
         "marked": "^17.0.6",
         "perfect-freehand": "^1.2.3",
@@ -298,6 +299,8 @@
     "lightningcss-win32-x64-msvc": ["lightningcss-win32-x64-msvc@1.32.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Amq9B/SoZYdDi1kFrojnoqPLxYhQ4Wo5XiL8EVJrVsB8ARoC1PWW6VGtT0WKCemjy8aC+louJnjS7U18x3b06Q=="],
 
     "locate-character": ["locate-character@3.0.0", "", {}, "sha512-SW13ws7BjaeJ6p7Q6CO2nchbYEc3X3J6WrmTTDto7yMPqVSZTUyY5Tjbid+Ab8gLnATtygYtiDIJGQRRn2ZOiA=="],
+
+    "lucide": ["lucide@1.8.0", "", {}, "sha512-JjV/QnadgFLj1Pyu9IKl0lknrolFEzo04B64QcYLLeRzZl/iEHpdbSrRRKbyXcv45SZNv+WGjIUCT33e7xHO6Q=="],
 
     "lucide-svelte": ["lucide-svelte@1.0.1", "", { "peerDependencies": { "svelte": "^3 || ^4 || ^5.0.0-next.42" } }, "sha512-WvzZgk0pqzgda+AErLvgWxHkfg/+GgUwqKMRHvzt0IqyMdmyEDzDCk3Z+Wo/3y753oIgx8u9Q4eUbWkghFa8Jg=="],
 

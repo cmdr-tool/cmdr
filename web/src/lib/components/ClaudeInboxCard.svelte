@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { CircleCheck, CircleX, GitPullRequestArrow, X, Pencil, Plus, CircleQuestionMark, Users, Square } from 'lucide-svelte';
-	import { getClaudeTaskResult, cancelTask, type ClaudeTask } from '$lib/api';
+	import { cancelTask, type ClaudeTask } from '$lib/api';
 	import {
 		loaded as loadedStore,
 		visibleTasks as visibleTasksStore,
@@ -13,23 +13,14 @@
 	import { timeAgo } from '$lib/timeStore';
 
 	let {
-		onviewresult,
+		ontaskclick,
 		ondraft,
-		onask,
 		onopenmissions
 	}: {
-		onviewresult: (task: ClaudeTask, result: string) => void;
+		ontaskclick: (task: ClaudeTask) => void;
 		ondraft: (taskId?: number, repoPath?: string) => void;
-		onask: (task: ClaudeTask) => void;
 		onopenmissions: (squad: string) => void;
 	} = $props();
-
-	async function viewResult(task: ClaudeTask) {
-		try {
-			const { result } = await getClaudeTaskResult(task.id);
-			onviewresult(task, result);
-		} catch { /* silent */ }
-	}
 
 	function shortSha(sha: string): string { return sha.slice(0, 7); }
 
@@ -107,18 +98,12 @@
 				role="button"
 				tabindex="0"
 				class="group relative flex items-start gap-3 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors hover:bg-bourbon-800/50
-					{task.type === 'ask' || task.status === 'draft' || (task.status === 'completed' && (task.type === 'review' || task.intent === 'new-feature' || task.intent === 'analysis' || task.prUrl)) ? 'cursor-pointer' : ''}"
+					{task.status === 'draft' || task.status === 'completed' || task.type === 'ask' || task.type === 'review' || (task.status === 'running' && task.headless) ? 'cursor-pointer' : ''}"
 				onclick={() => {
-					if (task.type === 'ask') {
-						onask(task);
-					} else if (task.intent === 'analysis' && (task.status === 'completed' || task.status === 'running')) {
-						onask(task);
-					} else if (task.status === 'draft') {
+					if (task.status === 'draft') {
 						ondraft(task.id, task.repoPath);
-					} else if (task.status === 'completed' && task.prUrl) {
-						window.open(task.prUrl, '_blank');
-					} else if (task.status === 'completed' && (task.type === 'review' || task.intent === 'new-feature')) {
-						viewResult(task);
+					} else {
+						ontaskclick(task);
 					}
 				}}
 				onkeydown={(e) => { if (e.key === 'Enter') e.currentTarget.click(); }}
@@ -178,7 +163,7 @@
 					</div>
 
 					<!-- Overlay actions -->
-					{#if (task.type === 'directive' || task.type === 'ask') && task.status === 'running'}
+					{#if task.status === 'running' && task.headless}
 						<div class="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-3 pl-20 invisible group-hover:visible bg-linear-to-r from-transparent to-30% to-bourbon-800 rounded-r-lg">
 							<span
 								role="button"

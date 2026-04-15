@@ -175,14 +175,14 @@ func cancelHeadlessProcess(taskID int) bool {
 func cleanupOrphanedHeadlessTasks(db *sql.DB) {
 	now := time.Now().Format(time.RFC3339)
 
-	// Ask tasks
+	// Ask and review tasks → failed
 	res, _ := db.Exec(`UPDATE claude_tasks SET status='failed', error_msg='daemon restarted', completed_at=?
-		WHERE type = 'ask' AND status = 'running'`, now)
+		WHERE type IN ('ask', 'review') AND status = 'running'`, now)
 	n, _ := res.RowsAffected()
 
-	// Headless directive intents (e.g. analysis)
+	// Headless directive intents (e.g. analysis) → draft
 	res2, _ := db.Exec(`UPDATE claude_tasks SET status='draft', error_msg='daemon restarted'
-		WHERE type = 'directive' AND status = 'running' AND intent = 'analysis'`, )
+		WHERE type = 'directive' AND status = 'running' AND intent = 'analysis'`)
 	n2, _ := res2.RowsAffected()
 
 	if total := n + n2; total > 0 {

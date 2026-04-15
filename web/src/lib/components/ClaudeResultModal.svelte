@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Component } from 'svelte';
 	import { onMount, onDestroy } from 'svelte';
-	import { X, CircleQuestionMark, Terminal, Trash2 } from 'lucide-svelte';
+	import { X, CircleQuestionMark, Terminal, Trash2, List, Copy, Check } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { getClaudeTaskResult, continueAsk } from '$lib/api';
 	import { dismiss as dismissTask } from '$lib/taskStore';
@@ -29,6 +29,9 @@
 	let streamedText = $state('');
 	let toolStatus = $state('');
 	let errorMsg = $state('');
+	let showToc = $state(false);
+	let copiedSection = $state<string | null>(null);
+	let bodyEl: HTMLDivElement | undefined = $state();
 	let unsub: (() => void) | null = null;
 
 	const proseClasses = `prose prose-invert prose-sm max-w-none
@@ -54,6 +57,113 @@
 				+ `</div>`;
 		});
 		return renderMarkdown(processed);
+	}
+
+	// --- Heading / section extraction ---
+
+	interface TocEntry {
+		id: string;
+		level: number;
+		text: string;
+	}
+
+	const headingRe = /^(#{1,4})\s+(.+)$/gm;
+
+	function slugify(text: string): string {
+		return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+	}
+
+	// All headings (for ID injection into rendered HTML)
+	let allHeadings = $derived.by(() => {
+		if (!streamedText) return [];
+		const entries: TocEntry[] = [];
+		for (const m of streamedText.matchAll(headingRe)) {
+			const text = m[2].replace(/[`*_]/g, '');
+			entries.push({ id: slugify(text), level: m[1].length, text });
+		}
+		return entries;
+	});
+
+	// TOC entries (skip h1 — it's usually just the document title)
+	let tocEntries = $derived(allHeadings.filter(e => e.level > 1));
+
+	// Inject IDs into rendered headings and add inline copy buttons
+	let renderedHtml = $derived.by(() => {
+		if (!streamedText) return '';
+		const html = renderMd(streamedText);
+		let idx = 0;
+		return html.replace(/<(h[1-4])>([\s\S]*?)<\/h[1-4]>/g, (_match, tag, content) => {
+			const entry = allHeadings[idx++];
+			const id = entry?.id ?? '';
+			return `<${tag} id="${id}" class="group/heading">${content} <button class="copy-section-btn invisible group-hover/heading:visible inline-flex items-center align-middle ml-1 text-bourbon-500 hover:text-run-400 cursor-pointer" data-section-id="${id}" title="Copy section">${copyIconSvg}</button></${tag}>`;
+		});
+	});
+
+	function getSectionMarkdown(sectionId: string): string {
+		const lines = streamedText.split('\n');
+		let capturing = false;
+		let captureLevel = 0;
+		const result: string[] = [];
+
+		for (const line of lines) {
+			const m = line.match(/^(#{1,4})\s+(.+)$/);
+			if (m) {
+				const level = m[1].length;
+				const id = slugify(m[2].replace(/[`*_]/g, ''));
+				if (id === sectionId) {
+					capturing = true;
+					captureLevel = level;
+					result.push(line);
+					continue;
+				}
+				if (capturing && level <= captureLevel) {
+					break; // next heading of same or higher level
+				}
+			}
+			if (capturing) result.push(line);
+		}
+		return result.join('\n').trim();
+	}
+
+	import { createElement, Copy as CopyIcon, Check as CheckIcon } from 'lucide';
+
+	const copyIconSvg = createElement(CopyIcon, { width: 12, height: 12 }).outerHTML;
+	const checkIconSvg = createElement(CheckIcon, { width: 12, height: 12 }).outerHTML;
+
+	async function copySection(sectionId: string) {
+		const md = getSectionMarkdown(sectionId);
+		if (!md) return;
+		await navigator.clipboard.writeText(md);
+
+		// Swap icon to checkmark briefly
+		const btn = bodyEl?.querySelector(`.copy-section-btn[data-section-id="${CSS.escape(sectionId)}"]`);
+		if (btn) {
+			btn.innerHTML = checkIconSvg;
+			btn.classList.remove('text-bourbon-500');
+			btn.classList.add('text-green-400', 'visible');
+			setTimeout(() => {
+				btn.innerHTML = copyIconSvg;
+				btn.classList.remove('text-green-400', 'visible');
+				btn.classList.add('text-bourbon-500');
+			}, 1500);
+		}
+	}
+
+	function scrollToSection(id: string) {
+		showToc = false;
+		const el = bodyEl?.querySelector(`#${CSS.escape(id)}`);
+		el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	}
+
+	// Handle copy button clicks via event delegation (buttons are in innerHTML)
+	function handleBodyClick(e: MouseEvent) {
+		const btn = (e.target as HTMLElement).closest('.copy-section-btn') as HTMLElement | null;
+		if (btn) {
+			e.preventDefault();
+			e.stopPropagation();
+			const id = btn.dataset.sectionId;
+			if (id) copySection(id);
+		}
 	}
 
 	// Friendly tool status messages
@@ -123,15 +233,13 @@
 	onDestroy(() => {
 		unsub?.();
 	});
-
-	let renderedHtml = $derived(streamedText ? renderMd(streamedText) : '');
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-	onmousedown={(e) => { if (e.target === e.currentTarget) onclose(); }}
-	onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}
+	onmousedown={(e) => { if (e.target === e.currentTarget) { showToc = false; onclose(); } }}
+	onkeydown={(e) => { if (e.key === 'Escape') { showToc = false; onclose(); } }}
 	role="dialog"
 	tabindex="-1"
 >
@@ -151,6 +259,32 @@
 						{/if}
 					</div>
 				{/if}
+				{#if tocEntries.length > 1}
+					<div class="relative flex items-center">
+						<button
+							onclick={() => { showToc = !showToc; }}
+							class="flex items-center text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
+							title="Table of contents"
+						>
+							<List size={12} />
+						</button>
+						{#if showToc}
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div class="fixed inset-0 z-10" onclick={() => { showToc = false; }} onkeydown={() => {}}></div>
+							<div class="absolute top-6 left-0 z-20 bg-bourbon-900 border border-bourbon-800 rounded-lg shadow-xl py-1.5 min-w-[240px] max-h-[300px] overflow-auto">
+								{#each tocEntries as entry}
+									<button
+										onclick={() => scrollToSection(entry.id)}
+										class="block w-full text-left px-3 py-1.5 text-[11px] font-mono text-bourbon-400 hover:text-bourbon-200 hover:bg-bourbon-800/50 cursor-pointer truncate"
+										style="padding-left: {8 + (entry.level - 1) * 12}px"
+									>
+										{entry.text}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
 			</div>
 			<button
 				onclick={onclose}
@@ -161,7 +295,12 @@
 		</div>
 
 		<!-- Body -->
-		<div class="overflow-auto flex-1 px-6 py-4 bg-bourbon-950">
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<div
+			bind:this={bodyEl}
+			onclick={handleBodyClick}
+			class="overflow-auto flex-1 px-6 py-4 bg-bourbon-950"
+		>
 			{#if status === 'failed'}
 				<div class="text-red-400 text-xs font-mono">{errorMsg}</div>
 			{:else if streamedText}

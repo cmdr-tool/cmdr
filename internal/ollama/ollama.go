@@ -11,7 +11,7 @@ import (
 
 var (
 	baseURL = envOr("CMDR_OLLAMA_URL", "https://ollama.106source.ca")
-	model   = envOr("CMDR_OLLAMA_MODEL", "gemma4")
+	model   = envOr("CMDR_OLLAMA_MODEL", "gemma4:e4b")
 )
 
 // Summarize asks Ollama to generate a concise title for the given content.

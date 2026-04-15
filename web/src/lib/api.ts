@@ -421,6 +421,7 @@ export interface ClaudeTask {
 	startedAt: string | null;
 	completedAt: string | null;
 	parentId?: number;
+	headless?: boolean;
 }
 
 export interface ClaudeTaskResult {

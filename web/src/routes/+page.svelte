@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ClaudeTask, GitCommit } from '$lib/api';
+	import { getClaudeTaskResult } from '$lib/api';
 	import { ScanSearch } from 'lucide-svelte';
 	import { connection } from '$lib/events';
 	import { sessions, claudeSessions } from '$lib/sessionStore';
@@ -49,7 +50,6 @@
 	}
 
 	// --- Review result modal ---
-	let reviewResult: string | null = $state(null);
 	let reviewTask: ClaudeTask | null = $state(null);
 
 	// --- Design result modal ---
@@ -103,17 +103,22 @@
 	<!-- Right column: Inbox + Commits -->
 	<div class="flex flex-col gap-4">
 		<ClaudeInboxCard
-			onviewresult={(task, r) => {
-				if (task.intent === 'new-feature') {
-					designTask = task;
-					designResult = r;
-				} else {
+			ontaskclick={async (task) => {
+				if (task.type === 'review') {
 					reviewTask = task;
-					reviewResult = r;
+				} else if (task.type === 'ask' || task.intent === 'analysis') {
+					resultTask = task;
+				} else if (task.status === 'completed' && task.prUrl) {
+					window.open(task.prUrl, '_blank');
+				} else if (task.status === 'completed' && task.intent === 'new-feature') {
+					try {
+						const { result } = await getClaudeTaskResult(task.id);
+						designTask = task;
+						designResult = result;
+					} catch { /* silent */ }
 				}
 			}}
 			ondraft={(taskId, repoPath) => openDraft(repoPath, undefined, taskId)}
-			onask={(task) => { resultTask = task; }}
 			onopenmissions={(squad) => { missionsSquad = squad; }}
 		/>
 
@@ -167,7 +172,7 @@
 	<ClaudeResultModal
 		taskId={resultTask.id}
 		title={resultTask.intent === 'analysis' ? 'Analysis' : 'Ask Claude'}
-		titleClass={resultTask.intent === 'analysis' ? 'text-cmd-400' : 'text-run-500'}
+		titleClass="text-run-500"
 		icon={resultTask.intent === 'analysis' ? ScanSearch : undefined}
 		emptyHint={resultTask.intent === 'analysis' ? 'analyzing' : 'thinking'}
 		onclose={() => { resultTask = null; }}
@@ -175,8 +180,8 @@
 {/if}
 
 <!-- Review Result Modal -->
-{#if reviewResult}
-	<ReviewResultModal result={reviewResult} taskId={reviewTask?.id ?? 0} prUrl={reviewTask?.prUrl} repoPath={reviewTask?.repoPath ?? ''} onclose={() => { reviewResult = null; reviewTask = null; }} onupdate={(r) => { reviewResult = r; }} />
+{#if reviewTask}
+	<ReviewResultModal taskId={reviewTask.id} prUrl={reviewTask.prUrl} repoPath={reviewTask.repoPath ?? ''} onclose={() => { reviewTask = null; }} />
 {/if}
 
 <!-- Draft Modal -->

@@ -1,50 +1,52 @@
 <script lang="ts">
-	import { X, Wrench, ExternalLink, Pencil, Trash2, MessageSquarePlus, Undo2 } from 'lucide-svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { X, Wrench, ExternalLink, Pencil, Trash2, MessageSquarePlus, Undo2, FileSearch } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
-	import { spawnTask, updateClaudeTaskResult } from '$lib/api';
+	import { spawnTask, updateClaudeTaskResult, getClaudeTaskResult } from '$lib/api';
+	import { dismiss as dismissTask } from '$lib/taskStore';
+	import { events } from '$lib/events';
 	import LaunchGuard from './LaunchGuard.svelte';
 	import {
 		parseReviewSections,
 		reconstructMarkdown,
 		setSectionUserNote,
 		type ParsedReview,
-		type ReviewSection
 	} from '$lib/reviewParser';
 
 	let {
-		result,
 		taskId,
-		prUrl,
 		repoPath = '',
+		prUrl,
 		onclose,
-		onupdate
 	}: {
-		result: string;
 		taskId: number;
-		prUrl?: string;
 		repoPath?: string;
+		prUrl?: string;
 		onclose: () => void;
-		onupdate?: (result: string) => void;
 	} = $props();
 
+	// --- Shared state ---
+	let status = $state<'running' | 'completed' | 'failed'>('running');
+	let result = $state('');
+	let streamedText = $state('');
+	let toolStatus = $state('');
+	let errorMsg = $state('');
+	let unsub: (() => void) | null = null;
+
+	// --- Review-specific state ---
 	let editing = $state(false);
 	let draft = $state('');
 	let saving = $state(false);
 	let bodyEl: HTMLDivElement | undefined = $state(undefined);
 	let editHeight: number | null = $state(null);
-
-	// Section note editing
 	let noteSectionIdx: number | null = $state(null);
 	let noteDraft = $state('');
-
-	// Staged deletions (by section index)
 	let stagedDeletions = $state(new Set<number>());
 	let stagedCount = $derived(stagedDeletions.size);
 
 	let parsedReview = $derived(parseReviewSections(result));
 	let hasSections = $derived(parsedReview !== null && parsedReview.sections.length > 0);
 
-	// Prose rendering for fallback / preamble / section bodies
 	const proseClasses = `prose prose-invert prose-sm max-w-none
 		prose-headings:text-bourbon-200 prose-headings:font-display prose-headings:tracking-wider
 		prose-p:text-bourbon-300
@@ -60,15 +62,67 @@
 		return renderMarkdown(md);
 	}
 
-	// Full fallback HTML for non-parsed view
 	let fullHtml = $derived(renderMd(editing ? draft : result));
+
+	// --- Streaming tool status ---
+	function toolStatusLabel(tool: string, detail: string): string {
+		switch (tool) {
+			case 'Glob': return detail ? `searching for ${detail}` : 'searching files';
+			case 'Grep': return detail ? `searching for "${detail}"` : 'searching files';
+			case 'Read': return detail ? `reading ${detail}` : 'reading file';
+			default: return tool.toLowerCase();
+		}
+	}
+
+	// --- Data lifecycle ---
+	onMount(async () => {
+		try {
+			const data = await getClaudeTaskResult(taskId);
+			if (data.status === 'completed' && data.result) {
+				result = data.result;
+				status = 'completed';
+				return;
+			}
+			if (data.status === 'failed') {
+				status = 'failed';
+				errorMsg = data.errorMsg || 'Unknown error';
+				return;
+			}
+		} catch { /* proceed to stream */ }
+
+		// Subscribe to streaming events while running
+		unsub = events.on('claude:ask:stream', (evt) => {
+			if (evt.id !== taskId) return;
+			switch (evt.type) {
+				case 'text':
+					streamedText = evt.text ?? '';
+					toolStatus = '';
+					break;
+				case 'tool':
+					toolStatus = toolStatusLabel(evt.tool ?? '', evt.detail ?? '');
+					break;
+				case 'done':
+					status = 'completed';
+					getClaudeTaskResult(taskId).then((data) => {
+						if (data.result) result = data.result;
+					}).catch(() => {});
+					break;
+				case 'error':
+					status = 'failed';
+					errorMsg = evt.error ?? 'Unknown error';
+					break;
+			}
+		});
+	});
+
+	onDestroy(() => { unsub?.(); });
 
 	// --- Raw edit ---
 	async function handleSave() {
 		saving = true;
 		try {
 			await updateClaudeTaskResult(taskId, draft);
-			onupdate?.(draft);
+			result = draft;
 			editing = false;
 		} catch { /* silent */ }
 		saving = false;
@@ -83,7 +137,7 @@
 	async function persistResult(newResult: string) {
 		try {
 			await updateClaudeTaskResult(taskId, newResult);
-			onupdate?.(newResult);
+			result = newResult;
 		} catch { /* silent */ }
 	}
 
@@ -103,8 +157,7 @@
 			preamble: parsedReview.preamble,
 			sections: parsedReview.sections.filter((_, i) => !stagedDeletions.has(i))
 		};
-		const newMd = reconstructMarkdown(updated);
-		persistResult(newMd);
+		persistResult(reconstructMarkdown(updated));
 		stagedDeletions = new Set();
 	}
 
@@ -127,8 +180,7 @@
 			preamble: parsedReview.preamble,
 			sections: parsedReview.sections.map((s, i) => i === noteSectionIdx ? updatedSection : s)
 		};
-		const newMd = reconstructMarkdown(updated);
-		persistResult(newMd);
+		persistResult(reconstructMarkdown(updated));
 		cancelNote();
 	}
 
@@ -139,13 +191,10 @@
 			preamble: parsedReview.preamble,
 			sections: parsedReview.sections.map((s, i) => i === idx ? updatedSection : s)
 		};
-		const newMd = reconstructMarkdown(updated);
-		persistResult(newMd);
+		persistResult(reconstructMarkdown(updated));
 	}
 
-	// --- Refactor ---
 	async function launchRefactor() {
-		// Flush any pending changes before starting
 		if (stagedCount > 0) {
 			const updated: ParsedReview = {
 				preamble: parsedReview!.preamble,
@@ -157,12 +206,10 @@
 		await spawnTask(taskId, 'implementation');
 	}
 
-
 	function autofocus(node: HTMLElement) {
 		requestAnimationFrame(() => node.focus());
 	}
 
-	// Strip body of user note block for rendering (we show it separately)
 	function bodyWithoutNote(body: string): string {
 		return body.replace(/\n*> User response:\s*\n((?:> .*(?:\n|$))*)/, '').trimEnd();
 	}
@@ -177,14 +224,22 @@
 	role="dialog"
 	tabindex="-1"
 >
-	<div
-		class="bg-bourbon-900 border border-bourbon-800 rounded-2xl w-[90vw] max-w-5xl max-h-[85vh] flex flex-col overflow-hidden"
-	>
+	<div class="bg-bourbon-900 border border-bourbon-800 rounded-2xl w-[90vw] max-w-5xl max-h-[85vh] flex flex-col overflow-hidden">
 		<!-- Header -->
 		<div class="flex items-center justify-between px-6 py-4 border-b border-bourbon-800 shrink-0">
 			<div class="flex items-center gap-3">
+				<FileSearch size={14} class="text-run-500" />
 				<h2 class="font-display text-xs font-bold uppercase tracking-widest text-run-500">Review Result</h2>
-				{#if !editing}
+				{#if status === 'running'}
+					<div class="flex items-center gap-2">
+						<div class="w-2.5 h-2.5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
+						{#if toolStatus}
+							<span class="text-[10px] font-mono text-bourbon-500 animate-pulse">{toolStatus}</span>
+						{:else if !streamedText}
+							<span class="text-[10px] font-mono text-bourbon-500 animate-pulse">reviewing</span>
+						{/if}
+					</div>
+				{:else if status === 'completed' && !editing}
 					<button
 						onclick={() => { if (bodyEl) editHeight = bodyEl.offsetHeight; draft = result; editing = true; }}
 						class="flex items-center gap-1 text-[10px] font-mono text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
@@ -192,7 +247,7 @@
 						<Pencil size={10} />
 						edit
 					</button>
-				{:else}
+				{:else if editing}
 					<div class="flex items-center gap-2">
 						<button
 							onclick={handleCancel}
@@ -215,7 +270,29 @@
 		</div>
 
 		<!-- Body -->
-		{#if editing}
+		{#if status === 'running'}
+			<!-- Streaming view -->
+			<div class="overflow-auto flex-1 px-6 py-4 bg-bourbon-950">
+				{#if streamedText}
+					<div class={proseClasses}>
+						{@html renderMd(streamedText)}
+					</div>
+				{:else}
+					<div class="flex flex-col items-center justify-center py-12 gap-3">
+						<div class="w-6 h-6 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
+						{#if toolStatus}
+							<span class="text-xs font-mono text-bourbon-500">{toolStatus}</span>
+						{:else}
+							<span class="text-xs font-mono text-bourbon-500">reviewing</span>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{:else if status === 'failed'}
+			<div class="overflow-auto flex-1 px-6 py-4 bg-bourbon-950">
+				<div class="text-red-400 text-xs font-mono">{errorMsg}</div>
+			</div>
+		{:else if editing}
 			<div class="overflow-auto bg-bourbon-950" style:height={editHeight ? `${editHeight}px` : 'calc(85vh - 7rem)'}>
 				<textarea
 					bind:value={draft}
@@ -225,7 +302,6 @@
 		{:else if hasSections}
 			<!-- Structured section view -->
 			<div bind:this={bodyEl} class="overflow-auto flex-1 bg-bourbon-950">
-				<!-- Preamble -->
 				{#if parsedReview && parsedReview.preamble.trim()}
 					<div class="px-6 pt-4 pb-2">
 						<div class={proseClasses}>
@@ -234,7 +310,6 @@
 					</div>
 				{/if}
 
-				<!-- Sections -->
 				{#if parsedReview}
 					<div class="flex flex-col gap-2 px-4 py-3">
 						{#each parsedReview.sections as section, idx}
@@ -282,7 +357,6 @@
 									{/if}
 								</div>
 
-								<!-- Section body (collapsed when staged) -->
 								{#if !isStaged}
 									<div class="px-4 pb-3">
 										<div class={proseClasses}>
@@ -290,7 +364,6 @@
 										</div>
 									</div>
 
-									<!-- Existing user note -->
 									{#if section.userNote && noteSectionIdx !== idx}
 										<div class="mx-4 mb-3 flex items-start gap-2 bg-run-500/8 border border-run-500/20 rounded-lg px-3 py-2">
 											<span class="text-[10px] font-mono text-run-400 shrink-0 mt-0.5">your note:</span>
@@ -312,7 +385,6 @@
 										</div>
 									{/if}
 
-									<!-- Note editor -->
 									{#if noteSectionIdx === idx}
 										<div class="mx-4 mb-3 border border-run-500/30 rounded-lg overflow-hidden">
 											<textarea
@@ -348,38 +420,49 @@
 		{/if}
 
 		<!-- Footer -->
-		<div class="flex items-center justify-between px-6 py-3 border-t border-bourbon-800 shrink-0">
-			<div class="flex items-center gap-3">
-				{#if prUrl}
-					<a
-						href={prUrl}
-						target="_blank"
-						rel="noopener"
-						class="flex items-center gap-1.5 text-[10px] font-mono text-cmd-400 hover:text-cmd-300 transition-colors"
-					>
-						<ExternalLink size={12} />
-						PR #{prUrl.split('/').pop()}
-					</a>
-				{/if}
-				{#if hasSections && parsedReview}
-					<span class="text-[10px] font-mono text-bourbon-600">
-						{parsedReview.sections.length} finding{parsedReview.sections.length !== 1 ? 's' : ''}
-					</span>
-				{/if}
-				{#if stagedCount > 0}
+		{#if status === 'completed' || status === 'failed'}
+			<div class="flex items-center justify-between px-6 py-3 border-t border-bourbon-800 shrink-0">
+				<div class="flex items-center gap-3">
 					<button
-						onclick={commitDeletions}
-						class="flex items-center gap-1.5 text-[10px] font-mono text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+						onclick={async () => { await dismissTask(taskId); onclose(); }}
+						class="flex items-center gap-1.5 text-[10px] font-mono text-bourbon-600 hover:text-red-400 transition-colors cursor-pointer"
 					>
 						<Trash2 size={12} />
-						Remove {stagedCount} finding{stagedCount !== 1 ? 's' : ''}
+						Dismiss
 					</button>
+					{#if prUrl}
+						<a
+							href={prUrl}
+							target="_blank"
+							rel="noopener"
+							class="flex items-center gap-1.5 text-[10px] font-mono text-cmd-400 hover:text-cmd-300 transition-colors"
+						>
+							<ExternalLink size={12} />
+							PR #{prUrl.split('/').pop()}
+						</a>
+					{/if}
+					{#if hasSections && parsedReview}
+						<span class="text-[10px] font-mono text-bourbon-600">
+							{parsedReview.sections.length} finding{parsedReview.sections.length !== 1 ? 's' : ''}
+						</span>
+					{/if}
+					{#if stagedCount > 0}
+						<button
+							onclick={commitDeletions}
+							class="flex items-center gap-1.5 text-[10px] font-mono text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+						>
+							<Trash2 size={12} />
+							Remove {stagedCount} finding{stagedCount !== 1 ? 's' : ''}
+						</button>
+					{/if}
+				</div>
+				{#if status === 'completed'}
+					<LaunchGuard {repoPath} action={launchRefactor} onlaunched={onclose}>
+						<Wrench size={12} />
+						Start Refactor
+					</LaunchGuard>
 				{/if}
 			</div>
-			<LaunchGuard {repoPath} action={launchRefactor} onlaunched={onclose}>
-				<Wrench size={12} />
-				Start Refactor
-			</LaunchGuard>
-		</div>
+		{/if}
 	</div>
 </div>

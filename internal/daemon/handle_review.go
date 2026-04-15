@@ -3,14 +3,12 @@ package daemon
 import (
 	"database/sql"
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/mikehu/cmdr/internal/gitlocal"
 	"github.com/mikehu/cmdr/internal/prompts"
-	"github.com/mikehu/cmdr/internal/tasks"
 )
 
 // --- Review Comments ---
@@ -244,37 +242,20 @@ func runClaudeReview(db *sql.DB, bus *EventBus, taskID int, repoPath, sha, promp
 		"id": taskID, "status": "running", "repoPath": repoPath, "commitSha": sha,
 	}})
 
-	log.Printf("cmdr: claude review started (task %d, %s %s)", taskID, repoPath, sha[:7])
+	// Use the headless runner for streaming, process tracking, and cancellation
+	runHeadless(db, bus, HeadlessConfig{
+		TaskID:  taskID,
+		Prompt:  prompt,
+		WorkDir: repoPath,
+	})
 
-	result, err := tasks.Claude(prompt, repoPath)
-
-	now := time.Now().Format(time.RFC3339)
-	if err != nil {
-		db.Exec(`UPDATE claude_tasks SET status='failed', error_msg=?, completed_at=? WHERE id=?`,
-			err.Error(), now, taskID)
-		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-			"id": taskID, "status": "failed",
-		}})
-		log.Printf("cmdr: claude review failed (task %d): %v", taskID, err)
-		return
+	// Clean up review comments after completion (only if task succeeded)
+	var status string
+	db.QueryRow(`SELECT status FROM claude_tasks WHERE id=?`, taskID).Scan(&status)
+	if status == "completed" {
+		db.Exec(`DELETE FROM review_comments WHERE repo_path=? AND sha=?`, repoPath, sha)
+		bus.Publish(Event{Type: "commits:sync", Data: true})
 	}
-
-	title := extractTitle(result)
-	db.Exec(`UPDATE claude_tasks SET status='completed', result=?, title=?, completed_at=? WHERE id=?`,
-		result, title, now, taskID)
-	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-		"id": taskID, "status": "completed", "title": title,
-	}})
-
-	enhanceTitle(db, bus, taskID, truncate(result, 1000))
-
-	// Clean up review comments — they've been consumed
-	db.Exec(`DELETE FROM review_comments WHERE repo_path=? AND sha=?`, repoPath, sha)
-
-	// Notify frontend so commit reviewCount refreshes
-	bus.Publish(Event{Type: "commits:sync", Data: true})
-
-	log.Printf("cmdr: claude review completed (task %d)", taskID)
 }
 
 type reviewAnnotation struct {
