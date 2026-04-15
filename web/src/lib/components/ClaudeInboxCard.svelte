@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CircleCheck, CircleX, Wrench, GitPullRequestArrow, X, Pencil, Plus, CircleQuestionMark, Users, Square } from 'lucide-svelte';
+	import { CircleCheck, CircleX, GitPullRequestArrow, X, Pencil, Plus, CircleQuestionMark, Users, Square } from 'lucide-svelte';
 	import { getClaudeTaskResult, cancelTask, type ClaudeTask } from '$lib/api';
 	import {
 		loaded as loadedStore,
@@ -107,7 +107,7 @@
 				role="button"
 				tabindex="0"
 				class="group relative flex items-start gap-3 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors hover:bg-bourbon-800/50
-					{task.type === 'ask' || task.status === 'draft' || (task.status === 'resolved' && task.prUrl) || ((task.status === 'completed' || task.status === 'done') && (task.type === 'review' || task.intent === 'new-feature' || task.intent === 'analysis')) ? 'cursor-pointer' : ''}"
+					{task.type === 'ask' || task.status === 'draft' || (task.status === 'completed' && (task.type === 'review' || task.intent === 'new-feature' || task.intent === 'analysis' || task.prUrl)) ? 'cursor-pointer' : ''}"
 				onclick={() => {
 					if (task.type === 'ask') {
 						onask(task);
@@ -115,7 +115,7 @@
 						onask(task);
 					} else if (task.status === 'draft') {
 						ondraft(task.id, task.repoPath);
-					} else if (task.status === 'resolved' && task.prUrl) {
+					} else if (task.status === 'completed' && task.prUrl) {
 						window.open(task.prUrl, '_blank');
 					} else if (task.status === 'completed' && (task.type === 'review' || task.intent === 'new-feature')) {
 						viewResult(task);
@@ -133,14 +133,10 @@
 							<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
 						{:else if task.status === 'running' || task.status === 'pending'}
 							<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
-						{:else if task.status === 'refactoring' || task.status === 'implementing'}
-							<span class="text-cmd-400 animate-pulse"><Wrench size={15} /></span>
-						{:else if task.status === 'resolved'}
+						{:else if task.status === 'completed' && task.prUrl}
 							<span class="text-green-400"><GitPullRequestArrow size={15} /></span>
 						{:else if task.status === 'completed'}
 							<span class="text-green-400"><CircleCheck size={15} /></span>
-						{:else if task.status === 'done'}
-							<span class="text-bourbon-500"><CircleCheck size={15} /></span>
 						{:else}
 							<span class="text-red-400"><CircleX size={15} /></span>
 						{/if}
@@ -151,7 +147,7 @@
 						<!-- Row 1: Title + type badge -->
 						<div class="flex items-center gap-2">
 							<span class="text-xs leading-snug truncate min-w-0 flex-1
-								{task.status === 'failed' || task.status === 'done' ? 'text-bourbon-400 line-through' : task.status === 'completed' || task.status === 'resolved' ? 'text-bourbon-300' : 'text-bourbon-100'}">
+								{task.status === 'failed' ? 'text-bourbon-400 line-through' : task.status === 'completed' ? 'text-bourbon-300' : 'text-bourbon-100'}">
 								{task.title || fallbackTitle(task)}
 							</span>
 							<span class="font-mono text-[10px] px-1.5 py-0.5 rounded-full shrink-0 {badgeColor(task.type)}">{task.type}</span>
@@ -165,7 +161,7 @@
 								{#if task.repoPath && task.commitSha}<span class="text-bourbon-700">·</span>{/if}
 								{#if task.commitSha}<span class="font-mono text-bourbon-600">{shortSha(task.commitSha)}</span>{/if}
 							{:else if task.type === 'directive'}
-								{#if task.prUrl && (task.status === 'resolved' || task.status === 'implementing')}
+								{#if task.prUrl}
 									{#if task.repoPath}<span class="font-mono text-bourbon-500">{repoName(task.repoPath)}</span>{/if}
 									{#if task.repoPath}<span class="text-bourbon-700">·</span>{/if}
 									<span class="font-mono text-cmd-400">{parsePrUrl(task.prUrl)}</span>
@@ -182,7 +178,7 @@
 					</div>
 
 					<!-- Overlay actions -->
-					{#if (task.type === 'directive' || task.type === 'ask') && (task.status === 'running' || task.status === 'refactoring' || task.status === 'implementing')}
+					{#if (task.type === 'directive' || task.type === 'ask') && task.status === 'running'}
 						<div class="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-3 pl-20 invisible group-hover:visible bg-linear-to-r from-transparent to-30% to-bourbon-800 rounded-r-lg">
 							<span
 								role="button"

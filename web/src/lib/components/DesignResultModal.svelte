@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { X, Pencil, Wrench, MessageSquarePlus, Trash2, Undo2, FileCheck } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
-	import { updateClaudeTaskResult, startImplementation } from '$lib/api';
+	import { updateClaudeTaskResult, spawnTask } from '$lib/api';
 	import LaunchGuard from './LaunchGuard.svelte';
 	import {
 		parseADR,
@@ -302,7 +302,7 @@
 					</span>
 				</button>
 			</div>
-			<LaunchGuard {repoPath} action={() => startImplementation(taskId, commitADR)} onlaunched={onclose}>
+			<LaunchGuard {repoPath} action={() => spawnTask(taskId, 'implementation', { commitADR })} onlaunched={onclose}>
 				<Wrench size={12} />
 				Start Implementation
 			</LaunchGuard>

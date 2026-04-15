@@ -91,7 +91,6 @@ func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tick
 		if tmuxErr == nil {
 			checkRunningTasks(db, bus, tmuxSessions)
 		}
-		checkResolvedTasks(db, bus)
 		publishCommitWatermark(bus, db)
 	}
 
@@ -245,22 +244,16 @@ func findAncestorPane(pid int, ppidMap map[int]int, shellPIDs map[int]*claudePan
 
 // --- Unified task lifecycle polling ---
 //
-// All task types (review→refactor, directive) follow the same state machine:
-//   running/refactoring → scrape pane for PR → resolved; or window gone → completed
-//   resolved → PR closed + worktree gone → completed
-//
-// Window names are derived from intent via taskWindowName.
-// Worktree names are persisted on the task row at launch time.
+// Every task follows a simple lifecycle: running → completed | failed.
+// The poller monitors running tasks for artifact completion (ADR, PR, debrief)
+// and window liveness. Headless tasks (ask, review, analysis) are managed by
+// their goroutines, not the poller.
 
-// taskWindowName returns the tmux window name for a task based on its type.
-func taskWindowName(taskType, intent, status string, taskID int) string {
+// taskWindowName returns the tmux window name for a task based on its type/intent.
+func taskWindowName(taskType, intent string, taskID int) string {
 	if taskType == "delegation" {
 		return fmt.Sprintf("enlist-%d", taskID)
 	}
-	if status == "implementing" {
-		return fmt.Sprintf("new-feature-impl-%d", taskID)
-	}
-	// Derive prefix from intent; fall back to "task" for no-intent directives
 	prefix := "task"
 	if intent != "" {
 		prefix = intent
@@ -268,25 +261,21 @@ func taskWindowName(taskType, intent, status string, taskID int) string {
 	return fmt.Sprintf("%s-%d", prefix, taskID)
 }
 
-// checkRunningTasks monitors all active tasks (running/refactoring/implementing).
-// For PR-producing tasks: scrapes tmux pane for PR URL → resolved.
-// When the tmux window is gone: marks completed.
+// checkRunningTasks monitors all interactive running tasks.
+// Detects artifact completion (ADR, PR, debrief) and window closure.
 func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
-	// Exclude headless tasks (review, ask, analysis directives) — they run via
-	// claude -p, not tmux windows, so window liveness checks would falsely
-	// mark them as completed. Headless intents are filtered in Go below.
 	rows, err := db.Query(`
-		SELECT id, type, repo_path, COALESCE(intent, ''), worktree, status, COALESCE(started_at, created_at)
+		SELECT id, type, repo_path, COALESCE(intent, ''), worktree, COALESCE(started_at, created_at)
 		FROM claude_tasks
-		WHERE status IN ('running', 'refactoring', 'implementing')
-		  AND NOT (type IN ('review', 'ask') AND status = 'running')
+		WHERE status = 'running'
+		  AND NOT (type IN ('review', 'ask'))
 	`)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
-	// Build window lookup: windowName → "session:window" target for pane scraping
+	// Build window lookup
 	allWindows := make(map[string]bool)
 	windowTargets := make(map[string]string)
 	for _, s := range tmuxSessions {
@@ -302,32 +291,30 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 		repoPath  string
 		intent    string
 		worktree  string
-		status    string
 		startedAt string
 	}
 	var tasks []task
 	for rows.Next() {
 		var t task
-		if err := rows.Scan(&t.id, &t.taskType, &t.repoPath, &t.intent, &t.worktree, &t.status, &t.startedAt); err != nil {
+		if err := rows.Scan(&t.id, &t.taskType, &t.repoPath, &t.intent, &t.worktree, &t.startedAt); err != nil {
 			continue
 		}
 		tasks = append(tasks, t)
 	}
 
 	for _, t := range tasks {
-		// Skip headless intent directives — they run via claude -p, not tmux
-		if t.taskType == "directive" && t.status == "running" && prompts.IntentIsHeadless(t.intent) {
+		meta := prompts.GetIntentMeta(t.intent)
+
+		// Skip headless intents — managed by runHeadless goroutine
+		if meta.Mode == "headless" {
 			continue
 		}
 
-		windowName := taskWindowName(t.taskType, t.intent, t.status, t.id)
+		windowName := taskWindowName(t.taskType, t.intent, t.id)
 		windowAlive := allWindows[windowName]
-		inDesignPhase := t.status == "running" && prompts.IntentHasDesignPhase(t.intent)
 
-		// Design-phase tasks: capture ADR from worktree as soon as it appears.
-		// The ADR is the deliverable — once captured, the task is complete
-		// regardless of whether the window is still open.
-		if inDesignPhase {
+		// ADR-producing tasks: capture ADR from worktree as completion signal
+		if meta.Artifact == "adr" {
 			var existingResult string
 			db.QueryRow(`SELECT COALESCE(result, '') FROM claude_tasks WHERE id=?`, t.id).Scan(&existingResult)
 			if existingResult == "" {
@@ -344,24 +331,34 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 					continue
 				}
 			} else {
-				// ADR already captured — skip further processing
-				continue
+				continue // ADR already captured
 			}
+
+			// Window gone without ADR → failed
+			if !windowAlive {
+				now := time.Now().Format(time.RFC3339)
+				errMsg := "design session closed without producing an ADR"
+				db.Exec(`UPDATE claude_tasks SET status='failed', error_msg=?, completed_at=? WHERE id=?`, errMsg, now, t.id)
+				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+					"id": t.id, "status": "failed", "errorMsg": errMsg,
+				}})
+				log.Printf("cmdr: task %d failed (no ADR found)", t.id)
+			}
+			continue
 		}
 
-		// Delegation tasks: capture debrief file as completion signal.
-		// Similar to ADR capture — the debrief is the deliverable.
+		// Delegation tasks: capture debrief file as completion signal
 		if t.taskType == "delegation" {
 			var existingResult string
 			db.QueryRow(`SELECT COALESCE(result, '') FROM claude_tasks WHERE id=?`, t.id).Scan(&existingResult)
 			if existingResult != "" {
-				continue // debrief already captured
+				continue
 			}
 			if debriefPath, debrief := scrapeDebrief(t.id); debrief != "" {
 				now := time.Now().Format(time.RFC3339)
 				db.Exec(`UPDATE claude_tasks SET status='completed', result=?, completed_at=? WHERE id=?`,
 					debrief, now, t.id)
-				os.Remove(debriefPath) // clean up after capture
+				os.Remove(debriefPath)
 				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
 					"id": t.id, "status": "completed",
 				}})
@@ -377,53 +374,28 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 			}
 		}
 
-		// Scrape for PR URL if this task is expected to produce one:
-		// - refactoring/implementing statuses always produce PRs
-		// - running tasks check intent-level flag, but NOT during design phase
-		//   (design phase produces an ADR, not a PR — scraping would pick up
-		//   incidental PR URLs from the conversation)
-		shouldScrape := t.status == "refactoring" || t.status == "implementing" || (prompts.IntentProducesPR(t.intent) && !inDesignPhase)
-		if shouldScrape {
+		// PR-producing tasks: scrape pane for PR URL → completed with pr_url
+		if meta.Artifact == "pr" {
 			if target, ok := windowTargets[windowName]; ok {
 				if prUrl := scrapePaneForPR(target); prUrl != "" {
 					now := time.Now().Format(time.RFC3339)
-					db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
+					db.Exec(`UPDATE claude_tasks SET status='completed', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
 					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-						"id": t.id, "status": "resolved", "prUrl": prUrl,
+						"id": t.id, "status": "completed", "prUrl": prUrl,
 					}})
-					log.Printf("cmdr: task %d resolved via pane scrape (PR: %s)", t.id, prUrl)
+					log.Printf("cmdr: task %d completed (PR: %s)", t.id, prUrl)
 					continue
 				}
 			}
 		}
 
-		// Window gone — task completed (or failed for design tasks with no ADR)
+		// Window gone → completed
 		if !windowAlive {
 			now := time.Now().Format(time.RFC3339)
-
-			if inDesignPhase {
-				// If we reach here, the ADR was never captured
-				errMsg := "design session closed without producing an ADR"
-				db.Exec(`UPDATE claude_tasks SET status='failed', error_msg=?, completed_at=? WHERE id=?`, errMsg, now, t.id)
-				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-					"id": t.id, "status": "failed", "errorMsg": errMsg,
-				}})
-				log.Printf("cmdr: task %d failed (no ADR found)", t.id)
-				continue
-			}
-
-			// Plain directives (no PR-producing intent) have no further lifecycle
-			// steps — go straight to "done" instead of lingering in "completed"
-			finalStatus := "completed"
-			if t.taskType == "directive" && !prompts.IntentProducesPR(t.intent) {
-				finalStatus = "done"
-			}
-
-			db.Exec(`UPDATE claude_tasks SET status=?, completed_at=? WHERE id=?`, finalStatus, now, t.id)
+			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": t.id, "status": finalStatus,
+				"id": t.id, "status": "completed",
 			}})
-			// Publish delegation-specific event for squad summary refresh
 			if t.taskType == "delegation" {
 				var squadName string
 				db.QueryRow(`SELECT squad FROM delegations WHERE task_id = ?`, t.id).Scan(&squadName)
@@ -438,72 +410,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 	}
 }
 
-// checkResolvedTasks monitors all tasks in "resolved" status.
-// When the PR is merged/closed AND the worktree is gone, marks completed.
-func checkResolvedTasks(db *sql.DB, bus *EventBus) {
-	rows, err := db.Query(`SELECT id, repo_path, worktree, COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved'`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-
-	type task struct {
-		id       int
-		repoPath string
-		worktree string
-		prUrl    string
-	}
-	var tasks []task
-	for rows.Next() {
-		var t task
-		if err := rows.Scan(&t.id, &t.repoPath, &t.worktree, &t.prUrl); err != nil {
-			continue
-		}
-		tasks = append(tasks, t)
-	}
-
-	for _, t := range tasks {
-		worktreeExists := t.worktree != "" && worktreeAlive(t.repoPath, t.worktree)
-		prOpen := t.prUrl != "" && isPROpen(t.repoPath, t.prUrl)
-
-		if !prOpen && !worktreeExists {
-			now := time.Now().Format(time.RFC3339)
-			db.Exec(`UPDATE claude_tasks SET status='done', completed_at=? WHERE id=?`, now, t.id)
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": t.id, "status": "done",
-			}})
-			log.Printf("cmdr: task %d done (PR merged/closed, worktree gone)", t.id)
-		}
-	}
-}
-
-// --- PR + worktree helpers ---
-
-// worktreeAlive checks if a named worktree exists in the repo.
-func worktreeAlive(repoPath, worktreeName string) bool {
-	out, err := exec.Command("git", "-C", repoPath, "worktree", "list", "--porcelain").Output()
-	if err != nil {
-		return false
-	}
-	target := filepath.Join(".claude", "worktrees", worktreeName)
-	return strings.Contains(string(out), target)
-}
-
-// isPROpen checks if a PR URL is still open (not merged or closed).
-func isPROpen(repoPath, prUrl string) bool {
-	re := regexp.MustCompile(`/pull/(\d+)$`)
-	matches := re.FindStringSubmatch(prUrl)
-	if len(matches) < 2 {
-		return false
-	}
-	cmd := exec.Command("gh", "pr", "view", matches[1], "--json", "state", "-q", ".state")
-	cmd.Dir = repoPath
-	out, err := cmd.Output()
-	if err != nil {
-		return true // assume open on error to avoid false "done" transitions
-	}
-	return strings.TrimSpace(string(out)) == "OPEN"
-}
+// --- Pane scraping helpers ---
 
 // scrapePaneForPR captures a tmux pane's content and looks for a GitHub PR URL.
 func scrapePaneForPR(target string) string {

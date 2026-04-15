@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { X, Wrench, ExternalLink, Pencil, Trash2, MessageSquarePlus, Undo2 } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
-	import { startRefactor, updateClaudeTaskResult } from '$lib/api';
+	import { spawnTask, updateClaudeTaskResult } from '$lib/api';
 	import LaunchGuard from './LaunchGuard.svelte';
 	import {
 		parseReviewSections,
@@ -154,7 +154,7 @@
 			await persistResult(reconstructMarkdown(updated));
 			stagedDeletions = new Set();
 		}
-		await startRefactor(taskId);
+		await spawnTask(taskId, 'implementation');
 	}
 
 

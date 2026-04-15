@@ -147,7 +147,7 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		if body.ID > 0 {
 			var status string
 			if err := db.QueryRow(`SELECT status FROM claude_tasks WHERE id = ?`, body.ID).Scan(&status); err == nil {
-				if (status == "running" || status == "refactoring" || status == "implementing") && !body.Force {
+				if status == "running" && !body.Force {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusConflict)
 					json.NewEncoder(w).Encode(map[string]any{
@@ -171,7 +171,7 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		var res sql.Result
 		var err error
 		if body.All == "completed" {
-			res, err = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('done', 'failed', 'completed') AND type != 'delegation'`)
+			res, err = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('failed', 'completed') AND type != 'delegation'`)
 		} else if body.ID > 0 {
 			res, err = db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, body.ID)
 		} else {
@@ -202,11 +202,11 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 // killTaskWindow kills the tmux window for a task if it's still alive.
 func killTaskWindow(db *sql.DB, taskID int) {
-	var taskType, intent, status string
-	if err := db.QueryRow(`SELECT type, COALESCE(intent, ''), status FROM claude_tasks WHERE id = ?`, taskID).Scan(&taskType, &intent, &status); err != nil {
+	var taskType, intent string
+	if err := db.QueryRow(`SELECT type, COALESCE(intent, '') FROM claude_tasks WHERE id = ?`, taskID).Scan(&taskType, &intent); err != nil {
 		return
 	}
-	windowName := taskWindowName(taskType, intent, status, taskID)
+	windowName := taskWindowName(taskType, intent, taskID)
 
 	// Find the window across all sessions and kill it
 	sessions, err := tmux.ListSessions()
@@ -248,7 +248,7 @@ func handleCancelTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
 			return
 		}
-		if status != "running" && status != "refactoring" && status != "implementing" {
+		if status != "running" {
 			http.Error(w, `{"error":"task is not running"}`, http.StatusConflict)
 			return
 		}
@@ -313,17 +313,17 @@ func handleResolveTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		}
 
 		now := time.Now().Format(time.RFC3339)
-		db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`,
+		db.Exec(`UPDATE claude_tasks SET status='completed', pr_url=?, completed_at=? WHERE id=?`,
 			body.PRUrl, now, body.ID)
 
 		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-			"id": body.ID, "status": "resolved", "prUrl": body.PRUrl,
+			"id": body.ID, "status": "completed", "prUrl": body.PRUrl,
 		}})
 
-		log.Printf("cmdr: task %d resolved (PR: %s)", body.ID, body.PRUrl)
+		log.Printf("cmdr: task %d completed (PR: %s)", body.ID, body.PRUrl)
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "resolved", "prUrl": body.PRUrl})
+		json.NewEncoder(w).Encode(map[string]string{"status": "completed", "prUrl": body.PRUrl})
 	}
 }
 
@@ -338,7 +338,6 @@ type TaskLaunchConfig struct {
 	WindowPrefix   string // e.g. "refactor", "task" → "refactor-42", "task-42"
 	WorktreePrefix string // overrides WindowPrefix for worktree naming; defaults to WindowPrefix if empty
 	MarkerDir      string // optional dir for writing task ID marker file (e.g. ~/.cmdr/refactors)
-	RunningStatus  string // status to set on launch: "running" or "refactoring"
 }
 
 // TaskLaunchResult is returned from launchTask with session/window info.
@@ -390,10 +389,8 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 		// For design-phase intents (e.g. new-feature), use the design prompt
 		// for the initial dispatch; the intent prompt is used for implementation
 		var systemPrompt string
-		if cfg.RunningStatus == "" || cfg.RunningStatus == "running" {
-			if dp, err := prompts.GetDesignPrompt(cfg.Intent); err == nil && dp != "" {
-				systemPrompt = dp
-			}
+		if dp, err := prompts.GetDesignPrompt(cfg.Intent); err == nil && dp != "" {
+			systemPrompt = dp
 		}
 		if systemPrompt == "" {
 			if ip, err := prompts.GetIntentPrompt(cfg.Intent); err == nil {
@@ -428,15 +425,11 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 	}
 
 	// Update task status
-	status := cfg.RunningStatus
-	if status == "" {
-		status = "running"
-	}
 	now := time.Now().Format(time.RFC3339)
-	db.Exec(`UPDATE claude_tasks SET status=?, intent=?, worktree=?, started_at=? WHERE id=?`,
-		status, cfg.Intent, worktreeName, now, cfg.TaskID)
+	db.Exec(`UPDATE claude_tasks SET status='running', intent=?, worktree=?, started_at=? WHERE id=?`,
+		cfg.Intent, worktreeName, now, cfg.TaskID)
 	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-		"id": cfg.TaskID, "status": status, "intent": cfg.Intent, "repoPath": cfg.RepoPath,
+		"id": cfg.TaskID, "status": "running", "intent": cfg.Intent, "repoPath": cfg.RepoPath,
 	}})
 
 	log.Printf("cmdr: task %d launched (session %s, target %s, intent %q)", cfg.TaskID, sessionName, target, cfg.Intent)
@@ -495,7 +488,6 @@ func handleStartRefactor(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			),
 			WindowPrefix:   "refactor",
 			MarkerDir:      filepath.Join(os.Getenv("HOME"), ".cmdr", "refactors"),
-			RunningStatus:  "refactoring",
 		})
 		if err != nil {
 			log.Printf("cmdr: refactor launch failed: %v", err)
@@ -565,7 +557,6 @@ func handleStartImplementation(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			RepoPath:       repoPath,
 			UserPrompt:     prompt,
 			WindowPrefix:   "new-feature-impl",
-			RunningStatus:  "implementing",
 		})
 		if err != nil {
 			log.Printf("cmdr: implementation launch failed: %v", err)
@@ -879,7 +870,7 @@ func cleanupTaskWorktree(db *sql.DB, taskID int) {
 		return
 	}
 	// Only clean up tasks that are in a worktree-using state
-	if status != "refactoring" && status != "implementing" && status != "resolved" && status != "completed" && status != "running" {
+	if status != "completed" && status != "running" {
 		return
 	}
 
@@ -888,7 +879,7 @@ func cleanupTaskWorktree(db *sql.DB, taskID int) {
 
 // cleanupAllTaskWorktrees removes worktrees for all completed/resolved/refactoring tasks.
 func cleanupAllTaskWorktrees(db *sql.DB) {
-	rows, err := db.Query(`SELECT id, type, repo_path, worktree FROM claude_tasks WHERE worktree != '' AND status IN ('completed', 'resolved', 'refactoring', 'implementing')`)
+	rows, err := db.Query(`SELECT id, type, repo_path, worktree FROM claude_tasks WHERE worktree != '' AND status IN ('completed', 'running')`)
 	if err != nil {
 		return
 	}
