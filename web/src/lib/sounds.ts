@@ -26,23 +26,40 @@ async function ensureResumed(): Promise<AudioContext> {
 }
 
 // After macOS sleep/wake, WKWebView silently kills the audio session —
-// resume() resolves but produces no output. Since this is a native app,
-// visibilitychange only fires on app show/hide, so always rebuild.
-let hiddenAt = 0;
+// resume() resolves but produces no output. Rebuild from cached raw data.
+function rebuildContext() {
+	if (!ctx) return;
+	ctx.close().catch(() => {});
+	ctx = null;
+	buffers.clear();
+	for (const src of rawData.keys()) {
+		getBuffer(src).catch(() => {});
+	}
+}
+
 if (typeof document !== 'undefined') {
+	// Visibility-based detection: app was hidden > 3s (backgrounded)
+	let hiddenAt = 0;
 	document.addEventListener('visibilitychange', () => {
 		if (document.visibilityState === 'hidden') {
 			hiddenAt = Date.now();
 		} else if (ctx && Date.now() - hiddenAt > 3_000) {
-			ctx.close().catch(() => {});
-			ctx = null;
-			buffers.clear();
-			// Re-decode all cached raw data on a fresh context
-			for (const src of rawData.keys()) {
-				getBuffer(src).catch(() => {});
-			}
+			rebuildContext();
 		}
 	});
+
+	// Timer watchdog: detect system sleep via wall-clock time jumps.
+	// visibilitychange doesn't fire when the system sleeps with the app
+	// still in the foreground, so this catches what visibility misses.
+	let lastTick = Date.now();
+	(function tick() {
+		const now = Date.now();
+		if (now - lastTick > 10_000 && ctx) {
+			rebuildContext();
+		}
+		lastTick = now;
+		setTimeout(tick, 4_000);
+	})();
 }
 
 // Prefetch raw audio data without creating AudioContext
