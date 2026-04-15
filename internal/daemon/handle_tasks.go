@@ -375,7 +375,7 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 
 	// Build claude command — omit -w when no worktree prefix (e.g. delegations)
 	var baseCmd string
-	if cfg.WorktreePrefix != "" {
+	if worktreePrefix != "" {
 		baseCmd = fmt.Sprintf("claude -w %s --name 'cmdr-task-%d'", worktreeName, cfg.TaskID)
 	} else {
 		baseCmd = fmt.Sprintf("claude --name 'cmdr-task-%d'", cfg.TaskID)
