@@ -14,3 +14,8 @@ func unixDialer(sock string) *http.Transport {
 		},
 	}
 }
+
+// Client returns an HTTP client that talks to the daemon over its Unix socket.
+func Client() *http.Client {
+	return &http.Client{Transport: unixDialer(sockPath())}
+}

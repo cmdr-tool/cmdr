@@ -177,10 +177,7 @@ func Status() error {
 	fmt.Printf("cmdr: running (pid %d)\n", pid)
 
 	// Try querying the daemon's HTTP endpoint
-	client := &http.Client{
-		Transport: unixDialer(sockPath()),
-	}
-	resp, err := client.Get("http://cmdr/api/status")
+	resp, err := Client().Get("http://cmdr/api/status")
 	if err == nil {
 		defer resp.Body.Close()
 		body := make([]byte, 1024)

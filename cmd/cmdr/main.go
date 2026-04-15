@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -488,13 +487,13 @@ func enlistCmd() *cobra.Command {
 	return cmd
 }
 
-// notifyDaemon publishes an SSE event via the daemon so the frontend updates in real time.
+// notifyDaemon publishes an SSE event via the daemon over the Unix socket.
 func notifyDaemon(squad string, taskID int) {
 	body, _ := json.Marshal(map[string]any{
 		"event": "delegation:update",
 		"data":  map[string]any{"squad": squad, "taskId": taskID, "status": "running"},
 	})
-	resp, err := http.Post("http://127.0.0.1:7369/api/notify", "application/json", bytes.NewReader(body))
+	resp, err := daemon.Client().Post("http://cmdr/api/notify", "application/json", bytes.NewReader(body))
 	if err == nil {
 		resp.Body.Close()
 	}
