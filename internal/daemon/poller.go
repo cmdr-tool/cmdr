@@ -91,6 +91,7 @@ func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tick
 		if tmuxErr == nil {
 			checkRunningTasks(db, bus, tmuxSessions)
 		}
+		checkResolvedTasks(db, bus)
 		publishCommitWatermark(bus, db)
 	}
 
@@ -374,16 +375,16 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 			}
 		}
 
-		// PR-producing tasks: scrape pane for PR URL → completed with pr_url
+		// PR-producing tasks: scrape pane for PR URL → resolved (awaiting merge)
 		if meta.Artifact == "pr" {
 			if target, ok := windowTargets[windowName]; ok {
 				if prUrl := scrapePaneForPR(target); prUrl != "" {
 					now := time.Now().Format(time.RFC3339)
-					db.Exec(`UPDATE claude_tasks SET status='completed', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
+					db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
 					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-						"id": t.id, "status": "completed", "prUrl": prUrl,
+						"id": t.id, "status": "resolved", "prUrl": prUrl,
 					}})
-					log.Printf("cmdr: task %d completed (PR: %s)", t.id, prUrl)
+					log.Printf("cmdr: task %d resolved (PR: %s)", t.id, prUrl)
 					continue
 				}
 			}
@@ -408,6 +409,73 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 			log.Printf("cmdr: task %d completed (window closed)", t.id)
 		}
 	}
+}
+
+// checkResolvedTasks monitors tasks with PRs awaiting merge.
+// When the PR is merged/closed AND the worktree is gone, marks completed.
+func checkResolvedTasks(db *sql.DB, bus *EventBus) {
+	rows, err := db.Query(`SELECT id, repo_path, worktree, COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved'`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type task struct {
+		id       int
+		repoPath string
+		worktree string
+		prUrl    string
+	}
+	var tasks []task
+	for rows.Next() {
+		var t task
+		if err := rows.Scan(&t.id, &t.repoPath, &t.worktree, &t.prUrl); err != nil {
+			continue
+		}
+		tasks = append(tasks, t)
+	}
+
+	for _, t := range tasks {
+		worktreeExists := t.worktree != "" && worktreeAlive(t.repoPath, t.worktree)
+		prOpen := t.prUrl != "" && isPROpen(t.repoPath, t.prUrl)
+
+		if !prOpen && !worktreeExists {
+			now := time.Now().Format(time.RFC3339)
+			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
+			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				"id": t.id, "status": "completed",
+			}})
+			log.Printf("cmdr: task %d completed (PR merged, worktree gone)", t.id)
+		}
+	}
+}
+
+// --- PR + worktree helpers ---
+
+// worktreeAlive checks if a named worktree exists in the repo.
+func worktreeAlive(repoPath, worktreeName string) bool {
+	out, err := exec.Command("git", "-C", repoPath, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		return false
+	}
+	target := filepath.Join(".claude", "worktrees", worktreeName)
+	return strings.Contains(string(out), target)
+}
+
+// isPROpen checks if a PR URL is still open (not merged or closed).
+func isPROpen(repoPath, prUrl string) bool {
+	re := regexp.MustCompile(`/pull/(\d+)$`)
+	matches := re.FindStringSubmatch(prUrl)
+	if len(matches) < 2 {
+		return false
+	}
+	cmd := exec.Command("gh", "pr", "view", matches[1], "--json", "state", "-q", ".state")
+	cmd.Dir = repoPath
+	out, err := cmd.Output()
+	if err != nil {
+		return true // assume open on error to avoid false completions
+	}
+	return strings.TrimSpace(string(out)) == "OPEN"
 }
 
 // --- Pane scraping helpers ---

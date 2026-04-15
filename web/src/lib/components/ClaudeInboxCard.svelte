@@ -98,7 +98,7 @@
 				role="button"
 				tabindex="0"
 				class="group relative flex items-start gap-3 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors hover:bg-bourbon-800/50
-					{task.status === 'draft' || task.status === 'completed' || task.type === 'ask' || task.type === 'review' || (task.status === 'running' && task.headless) ? 'cursor-pointer' : ''}"
+					{task.status === 'draft' || task.status === 'completed' || task.status === 'resolved' || task.type === 'ask' || task.type === 'review' || (task.status === 'running' && task.headless) ? 'cursor-pointer' : ''}"
 				onclick={() => {
 					if (task.status === 'draft') {
 						ondraft(task.id, task.repoPath);
@@ -118,8 +118,10 @@
 							<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
 						{:else if task.status === 'running' || task.status === 'pending'}
 							<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
-						{:else if task.status === 'completed' && task.prUrl}
+						{:else if task.status === 'resolved'}
 							<span class="text-green-400"><GitPullRequestArrow size={15} /></span>
+						{:else if task.status === 'completed' && task.prUrl}
+							<span class="text-bourbon-500"><GitPullRequestArrow size={15} /></span>
 						{:else if task.status === 'completed'}
 							<span class="text-green-400"><CircleCheck size={15} /></span>
 						{:else}
@@ -132,7 +134,7 @@
 						<!-- Row 1: Title + type badge -->
 						<div class="flex items-center gap-2">
 							<span class="text-xs leading-snug truncate min-w-0 flex-1
-								{task.status === 'failed' ? 'text-bourbon-400 line-through' : task.status === 'completed' ? 'text-bourbon-300' : 'text-bourbon-100'}">
+								{task.status === 'failed' ? 'text-bourbon-400 line-through' : task.status === 'completed' || task.status === 'resolved' ? 'text-bourbon-300' : 'text-bourbon-100'}">
 								{task.title || fallbackTitle(task)}
 							</span>
 							<span class="font-mono text-[10px] px-1.5 py-0.5 rounded-full shrink-0 {badgeColor(task.type)}">{task.type}</span>

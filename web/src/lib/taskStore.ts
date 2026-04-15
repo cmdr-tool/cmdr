@@ -22,7 +22,7 @@ export const activeCount = derived(visibleTasks, (t) =>
 	t.filter((task) => task.status === 'running' || task.status === 'pending').length
 );
 export const dismissableCount = derived(visibleTasks, (t) =>
-	t.filter((task) => task.status === 'failed' || task.status === 'completed').length
+	t.filter((task) => task.status === 'failed' || task.status === 'completed' || task.status === 'resolved').length
 );
 
 // --- Actions ---
@@ -41,7 +41,7 @@ export async function dismiss(id: number) {
 }
 
 export async function clearAllCompleted() {
-	tasks.update((t) => t.filter((task) => task.type === 'delegation' || (task.status !== 'failed' && task.status !== 'completed')));
+	tasks.update((t) => t.filter((task) => task.type === 'delegation' || (task.status !== 'failed' && task.status !== 'completed' && task.status !== 'resolved')));
 	await dismissAllClaudeTasks();
 }
 

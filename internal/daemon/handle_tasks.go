@@ -173,7 +173,7 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		var res sql.Result
 		var err error
 		if body.All == "completed" {
-			res, err = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('failed', 'completed') AND type != 'delegation'`)
+			res, err = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('failed', 'completed', 'resolved') AND type != 'delegation'`)
 		} else if body.ID > 0 {
 			res, err = db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, body.ID)
 		} else {
@@ -315,17 +315,17 @@ func handleResolveTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		}
 
 		now := time.Now().Format(time.RFC3339)
-		db.Exec(`UPDATE claude_tasks SET status='completed', pr_url=?, completed_at=? WHERE id=?`,
+		db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`,
 			body.PRUrl, now, body.ID)
 
 		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-			"id": body.ID, "status": "completed", "prUrl": body.PRUrl,
+			"id": body.ID, "status": "resolved", "prUrl": body.PRUrl,
 		}})
 
-		log.Printf("cmdr: task %d completed (PR: %s)", body.ID, body.PRUrl)
+		log.Printf("cmdr: task %d resolved (PR: %s)", body.ID, body.PRUrl)
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "completed", "prUrl": body.PRUrl})
+		json.NewEncoder(w).Encode(map[string]string{"status": "resolved", "prUrl": body.PRUrl})
 	}
 }
 
@@ -733,7 +733,7 @@ func cleanupTaskWorktree(db *sql.DB, taskID int) {
 	if err != nil || worktreeName == "" {
 		return
 	}
-	if status != "completed" && status != "running" {
+	if status != "completed" && status != "resolved" && status != "running" {
 		return
 	}
 	removeWorktree(repoPath, taskID, worktreeName)
@@ -741,7 +741,7 @@ func cleanupTaskWorktree(db *sql.DB, taskID int) {
 
 // cleanupAllTaskWorktrees removes worktrees for all completed tasks.
 func cleanupAllTaskWorktrees(db *sql.DB) {
-	rows, err := db.Query(`SELECT id, repo_path, worktree FROM claude_tasks WHERE worktree != '' AND status IN ('completed', 'running')`)
+	rows, err := db.Query(`SELECT id, repo_path, worktree FROM claude_tasks WHERE worktree != '' AND status IN ('completed', 'resolved', 'running')`)
 	if err != nil {
 		return
 	}
