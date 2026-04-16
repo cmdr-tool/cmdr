@@ -338,7 +338,7 @@
 											<span class="text-[10px] font-mono">undo</span>
 										</button>
 									{:else}
-										<div class="flex items-center gap-1 invisible group-hover/section:visible">
+										<div class="flex items-center gap-1 shrink-0 invisible group-hover/section:visible">
 											<button
 												onclick={() => startNote(idx)}
 												class="p-1 text-bourbon-600 hover:text-run-400 transition-colors cursor-pointer"
@@ -365,7 +365,7 @@
 									</div>
 
 									{#if section.userNote && noteSectionIdx !== idx}
-										<div class="mx-4 mb-3 flex items-start gap-2 bg-run-500/8 border border-run-500/20 rounded-lg px-3 py-2">
+										<div class="mx-3.5 mb-3 flex items-start gap-2 bg-run-500/8 border border-run-500/20 rounded-lg px-3 py-2">
 											<span class="text-[10px] font-mono text-run-400 shrink-0 mt-0.5">your note:</span>
 											<span class="text-xs text-bourbon-200 flex-1 select-text">{section.userNote}</span>
 											<button
@@ -386,7 +386,7 @@
 									{/if}
 
 									{#if noteSectionIdx === idx}
-										<div class="mx-4 mb-3 border border-run-500/30 rounded-lg overflow-hidden">
+										<div class="mx-3.5 mb-3 border border-run-500/30 rounded-lg overflow-hidden">
 											<textarea
 												use:autofocus
 												bind:value={noteDraft}
