@@ -29,6 +29,16 @@ func main() {
 	root := &cobra.Command{
 		Use:     "cmdr",
 		Short:   "Personal command runner and automation daemon",
+		Long: `Personal command runner and automation daemon.
+
+For Claude sessions: enlistment status is delivered automatically via the
+UserPromptSubmit hook on your next message — there is no command to poll
+task or enlistment state. After running 'cmdr enlist', continue with work
+that doesn't depend on the enlistment; completion will be injected into
+your context when it lands.
+
+'cmdr status' reports daemon status only (pid, task count). It does not
+accept --task or --squad flags.`,
 		Version: version,
 	}
 
@@ -41,6 +51,7 @@ func main() {
 	root.AddCommand(initCmd())
 	root.AddCommand(enlistCmd())
 	root.AddCommand(missionsCmd())
+	root.AddCommand(taskCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -428,6 +439,13 @@ func enlistCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "enlist",
 		Short: "Enlist a squad member for cross-repo work",
+		Long: `Enlist a squad member for cross-repo work.
+
+Dispatches a task to a sibling repo's Claude session. After dispatch, do
+NOT poll — there is no status command. Completion is delivered as context
+on your next prompt via the UserPromptSubmit hook (including the debrief
+written by the enlisted session). Continue with non-blocking work in the
+meantime.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if squad == "" || from == "" || to == "" || summary == "" {
 				return fmt.Errorf("--squad, --from, --to, and --summary are required")
@@ -559,6 +577,65 @@ func missionsCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repoPath, "repo", "", "Repository path (defaults to cwd)")
 	return cmd
+}
+
+func taskCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "task <id>",
+		Short: "Show status and debrief for a task by ID",
+		Long: `Show status and debrief for a task by ID.
+
+Use this to actively check on an enlistment when you can't wait for the
+UserPromptSubmit hook to deliver completion (e.g. mid-task in a headless
+or autonomous run). The ID is the taskId returned by 'cmdr enlist'.
+
+Status values: draft, running, completed, failed.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			database, err := db.Open()
+			if err != nil {
+				return err
+			}
+			defer database.Close()
+
+			var id int
+			if _, err := fmt.Sscanf(args[0], "%d", &id); err != nil {
+				return fmt.Errorf("invalid task id: %s", args[0])
+			}
+
+			var title, status, result, errMsg, intent string
+			var squad, fromAlias, toAlias sql.NullString
+			err = database.QueryRow(
+				`SELECT ct.title, ct.status, ct.result, ct.error_msg, ct.intent,
+				        d.squad, d.from_alias, d.to_alias
+				 FROM claude_tasks ct
+				 LEFT JOIN delegations d ON d.task_id = ct.id
+				 WHERE ct.id = ?`, id,
+			).Scan(&title, &status, &result, &errMsg, &intent, &squad, &fromAlias, &toAlias)
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("task %d not found", id)
+			}
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("Task %d: %s\n", id, title)
+			fmt.Printf("Status: %s\n", status)
+			if intent != "" {
+				fmt.Printf("Intent: %s\n", intent)
+			}
+			if squad.Valid && squad.String != "" {
+				fmt.Printf("Enlistment: squad=%s, %s → %s\n", squad.String, fromAlias.String, toAlias.String)
+			}
+			if errMsg != "" {
+				fmt.Printf("\nError:\n%s\n", errMsg)
+			}
+			if result != "" {
+				fmt.Printf("\nResult:\n%s\n", result)
+			}
+			return nil
+		},
+	}
 }
 
 func outputHook(event, context string) error {

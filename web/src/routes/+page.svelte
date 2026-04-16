@@ -108,7 +108,7 @@
 					reviewTask = task;
 				} else if (task.type === 'ask' || task.intent === 'analysis') {
 					resultTask = task;
-				} else if (task.status === 'completed' && task.prUrl) {
+				} else if ((task.status === 'resolved' || task.status === 'completed') && task.prUrl) {
 					window.open(task.prUrl, '_blank');
 				} else if (task.status === 'completed' && task.intent === 'new-feature') {
 					try {

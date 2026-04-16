@@ -51,12 +51,16 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onclick={onclose}></div>
-
-<!-- Panel -->
-<div class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-5xl max-h-[80vh] overflow-y-auto bg-bourbon-900 rounded-2xl border border-bourbon-800">
+<div
+	class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+	onmousedown={(e) => { if (e.target === e.currentTarget) onclose(); }}
+	onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}
+	role="dialog"
+	tabindex="-1"
+>
+<div class="w-full max-w-5xl max-h-[80vh] overflow-y-auto bg-bourbon-900 rounded-2xl border border-bourbon-800">
 	<!-- Header -->
-	<div class="sticky top-0 z-10 bg-bourbon-900/95 backdrop-blur px-6 py-4 border-b border-bourbon-800 flex items-center justify-between">
+	<div class="sticky top-0 z-10 bg-bourbon-900 px-6 py-4 border-b border-bourbon-800 flex items-center justify-between">
 		<h2 class="font-display text-sm text-run-500 uppercase tracking-widest">
 			Squad Missions: {squad}
 		</h2>
@@ -107,7 +111,7 @@
 								{#if d.summary}
 									<div class="px-4 py-3 border-t border-bourbon-800/50">
 										<div class="flex items-start gap-2.5">
-											<span class="font-mono text-[10px] text-run-500 font-bold shrink-0 pt-0.5">{d.delegationFrom}</span>
+											<span class="font-mono text-[10px] text-run-500 font-bold shrink-0 min-w-16 pt-0.5">{d.delegationFrom}</span>
 											<p class="text-sm text-bourbon-300">{d.summary}</p>
 										</div>
 									</div>
@@ -116,7 +120,7 @@
 								<!-- Waiting indicator -->
 								<div class="px-4 py-2.5 border-t border-bourbon-800/50 bg-bourbon-950/30">
 									<div class="flex items-center gap-2.5">
-										<span class="font-mono text-[10px] text-bourbon-600 font-bold shrink-0">{d.delegationTo}</span>
+										<span class="font-mono text-[10px] text-bourbon-600 font-bold shrink-0 min-w-16">{d.delegationTo}</span>
 										<span class="text-xs text-bourbon-600 italic">working...</span>
 									</div>
 								</div>
@@ -160,7 +164,7 @@
 								{#if d.summary}
 									<div class="px-4 py-3 border-t border-bourbon-800/50">
 										<div class="flex items-start gap-2.5">
-											<span class="font-mono text-[10px] text-run-500/70 font-bold shrink-0 pt-0.5">{d.delegationFrom}</span>
+											<span class="font-mono text-[10px] text-run-500/70 font-bold shrink-0 min-w-16 pt-0.5">{d.delegationFrom}</span>
 											<p class="text-sm text-bourbon-400">{d.summary}</p>
 										</div>
 									</div>
@@ -170,7 +174,7 @@
 								{#if d.result}
 									<div class="px-4 py-3 border-t border-bourbon-800/50 bg-bourbon-950/30">
 										<div class="flex items-start gap-2.5">
-											<span class="font-mono text-[10px] text-cmd-400/70 font-bold shrink-0 pt-0.5">{d.delegationTo}</span>
+											<span class="font-mono text-[10px] text-cmd-400/70 font-bold shrink-0 min-w-16 pt-0.5">{d.delegationTo}</span>
 											<div class="text-sm text-bourbon-400 overflow-hidden
 												prose prose-invert prose-sm max-w-none
 												prose-headings:text-bourbon-300 prose-headings:font-display prose-headings:tracking-wider prose-headings:text-xs
@@ -187,7 +191,7 @@
 								{:else if d.status === 'completed'}
 									<div class="px-4 py-2.5 border-t border-bourbon-800/50 bg-bourbon-950/30">
 										<div class="flex items-center gap-2.5">
-											<span class="font-mono text-[10px] text-bourbon-600 font-bold shrink-0">{d.delegationTo}</span>
+											<span class="font-mono text-[10px] text-bourbon-600 font-bold shrink-0 min-w-16">{d.delegationTo}</span>
 											<span class="text-xs text-bourbon-600 italic">completed (no debrief)</span>
 										</div>
 									</div>
@@ -199,4 +203,5 @@
 			{/if}
 		{/if}
 	</div>
+</div>
 </div>
