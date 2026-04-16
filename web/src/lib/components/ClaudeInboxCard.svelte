@@ -85,7 +85,7 @@
 					onclick={() => onopenmissions(summary.squad)}
 				>
 					<div class="pt-0.5 shrink-0">
-						<Users size={15} class="text-run-500/60" />
+						<Users size={14} class="text-run-500/60" />
 					</div>
 					<div class="flex flex-col gap-1 min-w-0 flex-1">
 						<div class="flex items-center gap-2">
@@ -122,29 +122,29 @@
 					<!-- Status icon -->
 					<div class="pt-0.5 shrink-0">
 						{#if task.status === 'draft'}
-							<span class="text-cmd-400"><Pencil size={15} /></span>
+							<span class="text-cmd-400"><Pencil size={14} /></span>
 						{:else if task.type === 'ask' && task.status === 'running'}
 							<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
 						{:else if task.status === 'running' || task.status === 'pending'}
 							<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
 						{:else if task.status === 'resolved'}
-							<span class="text-violet-400"><GitPullRequestArrow size={15} /></span>
+							<span class="text-violet-400"><GitPullRequestArrow size={14} /></span>
 						{:else if task.status === 'completed' && task.prUrl}
-							<span class="text-bourbon-500"><GitMerge size={15} /></span>
+							<span class="text-bourbon-500"><GitMerge size={14} /></span>
 						{:else if task.status === 'completed' && task.type === 'ask'}
-							<span class="text-green-400"><CircleQuestionMark size={15} /></span>
+							<span class="text-green-400"><CircleQuestionMark size={14} /></span>
 						{:else if task.status === 'completed' && task.intent === 'analysis'}
-							<span class="text-green-400"><ScanSearch size={15} /></span>
+							<span class="text-green-400"><ScanSearch size={14} /></span>
 						{:else if task.status === 'completed' && task.type === 'review'}
-							<span class="text-green-400"><FileSearch size={15} /></span>
+							<span class="text-green-400"><FileSearch size={14} /></span>
 						{:else if task.status === 'completed' && task.intent === 'new-feature'}
-							<span class="text-green-400"><FileCheck size={15} /></span>
+							<span class="text-green-400"><FileCheck size={14} /></span>
 						{:else if task.status === 'completed'}
-							<span class="text-bourbon-500"><CircleCheck size={15} /></span>
+							<span class="text-bourbon-500"><CircleCheck size={14} /></span>
 						{:else if task.status === 'failed'}
-							<span class="text-red-400"><CircleX size={15} /></span>
+							<span class="text-red-400"><CircleX size={14} /></span>
 						{:else}
-							<span class="text-red-400"><CircleX size={15} /></span>
+							<span class="text-red-400"><CircleX size={14} /></span>
 						{/if}
 					</div>
 
