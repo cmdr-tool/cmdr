@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { CircleCheck, CircleX, GitPullRequestArrow, GitMerge, X, Pencil, Plus, CircleQuestionMark, Users, Square, ScanSearch, FileSearch, FileCheck } from 'lucide-svelte';
-	import { cancelTask, type ClaudeTask } from '$lib/api';
+	import { cancelTask, isTerminalTask, type ClaudeTask } from '$lib/api';
 	import {
 		loaded as loadedStore,
 		visibleTasks as visibleTasksStore,
@@ -40,17 +40,6 @@
 		const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
 		if (m) return `${m[2]}#${m[3]}`;
 		return url.length > 30 ? url.slice(0, 27) + '...' : url;
-	}
-
-	// A completed task is "terminal" if there's nothing left to inspect or act on
-	function isTerminal(task: ClaudeTask): boolean {
-		if (task.status === 'failed') return true;
-		if (task.status !== 'completed') return false;
-		// Merged PR — done
-		if (task.prUrl) return true;
-		// Generic directive with no intent — nothing to follow up
-		if (task.type === 'directive' && !task.intent) return true;
-		return false;
 	}
 
 	function badgeColor(type: string): string {
@@ -153,7 +142,7 @@
 						<!-- Row 1: Title + type badge -->
 						<div class="flex items-center gap-2">
 							<span class="text-xs leading-snug truncate min-w-0 flex-1
-								{isTerminal(task) ? 'text-bourbon-500 line-through' : task.status === 'completed' || task.status === 'resolved' ? 'text-bourbon-300' : 'text-bourbon-100'}">
+								{isTerminalTask(task) ? 'text-bourbon-500 line-through' : task.status === 'completed' || task.status === 'resolved' ? 'text-bourbon-300' : 'text-bourbon-100'}">
 								{task.title || fallbackTitle(task)}
 							</span>
 							<span class="font-mono text-[10px] px-1.5 py-0.5 rounded-full shrink-0 {badgeColor(task.type)}">{task.type}</span>
@@ -179,7 +168,8 @@
 							{:else}
 								{#if task.repoPath}<span class="font-mono text-bourbon-500">{repoName(task.repoPath)}</span>{/if}
 							{/if}
-							<span class="text-bourbon-700 ml-auto">{$timeAgo(task.createdAt)}</span>
+							<span class="font-mono text-bourbon-700 ml-auto">#{task.id}</span>
+							<span class="text-bourbon-700">{$timeAgo(task.createdAt)}</span>
 						</div>
 					</div>
 

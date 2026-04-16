@@ -4,6 +4,7 @@ import {
 	dismissClaudeTask,
 	dismissAllClaudeTasks,
 	createDirective,
+	isTerminalTask,
 	type ClaudeTask
 } from '$lib/api';
 import { events, connection } from '$lib/events';
@@ -22,7 +23,7 @@ export const activeCount = derived(visibleTasks, (t) =>
 	t.filter((task) => task.status === 'running' || task.status === 'pending').length
 );
 export const dismissableCount = derived(visibleTasks, (t) =>
-	t.filter((task) => task.status === 'failed' || task.status === 'completed' || task.status === 'resolved').length
+	t.filter(isTerminalTask).length
 );
 
 // --- Actions ---
@@ -41,7 +42,7 @@ export async function dismiss(id: number) {
 }
 
 export async function clearAllCompleted() {
-	tasks.update((t) => t.filter((task) => task.type === 'delegation' || (task.status !== 'failed' && task.status !== 'completed' && task.status !== 'resolved')));
+	tasks.update((t) => t.filter((task) => task.type === 'delegation' || !isTerminalTask(task)));
 	await dismissAllClaudeTasks();
 }
 

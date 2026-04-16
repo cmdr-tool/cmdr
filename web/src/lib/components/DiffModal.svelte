@@ -487,7 +487,7 @@
 								</div>
 							<div class="flex-1 flex items-center border-l border-l-cmd-400/50 bg-cmd-500/8 -translate-x-px px-4 py-2.5">
 								<span class="flex-1 text-xs text-bourbon-200 select-text">{existingComment.comment}</span>
-								<div class="sticky right-0 z-10 flex items-center gap-2 pl-6 pr-1 bg-cmd-900">
+								<div class="sticky right-0 z-10 flex items-center gap-2 pl-6 pr-1">
 									<button
 										onclick={() => startEditComment(existingComment)}
 										class="shrink-0 text-bourbon-700 hover:text-cmd-400 transition-colors cursor-pointer

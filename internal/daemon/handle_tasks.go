@@ -173,7 +173,17 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		var res sql.Result
 		var err error
 		if body.All == "completed" {
-			res, err = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('failed', 'completed', 'resolved') AND type != 'delegation'`)
+			// Terminal tasks: failed, merged PR (completed + pr_url), or generic
+			// directive with no intent. Mirrors isTerminalTask in api.ts.
+			res, err = db.Exec(`
+				DELETE FROM claude_tasks
+				WHERE type != 'delegation'
+				  AND (
+				    status = 'failed'
+				    OR (status = 'completed' AND pr_url != '')
+				    OR (status = 'completed' AND type = 'directive' AND intent = '')
+				  )
+			`)
 		} else if body.ID > 0 {
 			res, err = db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, body.ID)
 		} else {
