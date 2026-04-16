@@ -48,7 +48,7 @@ app:
 install: setup build
 	@mkdir -p $(BIN_DIR) $(LAUNCH_DIR)
 	@cp cmdr $(BIN_DIR)/cmdr
-	@codesign --force --sign - $(BIN_DIR)/cmdr
+	@codesign --force --sign "cmdr" --options runtime $(BIN_DIR)/cmdr
 	@xattr -d com.apple.provenance $(BIN_DIR)/cmdr 2>/dev/null || true
 	@echo "cmdr: installed binary to $(BIN_DIR)/cmdr"
 	@launchctl bootout "$(GUI_DOMAIN)/$(LABEL)" 2>/dev/null || true
