@@ -14,6 +14,9 @@ import 'prismjs/components/prism-markdown';
 // Configure marked to use Prism for code blocks
 marked.setOptions({
 	renderer: Object.assign(new marked.Renderer(), {
+		link({ href, text }: { href: string; text: string }) {
+			return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+		},
 		code({ text, lang }: { text: string; lang?: string }) {
 			const language = lang && Prism.languages[lang] ? lang : 'plaintext';
 			const grammar = Prism.languages[language];
