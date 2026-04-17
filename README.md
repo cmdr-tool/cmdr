@@ -23,12 +23,23 @@ A Go daemon + SvelteKit dashboard + native macOS app that runs as a background s
 - **Native macOS app** — frameless WKWebView wrapper with menu bar icon, lives in `/Applications`
 - **macOS daemon** — runs via launchd at login, always on
 
-## Requirements
+## Prerequisites
+
+cmdr orchestrates your terminal environment — without these tools installed, it has nothing to manage.
+
+| | What | Supported | Default |
+|---|---|---|---|
+| **Terminal multiplexer** | Manages sessions, windows, and panes that cmdr monitors and controls | [tmux](https://github.com/tmux/tmux), [cmux](https://github.com/manaflow-ai/cmux) | tmux |
+| **Terminal emulator** | The app cmdr brings to foreground when switching sessions or opening files | [Ghostty](https://ghostty.org), [WezTerm](https://wezfurlong.org/wezterm/), [cmux](https://github.com/manaflow-ai/cmux), any macOS app | Ghostty |
+| **Code editor** | Launched in terminal panes for file navigation; must be invokable from the command line | nvim, vim, [zed](https://zed.dev), [code](https://code.visualstudio.com) (VS Code), etc. | nvim |
+
+All three are configured during `make install` and can be changed later with `make configure`.
+
+## Build requirements
 
 - **macOS** (launchd)
 - **Go** 1.22+
 - **bun** (frontend tooling)
-- **Terminal multiplexer** — [tmux](https://github.com/tmux/tmux) (default) or [cmux](https://github.com/manaflow-ai/cmux)
 
 ## Quick start
 
