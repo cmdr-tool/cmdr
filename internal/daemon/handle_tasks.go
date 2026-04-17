@@ -561,7 +561,7 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		enhanceTitle(db, bus, id, truncate(childPrompt, 500))
+		enhanceTitle(db, bus, id, truncate(parentResult, 500))
 
 		// Mark parent task as completed (lifecycle done — artifact was consumed)
 		killTaskWindow(db, body.ParentID)
