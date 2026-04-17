@@ -113,6 +113,51 @@ func (a *Adapter) WindowExists(target string) bool {
 	return cmd("list-panes", "-t", target).Run() == nil
 }
 
+func (a *Adapter) OpenInEditor(dir, file string, line int) (*terminal.EditorTarget, error) {
+	sessions, err := a.ListSessions()
+	if err != nil {
+		return nil, err
+	}
+
+	dir = terminal.ResolveRepoPath(dir)
+
+	// Find an existing editor pane in a session matching the repo
+	for _, s := range sessions {
+		if !terminal.SessionMatchesRepo(s, dir) {
+			continue
+		}
+		for _, w := range s.Windows {
+			for _, p := range w.Panes {
+				if terminal.IsEditorProcess(p.Command) {
+					target := fmt.Sprintf("%s:%d.%d", s.Name, w.Index, p.Index)
+					// Reuse: send open command to existing editor
+					if err := terminal.SendEditorOpen(a, target, file, line); err != nil {
+						return nil, err
+					}
+					return &terminal.EditorTarget{Session: s.Name, Target: target, Fresh: false}, nil
+				}
+			}
+		}
+		// Session exists but no editor — create one
+		target, err := a.CreateWindow(s.Name, "editor", dir, terminal.EditorOpenCmd(file, line))
+		if err != nil {
+			return nil, err
+		}
+		return &terminal.EditorTarget{Session: s.Name, Target: target, Fresh: true}, nil
+	}
+
+	// No matching session — create one, then open editor
+	sessName, err := a.CreateSession(dir)
+	if err != nil {
+		return nil, fmt.Errorf("creating session for %s: %w", dir, err)
+	}
+	target, err := a.CreateWindow(sessName, "editor", dir, terminal.EditorOpenCmd(file, line))
+	if err != nil {
+		return nil, fmt.Errorf("creating editor window: %w", err)
+	}
+	return &terminal.EditorTarget{Session: sessName, Target: target, Fresh: true}, nil
+}
+
 // --- Pane output parsing ---
 
 const fieldSep = "\t"

@@ -44,6 +44,11 @@ type Multiplexer interface {
 
 	// WindowExists checks whether a window/surface target is still alive.
 	WindowExists(target string) bool
+
+	// OpenInEditor opens file:line in the configured editor within a session
+	// for dir. Reuses an existing editor pane if possible, otherwise
+	// creates a new window. Returns the editor target.
+	OpenInEditor(dir, file string, line int) (*EditorTarget, error)
 }
 
 // Emulator abstracts bringing a terminal application to the foreground.

@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-
-	"github.com/cmdr-tool/cmdr/internal/terminal"
 )
 
 func handleEditorOpen() http.HandlerFunc {
@@ -34,21 +32,12 @@ func handleEditorOpen() http.HandlerFunc {
 			req.Line = 1
 		}
 
-		// Find or create an nvim pane for this repo
-		target, err := terminal.FindOrCreateEditor(term, req.RepoPath, req.File, req.Line)
+		// Open file in editor — adapter handles find-or-create + reuse
+		target, err := term.OpenInEditor(req.RepoPath, req.File, req.Line)
 		if err != nil {
-			log.Printf("cmdr: editor/open: find editor: %v", err)
+			log.Printf("cmdr: editor/open: %v", err)
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
-		}
-
-		// If nvim already existed, send :e to open the file
-		if !target.Fresh {
-			if err := terminal.OpenFileInEditor(term, target.Target, req.File, req.Line); err != nil {
-				log.Printf("cmdr: editor/open: open file: %v", err)
-				http.Error(w, jsonErr(err), http.StatusInternalServerError)
-				return
-			}
 		}
 
 		// Focus the terminal session

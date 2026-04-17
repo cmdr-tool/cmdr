@@ -262,6 +262,21 @@ func (a *Adapter) CapturePane(target string, lines int) (string, error) {
 	return out, nil
 }
 
+func (a *Adapter) OpenInEditor(dir, file string, line int) (*terminal.EditorTarget, error) {
+	sessionName := terminal.SessionName(dir)
+
+	// cmux can't detect running processes — always create a fresh surface
+	sessName, err := a.CreateSession(dir)
+	if err != nil {
+		return nil, fmt.Errorf("creating session for %s: %w", dir, err)
+	}
+	target, err := a.CreateWindow(sessName, "editor", dir, terminal.EditorOpenCmd(file, line))
+	if err != nil {
+		return nil, fmt.Errorf("creating editor surface: %w", err)
+	}
+	return &terminal.EditorTarget{Session: sessionName, Target: target, Fresh: true}, nil
+}
+
 func (a *Adapter) WindowExists(target string) bool {
 	tree, err := a.listTree()
 	if err != nil {
