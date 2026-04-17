@@ -46,10 +46,16 @@ The daemon runs as a launchd user agent whose label is chosen at setup time (def
 - **`internal/daemon/`** — Daemon lifecycle with dual listeners: Unix socket for CLI IPC and TCP for the web UI. Environment-aware paths/ports via `CMDR_ENV`. API routes are registered with and without `/api` prefix.
 - **`internal/scheduler/`** — Wraps `robfig/cron/v3` with seconds precision. Tasks are registered in `New()` with cron expressions.
 - **`internal/tasks/`** — Individual task implementations. `Claude()` helper shells out to `claude -p` CLI. Tasks that need dependencies (e.g. `*sql.DB`) return closures. Add new tasks here and register them in the scheduler.
-- **`internal/tmux/`** — Tmux integration: session listing (`list-panes -a`), session creation with worktree-aware naming (ported from `tmux-sessionizer.sh`).
-- **`internal/db/`** — SQLite database (`~/.cmdr/cmdr.db`) using `modernc.org/sqlite` (pure Go). Schema migrations run on startup. Tables: `repos` (local git repos by path), `commits` (tracked commits with seen state), `task_config` (schedule/enabled overrides).
+- **`internal/terminal/`** — Pluggable terminal adapter system. `terminal.go` defines the `Multiplexer` interface (10 methods) and `Emulator` interface, plus shared helpers (`SessionName`, `FindWindowTarget`, editor utilities). Adapters live in `adapters/<name>/` and register via `init()`. Selected at startup by `CMDR_MULTIPLEXER` env var (default `tmux`).
+- **`internal/terminal/adapters/tmux/`** — Tmux adapter. Session listing via `list-panes -a`, worktree-aware naming, editor pane reuse by process detection.
+- **`internal/terminal/adapters/cmux/`** — [cmux](https://github.com/manaflow-ai/cmux) adapter. Workspace/surface management via cmux CLI subprocess. In-memory ref map rebuilt on each ListSessions. Known limitations: no PID/process detection, editor always creates fresh surfaces.
+- **`internal/summarizer/`** — Pluggable title summarizer. `Summarizer` interface with adapter registry, same pattern as terminal. Selected by `CMDR_SUMMARIZER` env var (default `apple`).
+- **`internal/summarizer/apple/`** — Apple Intelligence adapter. Spawns `cmdr-summarize` Swift binary (in `tools/cmdr-summarize/`), reads JSON result. Requires macOS 15.1+, Apple Silicon.
+- **`internal/summarizer/ollama/`** — Ollama adapter. Wraps `internal/ollama/` for HTTP-based summarization.
+- **`internal/ollama/`** — Thin Ollama API client. Uses tool calling for structured output. Configured via `CMDR_OLLAMA_URL` (default `http://localhost:11434`) and `CMDR_OLLAMA_MODEL` (default `gemma4:e4b`).
+- **`internal/db/`** — SQLite database (`~/.cmdr/cmdr.db`) using `modernc.org/sqlite` (pure Go). Schema migrations run on startup. Tables: `repos` (local git repos by path), `commits` (tracked commits with seen state), `task_config` (schedule/enabled overrides), `claude_tasks` (task lifecycle with `terminal_target` for adapter-native refs).
 - **`internal/gitlocal/`** — Local git repo integration. Discovers repos under `CMDR_CODE_DIR` (default `~/Code`), fetches via `git fetch`, reads commits via `git log`, diffs via `difft` (falls back to `git show`). All operations use local filesystem, no GitHub API.
-- **`internal/ollama/`** — Thin Ollama API client for LLM-powered title summarization. Uses tool calling for structured output. Configured via `CMDR_OLLAMA_URL` (default `http://localhost:11434`) and `CMDR_OLLAMA_MODEL` (default `gemma4:e4b`). Progressive enhancement — failures are silent.
+- **`tools/cmdr-summarize/`** — Swift binary using `FoundationModels` for on-device title generation. Built by `make install`, installed alongside `cmdr` in `~/.local/bin/`.
 
 ### Frontend
 
