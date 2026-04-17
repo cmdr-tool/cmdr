@@ -32,13 +32,13 @@ func main() {
 		Long: `Personal command runner and automation daemon.
 
 For Claude sessions: after 'cmdr enlist', completion is normally delivered
-automatically via the UserPromptSubmit hook on the next user message. If
-you need to actively check on an enlistment mid-run (e.g. in a headless
-session, or before the user sends a follow-up), use 'cmdr task <id>' with
-the taskId returned by 'cmdr enlist'.
+automatically via the UserPromptSubmit hook on the next user message. To
+actively check enlistment status, use:
 
-'cmdr status' reports daemon status only (pid, task count). It does not
-accept --task or --squad flags — use 'cmdr task <id>' for task state.`,
+  cmdr debrief --squad <name> [--from <alias>]   # status by squad
+  cmdr task <id>                                  # status by task ID
+
+'cmdr status' reports daemon status only (pid, task count).`,
 		Version: version,
 	}
 
@@ -52,6 +52,7 @@ accept --task or --squad flags — use 'cmdr task <id>' for task state.`,
 	root.AddCommand(enlistCmd())
 	root.AddCommand(missionsCmd())
 	root.AddCommand(taskCmd())
+	root.AddCommand(debriefCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -452,8 +453,8 @@ func enlistCmd() *cobra.Command {
 Dispatches a task to a sibling repo's Claude session and returns a taskId.
 Completion (including the enlisted session's debrief) is normally delivered
 as context on the next user prompt via the UserPromptSubmit hook. To check
-status mid-run, use 'cmdr task <id>'. Continue with non-blocking work while
-the enlistment runs.`,
+status mid-run, use 'cmdr debrief --squad <name>'. Continue with non-blocking
+work while the enlistment runs.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if squad == "" || from == "" || to == "" || summary == "" {
 				return fmt.Errorf("--squad, --from, --to, and --summary are required")
@@ -644,6 +645,80 @@ Status values: draft, running, completed, failed.`,
 			return nil
 		},
 	}
+}
+
+func debriefCmd() *cobra.Command {
+	var squad, from string
+	cmd := &cobra.Command{
+		Use:   "debrief",
+		Short: "Check enlistment status and debriefs for a squad",
+		Long: `Check enlistment status and debriefs for a squad.
+
+Shows all active and recently completed enlistments dispatched by
+the given squad member. Use this to check whether enlisted work has
+landed and to read the debrief.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if squad == "" {
+				return fmt.Errorf("--squad is required")
+			}
+
+			database, err := db.Open()
+			if err != nil {
+				return err
+			}
+			defer database.Close()
+
+			query := `SELECT ct.id, d.to_alias, ct.status, COALESCE(ct.title, ''), COALESCE(ct.result, '')
+				FROM claude_tasks ct
+				JOIN delegations d ON d.task_id = ct.id
+				WHERE ct.type = 'delegation' AND d.squad = ?`
+			queryArgs := []any{squad}
+
+			if from != "" {
+				query += ` AND d.from_alias = ?`
+				queryArgs = append(queryArgs, from)
+			}
+			query += ` ORDER BY ct.id DESC LIMIT 10`
+
+			rows, err := database.Query(query, queryArgs...)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+
+			found := false
+			for rows.Next() {
+				var id int
+				var toAlias, status, title, result string
+				rows.Scan(&id, &toAlias, &status, &title, &result)
+				found = true
+
+				fmt.Printf("Task %d → %s: %s\n", id, toAlias, status)
+				if title != "" {
+					fmt.Printf("  %s\n", title)
+				}
+				if status == "completed" && result != "" {
+					debrief := result
+					if len(debrief) > 500 {
+						debrief = debrief[:500] + "..."
+					}
+					fmt.Printf("\n  Debrief:\n  %s\n\n", strings.ReplaceAll(debrief, "\n", "\n  "))
+				}
+			}
+
+			if !found {
+				fmt.Printf("No enlistments found for squad %q", squad)
+				if from != "" {
+					fmt.Printf(" from %q", from)
+				}
+				fmt.Println()
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&squad, "squad", "", "Squad name (required)")
+	cmd.Flags().StringVar(&from, "from", "", "Filter by requesting alias")
+	return cmd
 }
 
 func outputHook(event, context string) error {
