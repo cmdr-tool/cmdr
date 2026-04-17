@@ -19,6 +19,9 @@ fi
 : "${CMDR_CODE_DIR:=$HOME/Code}"
 : "${CMDR_OLLAMA_URL:=http://localhost:11434}"
 : "${CMDR_OLLAMA_MODEL:=gemma4:e4b}"
+: "${CMDR_MULTIPLEXER:=tmux}"
+: "${CMDR_TERMINAL_APP:=Ghostty}"
+: "${CMDR_EDITOR:=nvim}"
 
 echo "cmdr: setup"
 echo "==========="
@@ -33,10 +36,13 @@ prompt() {
     printf -v "$var" "%s" "${value:-$current}"
 }
 
-prompt CMDR_LABEL      "launchd label"
-prompt CMDR_CODE_DIR   "code directory (where your git repos live)"
-prompt CMDR_OLLAMA_URL "Ollama server URL"
+prompt CMDR_LABEL        "launchd label"
+prompt CMDR_CODE_DIR     "code directory (where your git repos live)"
+prompt CMDR_OLLAMA_URL   "Ollama server URL"
 prompt CMDR_OLLAMA_MODEL "Ollama model"
+prompt CMDR_MULTIPLEXER  "terminal multiplexer (tmux or cmux)"
+prompt CMDR_TERMINAL_APP "terminal app (Ghostty, WezTerm, cmux, etc.)"
+prompt CMDR_EDITOR       "editor command (nvim, vim, code, zed, etc.)"
 
 # Expand ~ in the code dir for storage
 CMDR_CODE_DIR="${CMDR_CODE_DIR/#\~/$HOME}"
@@ -48,6 +54,9 @@ CMDR_LABEL=$CMDR_LABEL
 CMDR_CODE_DIR=$CMDR_CODE_DIR
 CMDR_OLLAMA_URL=$CMDR_OLLAMA_URL
 CMDR_OLLAMA_MODEL=$CMDR_OLLAMA_MODEL
+CMDR_MULTIPLEXER=$CMDR_MULTIPLEXER
+CMDR_TERMINAL_APP=$CMDR_TERMINAL_APP
+CMDR_EDITOR=$CMDR_EDITOR
 EOF
 
 echo ""

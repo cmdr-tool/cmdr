@@ -10,6 +10,9 @@ LABEL             = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_LABEL= $(CONFIG_
 CMDR_CODE_DIR     = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_CODE_DIR= $(CONFIG_FILE) | cut -d= -f2-)
 CMDR_OLLAMA_URL   = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_OLLAMA_URL= $(CONFIG_FILE) | cut -d= -f2-)
 CMDR_OLLAMA_MODEL = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_OLLAMA_MODEL= $(CONFIG_FILE) | cut -d= -f2-)
+CMDR_MULTIPLEXER  = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_MULTIPLEXER= $(CONFIG_FILE) | cut -d= -f2-)
+CMDR_TERMINAL_APP = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_TERMINAL_APP= $(CONFIG_FILE) | cut -d= -f2-)
+CMDR_EDITOR       = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_EDITOR= $(CONFIG_FILE) | cut -d= -f2-)
 PLIST_NAME        = $(LABEL).plist
 
 .PHONY: all build web go app install setup configure uninstall restart clean dev test
@@ -58,6 +61,9 @@ install: setup build
 	     -e 's|__CMDR_CODE_DIR__|$(CMDR_CODE_DIR)|g' \
 	     -e 's|__CMDR_OLLAMA_URL__|$(CMDR_OLLAMA_URL)|g' \
 	     -e 's|__CMDR_OLLAMA_MODEL__|$(CMDR_OLLAMA_MODEL)|g' \
+	     -e 's|__CMDR_MULTIPLEXER__|$(CMDR_MULTIPLEXER)|g' \
+	     -e 's|__CMDR_TERMINAL_APP__|$(CMDR_TERMINAL_APP)|g' \
+	     -e 's|__CMDR_EDITOR__|$(CMDR_EDITOR)|g' \
 	     $(PLIST_TPL) > $(LAUNCH_DIR)/$(PLIST_NAME)
 	@launchctl bootstrap "$(GUI_DOMAIN)" "$(LAUNCH_DIR)/$(PLIST_NAME)"
 	@rm -f cmdr
