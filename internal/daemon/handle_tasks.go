@@ -786,8 +786,9 @@ func cleanupTaskWorktree(db *sql.DB, taskID int) {
 }
 
 // cleanupAllTaskWorktrees removes worktrees for all completed tasks.
+// Does NOT touch running tasks — those have active sessions.
 func cleanupAllTaskWorktrees(db *sql.DB) {
-	rows, err := db.Query(`SELECT id, repo_path, worktree FROM claude_tasks WHERE worktree != '' AND status IN ('completed', 'running')`)
+	rows, err := db.Query(`SELECT id, repo_path, worktree FROM claude_tasks WHERE worktree != '' AND status = 'completed'`)
 	if err != nil {
 		return
 	}
