@@ -467,7 +467,7 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		var parentType, parentIntent, parentResult, repoPath, commitSha string
 		err := db.QueryRow(
 			`SELECT type, COALESCE(intent, ''), COALESCE(result, ''), repo_path, COALESCE(commit_sha, '')
-			 FROM claude_tasks WHERE id = ? AND status = 'completed'`,
+			 FROM claude_tasks WHERE id = ? AND status = 'resolved'`,
 			body.ParentID,
 		).Scan(&parentType, &parentIntent, &parentResult, &repoPath, &commitSha)
 		if err != nil {
@@ -563,12 +563,12 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 		enhanceTitle(db, bus, id, truncate(childPrompt, 500))
 
-		// Auto-dismiss parent task
+		// Mark parent task as completed (lifecycle done — artifact was consumed)
 		killTaskWindow(db, body.ParentID)
 		cleanupTaskWorktree(db, body.ParentID)
-		db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, body.ParentID)
+		db.Exec(`UPDATE claude_tasks SET status='completed' WHERE id = ?`, body.ParentID)
 		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-			"id": body.ParentID, "status": "dismissed",
+			"id": body.ParentID, "status": "completed",
 		}})
 
 		log.Printf("cmdr: spawned task %d from parent %d (intent %q)", id, body.ParentID, intent)

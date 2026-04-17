@@ -26,7 +26,7 @@
 	} = $props();
 
 	// --- Shared state ---
-	let status = $state<'running' | 'completed' | 'failed'>('running');
+	let status = $state<'running' | 'resolved' | 'completed' | 'failed'>('running');
 	let result = $state('');
 	let streamedText = $state('');
 	let toolStatus = $state('');
@@ -78,9 +78,9 @@
 	onMount(async () => {
 		try {
 			const data = await getClaudeTaskResult(taskId);
-			if (data.status === 'completed' && data.result) {
+			if ((data.status === 'resolved' || data.status === 'completed') && data.result) {
 				result = data.result;
-				status = 'completed';
+				status = data.status as 'resolved' | 'completed';
 				return;
 			}
 			if (data.status === 'failed') {
@@ -102,10 +102,10 @@
 					toolStatus = toolStatusLabel(evt.tool ?? '', evt.detail ?? '');
 					break;
 				case 'done':
-					status = 'completed';
 					getClaudeTaskResult(taskId).then((data) => {
 						if (data.result) result = data.result;
-					}).catch(() => {});
+						status = (data.status === 'completed') ? 'completed' : 'resolved';
+					}).catch(() => { status = 'resolved'; });
 					break;
 				case 'error':
 					status = 'failed';
@@ -456,7 +456,7 @@
 						</button>
 					{/if}
 				</div>
-				{#if status === 'completed'}
+				{#if status === 'resolved'}
 					<LaunchGuard {repoPath} action={launchRefactor} onlaunched={onclose}>
 						<Wrench size={12} />
 						Start Refactor

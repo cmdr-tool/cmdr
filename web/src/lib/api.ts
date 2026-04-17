@@ -425,14 +425,11 @@ export interface ClaudeTask {
 	headless?: boolean;
 }
 
-// A task is "terminal" if there's nothing left to inspect or act on:
-// failed, merged PR (completed with prUrl), or generic directive with no intent.
+// A task is "terminal" when its lifecycle is fully done: failed tasks, or
+// completed tasks (artifact consumed / implementation spawned / no next step).
+// "Resolved" tasks still have pending user action (review findings, ADR, open PR).
 export function isTerminalTask(task: ClaudeTask): boolean {
-	if (task.status === 'failed') return true;
-	if (task.status !== 'completed') return false;
-	if (task.prUrl) return true;
-	if (task.type === 'directive' && !task.intent) return true;
-	return false;
+	return task.status === 'failed' || task.status === 'completed';
 }
 
 export interface ClaudeTaskResult {

@@ -121,7 +121,7 @@
 					resultTask = task;
 				} else if ((task.status === 'resolved' || task.status === 'completed') && task.prUrl) {
 					window.open(task.prUrl, '_blank');
-				} else if (task.status === 'completed' && task.intent === 'new-feature') {
+				} else if (task.status === 'resolved' && task.intent === 'new-feature') {
 					try {
 						const { result } = await getClaudeTaskResult(task.id);
 						designTask = task;

@@ -322,13 +322,13 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 				if adr := scrapeADRFromWorktree(t.repoPath, t.worktree, t.startedAt); adr != "" {
 					now := time.Now().Format(time.RFC3339)
 					title := extractTitle(adr)
-					db.Exec(`UPDATE claude_tasks SET status='completed', result=?, title=?, completed_at=? WHERE id=?`,
+					db.Exec(`UPDATE claude_tasks SET status='resolved', result=?, title=?, completed_at=? WHERE id=?`,
 						adr, title, now, t.id)
 					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-						"id": t.id, "status": "completed", "title": title,
+						"id": t.id, "status": "resolved", "title": title,
 					}})
 					enhanceTitle(db, bus, t.id, truncate(adr, 1000))
-					log.Printf("cmdr: task %d completed (ADR captured)", t.id)
+					log.Printf("cmdr: task %d resolved (ADR captured, awaiting review)", t.id)
 					continue
 				}
 			} else {
@@ -388,12 +388,18 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 			}
 		}
 
-		// Window gone → completed
+		// Window gone → resolve or complete based on task type
 		if !windowAlive {
 			now := time.Now().Format(time.RFC3339)
-			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
+			// Reviews produce an artifact (findings) that needs user action
+			// before the lifecycle is complete — land in "resolved" not "completed"
+			status := "completed"
+			if t.taskType == "review" {
+				status = "resolved"
+			}
+			db.Exec(`UPDATE claude_tasks SET status=?, completed_at=? WHERE id=?`, status, now, t.id)
 			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-				"id": t.id, "status": "completed",
+				"id": t.id, "status": status,
 			}})
 			if t.taskType == "delegation" {
 				var squadName string
@@ -404,7 +410,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 					}})
 				}
 			}
-			log.Printf("cmdr: task %d completed (window closed)", t.id)
+			log.Printf("cmdr: task %d %s (window closed)", t.id, status)
 		}
 	}
 }
@@ -412,7 +418,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 // checkResolvedTasks monitors tasks with PRs awaiting merge.
 // When the PR is merged/closed AND the worktree is gone, marks completed.
 func checkResolvedTasks(db *sql.DB, bus *EventBus) {
-	rows, err := db.Query(`SELECT id, repo_path, worktree, COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved'`)
+	rows, err := db.Query(`SELECT id, repo_path, worktree, COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved' AND pr_url != ''`)
 	if err != nil {
 		return
 	}

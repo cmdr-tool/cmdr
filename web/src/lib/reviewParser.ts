@@ -42,8 +42,9 @@ export interface ParsedReview {
 //   ## [P1] finding title
 //   ### 5. DRY] finding title (missing opening bracket)
 //   ### 1. Architectural Soundness — finding title (no brackets at all)
+//   ### 4. Consistency: finding title (colon separator)
 const SECTION_RE_BRACKET = /^#{2,3} \[?(?:P)?(\d+)(?:[\.\s—\-–]+([^\]]*))?\]\s*(.+)$/;
-const SECTION_RE_PLAIN = /^#{2,3} (?:P)?(\d+)[\.\s]+(\w[\w\s/]*?)\s*[—\-–]\s*(.+)$/;
+const SECTION_RE_PLAIN = /^#{2,3} (?:P)?(\d+)[\.\s]+(\w[\w\s/]*?)\s*[—\-–:]\s*(.+)$/;
 
 /**
  * Parse review markdown into preamble + sections.
