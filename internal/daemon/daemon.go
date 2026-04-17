@@ -19,6 +19,7 @@ import (
 	"github.com/cmdr-tool/cmdr/internal/db"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
 	"github.com/cmdr-tool/cmdr/internal/terminal"
+	_ "github.com/cmdr-tool/cmdr/internal/terminal/adapters/cmux"
 	_ "github.com/cmdr-tool/cmdr/internal/terminal/adapters/tmux"
 )
 
