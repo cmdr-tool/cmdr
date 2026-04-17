@@ -83,6 +83,11 @@ func handleSaveDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			}})
 		}
 
+		// Enhance title via summarizer if content is substantial enough
+		if len(body.Content) > 100 {
+			enhanceTitle(db, bus, body.ID, truncate(body.Content, 500))
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}

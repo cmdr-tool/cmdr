@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cmdr-tool/cmdr/internal/prompts"
@@ -639,16 +640,50 @@ func extractTitle(result string) string {
 	return raw
 }
 
-var summarizeSem = make(chan struct{}, 1)
+var (
+	summarizeSem = make(chan struct{}, 3)
+
+	// Per-task debounce: each new enhanceTitle call cancels any pending one
+	// for the same task, so rapid saves only produce one summarization.
+	titleMu   sync.Mutex
+	titleGens = map[int]int64{} // task ID → generation counter
+)
 
 // enhanceTitle asynchronously replaces a task's heuristic title with a
 // summarizer-generated title. Fire-and-forget: failures are logged
-// but never surfaced to the user.
+// but never surfaced to the user. Debounced per task — rapid calls
+// cancel previous pending summarizations.
 func enhanceTitle(db *sql.DB, bus *EventBus, taskID int, content string) {
 	if sum == nil {
 		return
 	}
+
+	// Increment generation — any in-flight summarization with an older
+	// generation will discard its result when it finishes.
+	titleMu.Lock()
+	titleGens[taskID]++
+	gen := titleGens[taskID]
+	titleMu.Unlock()
+
 	go func() {
+		defer func() {
+			titleMu.Lock()
+			if titleGens[taskID] == gen {
+				delete(titleGens, taskID)
+			}
+			titleMu.Unlock()
+		}()
+
+		// Debounce: wait briefly so rapid saves collapse into one call.
+		// If a newer call arrives during this window, this one bails out.
+		time.Sleep(2 * time.Second)
+		titleMu.Lock()
+		stale := titleGens[taskID] != gen
+		titleMu.Unlock()
+		if stale {
+			return
+		}
+
 		summarizeSem <- struct{}{}
 		defer func() { <-summarizeSem }()
 
