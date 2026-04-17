@@ -305,6 +305,9 @@ func handleContinueSession(db *sql.DB) http.HandlerFunc {
 			}
 		}
 
+		// Store the terminal ref for lifecycle tracking
+		db.Exec(`UPDATE claude_tasks SET terminal_target=? WHERE id=?`, target, body.ID)
+
 		log.Printf("cmdr: task %d continued in %s (session %s)", body.ID, target, sessionID)
 
 		w.Header().Set("Content-Type", "application/json")

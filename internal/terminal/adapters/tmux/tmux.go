@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -44,7 +43,7 @@ func (a *Adapter) ListSessions() ([]terminal.Session, error) {
 }
 
 func (a *Adapter) CreateSession(dir string) (string, error) {
-	name := sessionName(dir)
+	name := terminal.SessionName(dir)
 	if err := cmd("has-session", "-t="+name).Run(); err == nil {
 		return name, nil
 	}
@@ -110,35 +109,8 @@ func (a *Adapter) CapturePane(target string, lines int) (string, error) {
 	return string(out), nil
 }
 
-// --- Session naming ---
-
-// sessionName computes the tmux session name for a directory,
-// matching the naming logic from tmux-sessionizer.sh.
-func sessionName(dir string) string {
-	name := filepath.Base(dir)
-	topLevel, err := gitOutput(dir, "rev-parse", "--show-toplevel")
-	if err == nil {
-		parent := filepath.Dir(topLevel)
-		bare := filepath.Join(parent, ".bare")
-		if isDir(bare) {
-			name = filepath.Base(parent) + "_" + filepath.Base(dir)
-		}
-	}
-	r := strings.NewReplacer(".", "_", " ", "_", "-", "_")
-	return r.Replace(name)
-}
-
-func gitOutput(dir string, args ...string) (string, error) {
-	c := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	out, err := c.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func isDir(path string) bool {
-	return exec.Command("test", "-d", path).Run() == nil
+func (a *Adapter) WindowExists(target string) bool {
+	return cmd("list-panes", "-t", target).Run() == nil
 }
 
 // --- Pane output parsing ---

@@ -6,6 +6,8 @@ package terminal
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -39,6 +41,9 @@ type Multiplexer interface {
 
 	// CapturePane returns the visible content of a pane (last N lines).
 	CapturePane(target string, lines int) (string, error)
+
+	// WindowExists checks whether a window/surface target is still alive.
+	WindowExists(target string) bool
 }
 
 // Emulator abstracts bringing a terminal application to the foreground.
@@ -112,4 +117,55 @@ type MacOSEmulator struct {
 
 func (e *MacOSEmulator) Activate() error {
 	return exec.Command("open", "-a", e.AppName).Run()
+}
+
+// --- Shared helpers ---
+
+// SessionName computes a consistent session name for a directory.
+// Handles git worktrees with a .bare parent ("parent_branch").
+// Replaces '.', ' ', '-' with '_'.
+func SessionName(dir string) string {
+	name := filepath.Base(dir)
+	if topLevel, err := gitOutput(dir, "rev-parse", "--show-toplevel"); err == nil {
+		parent := filepath.Dir(topLevel)
+		bare := filepath.Join(parent, ".bare")
+		if isDir(bare) {
+			name = filepath.Base(parent) + "_" + filepath.Base(dir)
+		}
+	}
+	r := strings.NewReplacer(".", "_", " ", "_", "-", "_")
+	return r.Replace(name)
+}
+
+// FindWindowTarget searches sessions for a window matching windowName.
+// Checks Window.Name (tmux) and Pane.Command (cmux stores names there).
+// Returns the target string and true if found.
+func FindWindowTarget(sessions []Session, windowName string) (string, bool) {
+	for _, s := range sessions {
+		for _, w := range s.Windows {
+			if w.Name == windowName {
+				return s.Name + ":" + w.Name, true
+			}
+			for _, p := range w.Panes {
+				if p.Command == windowName {
+					return s.Name + ":" + windowName, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+func gitOutput(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func isDir(path string) bool {
+	cmd := exec.Command("test", "-d", path)
+	return cmd.Run() == nil
 }

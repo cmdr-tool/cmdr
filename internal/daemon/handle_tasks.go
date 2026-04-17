@@ -431,8 +431,8 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 
 	// Update task status
 	now := time.Now().Format(time.RFC3339)
-	db.Exec(`UPDATE claude_tasks SET status='running', intent=?, worktree=?, started_at=? WHERE id=?`,
-		cfg.Intent, worktreeName, now, cfg.TaskID)
+	db.Exec(`UPDATE claude_tasks SET status='running', intent=?, worktree=?, terminal_target=?, started_at=? WHERE id=?`,
+		cfg.Intent, worktreeName, target, now, cfg.TaskID)
 	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
 		"id": cfg.TaskID, "status": "running", "intent": cfg.Intent, "repoPath": cfg.RepoPath,
 	}})

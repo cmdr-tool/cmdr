@@ -266,7 +266,8 @@ func taskWindowName(taskType, intent string, taskID int) string {
 // Detects artifact completion (ADR, PR, debrief) and window closure.
 func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Session) {
 	rows, err := db.Query(`
-		SELECT id, type, repo_path, COALESCE(intent, ''), worktree, COALESCE(started_at, created_at)
+		SELECT id, type, repo_path, COALESCE(intent, ''), worktree,
+		       COALESCE(started_at, created_at), COALESCE(terminal_target, '')
 		FROM claude_tasks
 		WHERE status = 'running'
 		  AND NOT (type IN ('review', 'ask'))
@@ -276,28 +277,19 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 	}
 	defer rows.Close()
 
-	// Build window lookup
-	allWindows := make(map[string]bool)
-	windowTargets := make(map[string]string)
-	for _, s := range termSessions {
-		for _, w := range s.Windows {
-			allWindows[w.Name] = true
-			windowTargets[w.Name] = fmt.Sprintf("%s:%s", s.Name, w.Name)
-		}
-	}
-
 	type task struct {
-		id        int
-		taskType  string
-		repoPath  string
-		intent    string
-		worktree  string
-		startedAt string
+		id             int
+		taskType       string
+		repoPath       string
+		intent         string
+		worktree       string
+		startedAt      string
+		terminalTarget string
 	}
 	var tasks []task
 	for rows.Next() {
 		var t task
-		if err := rows.Scan(&t.id, &t.taskType, &t.repoPath, &t.intent, &t.worktree, &t.startedAt); err != nil {
+		if err := rows.Scan(&t.id, &t.taskType, &t.repoPath, &t.intent, &t.worktree, &t.startedAt, &t.terminalTarget); err != nil {
 			continue
 		}
 		tasks = append(tasks, t)
@@ -311,8 +303,16 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 			continue
 		}
 
-		windowName := taskWindowName(t.taskType, t.intent, t.id)
-		windowAlive := allWindows[windowName]
+		// Check if the task's terminal window is still alive.
+		// Prefer stored terminal_target (adapter-native ref); fall back to session scan.
+		var windowAlive bool
+		target := t.terminalTarget
+		if target != "" {
+			windowAlive = term.WindowExists(target)
+		} else {
+			windowName := taskWindowName(t.taskType, t.intent, t.id)
+			target, windowAlive = terminal.FindWindowTarget(termSessions, windowName)
+		}
 
 		// ADR-producing tasks: capture ADR from worktree as completion signal
 		if meta.Artifact == "adr" {
@@ -376,17 +376,15 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 		}
 
 		// PR-producing tasks: scrape pane for PR URL → resolved (awaiting merge)
-		if meta.Artifact == "pr" {
-			if target, ok := windowTargets[windowName]; ok {
-				if prUrl := scrapePaneForPR(target); prUrl != "" {
-					now := time.Now().Format(time.RFC3339)
-					db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
-					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-						"id": t.id, "status": "resolved", "prUrl": prUrl,
-					}})
-					log.Printf("cmdr: task %d resolved (PR: %s)", t.id, prUrl)
-					continue
-				}
+		if meta.Artifact == "pr" && windowAlive && target != "" {
+			if prUrl := scrapePaneForPR(target); prUrl != "" {
+				now := time.Now().Format(time.RFC3339)
+				db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
+				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+					"id": t.id, "status": "resolved", "prUrl": prUrl,
+				}})
+				log.Printf("cmdr: task %d resolved (PR: %s)", t.id, prUrl)
+				continue
 			}
 		}
 
