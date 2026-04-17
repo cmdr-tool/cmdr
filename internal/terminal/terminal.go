@@ -36,6 +36,9 @@ type Multiplexer interface {
 	// SendKeys sends keystrokes to a pane identified by target.
 	// If literal is true, keys are sent as typed text with Enter appended.
 	SendKeys(target, keys string, literal bool) error
+
+	// CapturePane returns the visible content of a pane (last N lines).
+	CapturePane(target string, lines int) (string, error)
 }
 
 // Emulator abstracts bringing a terminal application to the foreground.

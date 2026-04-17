@@ -480,15 +480,15 @@ func isPROpen(repoPath, prUrl string) bool {
 
 // --- Pane scraping helpers ---
 
-// scrapePaneForPR captures a tmux pane's content and looks for a GitHub PR URL.
+// scrapePaneForPR captures a pane's content and looks for a GitHub PR URL.
 func scrapePaneForPR(target string) string {
-	out, err := exec.Command("tmux", "capture-pane", "-t", target, "-p", "-S", "-100").Output()
+	content, err := term.CapturePane(target, 100)
 	if err != nil {
 		return ""
 	}
 	re := regexp.MustCompile(`https://github\.com/[^\s]+/pull/\d+`)
-	if match := re.Find(out); match != nil {
-		return string(match)
+	if match := re.FindString(content); match != "" {
+		return match
 	}
 	return ""
 }

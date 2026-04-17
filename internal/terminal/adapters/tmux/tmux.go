@@ -101,6 +101,15 @@ func (a *Adapter) SendKeys(target, keys string, literal bool) error {
 	return nil
 }
 
+func (a *Adapter) CapturePane(target string, lines int) (string, error) {
+	lineArg := fmt.Sprintf("-%d", lines)
+	out, err := cmd("capture-pane", "-t", target, "-p", "-S", lineArg).Output()
+	if err != nil {
+		return "", fmt.Errorf("tmux capture-pane: %w", err)
+	}
+	return string(out), nil
+}
+
 // --- Session naming ---
 
 // sessionName computes the tmux session name for a directory,
