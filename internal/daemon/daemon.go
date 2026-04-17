@@ -18,6 +18,15 @@ import (
 
 	"github.com/cmdr-tool/cmdr/internal/db"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
+	"github.com/cmdr-tool/cmdr/internal/terminal"
+	_ "github.com/cmdr-tool/cmdr/internal/terminal/adapters/tmux"
+)
+
+// term and emu are the active terminal multiplexer and emulator adapters,
+// resolved once at daemon startup from CMDR_MULTIPLEXER / CMDR_TERMINAL_APP.
+var (
+	term terminal.Multiplexer
+	emu  terminal.Emulator
 )
 
 func httpAddr() string {
@@ -50,6 +59,22 @@ func Run() error {
 		return fmt.Errorf("writing pid: %w", err)
 	}
 	defer cleanup()
+
+	// Resolve terminal adapter
+	adapterName := os.Getenv("CMDR_MULTIPLEXER")
+	if adapterName == "" {
+		adapterName = "tmux"
+	}
+	var err error
+	term, err = terminal.New(adapterName)
+	if err != nil {
+		return fmt.Errorf("terminal adapter: %w", err)
+	}
+	appName := os.Getenv("CMDR_TERMINAL_APP")
+	if appName == "" {
+		appName = "Ghostty"
+	}
+	emu = &terminal.MacOSEmulator{AppName: appName}
 
 	database, err := db.Open()
 	if err != nil {
@@ -199,12 +224,12 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 	mux.HandleFunc("/api/run", handleRun(s))
 	mux.HandleFunc("/api/events", handleEvents(bus))
 
-	// Tmux
-	mux.HandleFunc("/api/tmux/sessions", handleTmuxSessions())
-	mux.HandleFunc("/api/tmux/sessions/create", handleTmuxCreateSession())
-	mux.HandleFunc("/api/tmux/sessions/switch", handleTmuxSwitch())
-	mux.HandleFunc("/api/tmux/sessions/focus", handleTmuxFocus())
-	mux.HandleFunc("/api/tmux/sessions/kill", handleTmuxKill())
+	// Terminal sessions
+	mux.HandleFunc("/api/tmux/sessions", handleSessions())
+	mux.HandleFunc("/api/tmux/sessions/create", handleCreateSession())
+	mux.HandleFunc("/api/tmux/sessions/switch", handleSessionSwitch())
+	mux.HandleFunc("/api/tmux/sessions/focus", handleSessionFocus())
+	mux.HandleFunc("/api/tmux/sessions/kill", handleSessionKill())
 
 	// System utilities
 	mux.HandleFunc("/api/open", handleOpenFolder())

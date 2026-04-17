@@ -17,7 +17,6 @@ import (
 
 	"github.com/cmdr-tool/cmdr/internal/ollama"
 	"github.com/cmdr-tool/cmdr/internal/prompts"
-	"github.com/cmdr-tool/cmdr/internal/tmux"
 )
 
 // --- Task CRUD ---
@@ -221,7 +220,7 @@ func killTaskWindow(db *sql.DB, taskID int) {
 	windowName := taskWindowName(taskType, intent, taskID)
 
 	// Find the window across all sessions and kill it
-	sessions, err := tmux.ListSessions()
+	sessions, err := term.ListSessions()
 	if err != nil {
 		return
 	}
@@ -229,8 +228,8 @@ func killTaskWindow(db *sql.DB, taskID int) {
 		for _, w := range s.Windows {
 			if w.Name == windowName {
 				target := fmt.Sprintf("%s:%s", s.Name, w.Name)
-				exec.Command("tmux", "kill-window", "-t", target).Run()
-				log.Printf("cmdr: killed tmux window %s (task %d)", target, taskID)
+				term.KillWindow(target)
+				log.Printf("cmdr: killed task window %s (task %d)", target, taskID)
 				return
 			}
 		}
@@ -341,7 +340,7 @@ func handleResolveTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 // --- Task launch (config-driven) ---
 
-// TaskLaunchConfig describes how to launch a Claude session in tmux.
+// TaskLaunchConfig describes how to launch a Claude session.
 type TaskLaunchConfig struct {
 	TaskID         int
 	Intent         string // optional intent ID for --append-system-prompt
@@ -353,12 +352,12 @@ type TaskLaunchConfig struct {
 
 // TaskLaunchResult is returned from launchTask with session/window info.
 type TaskLaunchResult struct {
-	Target  string // tmux target "session:window"
+	Target  string // terminal target "session:window"
 	Session string
 	Window  string
 }
 
-// launchTask launches a Claude session in tmux based on the given config.
+// launchTask launches a Claude session based on the given config.
 func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResult, error) {
 	windowName := fmt.Sprintf("%s-%d", cfg.WindowPrefix, cfg.TaskID)
 
@@ -376,8 +375,8 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 	// Resolve image references to absolute paths Claude can read
 	prompt := resolveImageRefs(cfg.UserPrompt)
 
-	// Write prompt to a temp file to avoid tmux command length limits.
-	// Tmux has a ~500 char arg limit for new-window commands; ADRs can be 20K+.
+	// Write prompt to a temp file to avoid command length limits.
+	// Terminal multiplexers may have char limits for new-window commands; ADRs can be 20K+.
 	promptDir := filepath.Join(os.TempDir(), "cmdr")
 	os.MkdirAll(promptDir, 0o700)
 	promptFile := filepath.Join(promptDir, fmt.Sprintf("task-%d-prompt.md", cfg.TaskID))
@@ -425,7 +424,7 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 	if err != nil {
 		return TaskLaunchResult{}, fmt.Errorf("session: %w", err)
 	}
-	target, err := tmux.CreateDraftWindow(sessionName, windowName, cfg.RepoPath, cmd)
+	target, err := term.CreateWindow(sessionName, windowName, cfg.RepoPath, cmd)
 	if err != nil {
 		return TaskLaunchResult{}, fmt.Errorf("window: %w", err)
 	}

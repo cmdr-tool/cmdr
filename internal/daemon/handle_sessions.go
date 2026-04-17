@@ -6,12 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/cmdr-tool/cmdr/internal/tmux"
 )
 
-func handleTmuxSessions() http.HandlerFunc {
+func handleSessions() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sessions, err := tmux.ListSessions()
+		sessions, err := term.ListSessions()
 		if err != nil {
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
 			return
@@ -21,7 +20,7 @@ func handleTmuxSessions() http.HandlerFunc {
 	}
 }
 
-func handleTmuxCreateSession() http.HandlerFunc {
+func handleCreateSession() http.HandlerFunc {
 	type createReq struct {
 		Dir string `json:"dir"`
 	}
@@ -37,7 +36,7 @@ func handleTmuxCreateSession() http.HandlerFunc {
 			return
 		}
 
-		name, err := tmux.CreateSession(req.Dir)
+		name, err := term.CreateSession(req.Dir)
 		if err != nil {
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
 			return

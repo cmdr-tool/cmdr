@@ -15,7 +15,7 @@ import (
 	"github.com/cmdr-tool/cmdr/internal/claude"
 	"github.com/cmdr-tool/cmdr/internal/prompts"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
-	"github.com/cmdr-tool/cmdr/internal/tmux"
+	"github.com/cmdr-tool/cmdr/internal/terminal"
 )
 
 const (
@@ -64,20 +64,20 @@ func startPoller(bus *EventBus, s *scheduler.Scheduler, db *sql.DB) func() {
 func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tickCount int) {
 	publishStatus(bus, s)
 
-	tmuxSessions, tmuxErr := tmux.ListSessions()
-	if tmuxErr != nil {
-		log.Printf("cmdr: poller: tmux list error: %v", tmuxErr)
-		tmuxSessions = []tmux.Session{}
+	termSessions, termErr := term.ListSessions()
+	if termErr != nil {
+		log.Printf("cmdr: poller: tmux list error: %v", termErr)
+		termSessions = []terminal.Session{}
 	}
 
-	claudeSessions := enrichAndPublishClaude(bus, tmuxSessions)
+	claudeSessions := enrichAndPublishClaude(bus, termSessions)
 
 	if !away {
-		bus.Publish(Event{Type: "tmux:sessions", Data: tmuxSessions})
+		bus.Publish(Event{Type: "tmux:sessions", Data: termSessions})
 	}
 
 	now := time.Now()
-	recordActivity(db, tmuxSessions, claudeSessions, now, away)
+	recordActivity(db, termSessions, claudeSessions, now, away)
 
 	// Publish analytics snapshot every 60s (12 ticks)
 	if tickCount%12 == 0 {
@@ -88,8 +88,8 @@ func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tick
 	if tickCount%12 == 0 {
 		// Only check task lifecycle if tmux listing succeeded —
 		// an empty list would falsely mark all running tasks as completed
-		if tmuxErr == nil {
-			checkRunningTasks(db, bus, tmuxSessions)
+		if termErr == nil {
+			checkRunningTasks(db, bus, termSessions)
 		}
 		checkResolvedTasks(db, bus)
 		publishCommitWatermark(bus, db)
@@ -162,7 +162,7 @@ func publishStatus(bus *EventBus, s *scheduler.Scheduler) {
 
 // enrichAndPublishClaude matches Claude sessions to tmux panes and publishes them.
 // Returns the enriched sessions for use by analytics.
-func enrichAndPublishClaude(bus *EventBus, tmuxSessions []tmux.Session) []claude.Session {
+func enrichAndPublishClaude(bus *EventBus, termSessions []terminal.Session) []claude.Session {
 	sessions, err := claude.ListSessions()
 	if err != nil {
 		log.Printf("cmdr: poller: claude list error: %v", err)
@@ -176,7 +176,7 @@ func enrichAndPublishClaude(bus *EventBus, tmuxSessions []tmux.Session) []claude
 	for _, s := range sessions {
 		claudePIDs[s.PID] = true
 	}
-	claudePanes := collectClaudePanes(tmuxSessions, claudePIDs, ppidMap)
+	claudePanes := collectClaudePanes(termSessions, claudePIDs, ppidMap)
 
 	shellPIDs := make(map[int]*claudePane)
 	for i := range claudePanes {
@@ -201,7 +201,7 @@ type claudePane struct {
 
 // collectClaudePanes returns panes that are running claude, either directly
 // (pane command is "claude") or indirectly (e.g. bash -c '... | claude ...').
-func collectClaudePanes(sessions []tmux.Session, claudePIDs map[int]bool, ppidMap map[int]int) []claudePane {
+func collectClaudePanes(sessions []terminal.Session, claudePIDs map[int]bool, ppidMap map[int]int) []claudePane {
 	// For each pane, check if any known claude PID is a descendant
 	paneAncestor := func(panePID int) bool {
 		for cPID := range claudePIDs {
@@ -264,7 +264,7 @@ func taskWindowName(taskType, intent string, taskID int) string {
 
 // checkRunningTasks monitors all interactive running tasks.
 // Detects artifact completion (ADR, PR, debrief) and window closure.
-func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
+func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Session) {
 	rows, err := db.Query(`
 		SELECT id, type, repo_path, COALESCE(intent, ''), worktree, COALESCE(started_at, created_at)
 		FROM claude_tasks
@@ -279,7 +279,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, tmuxSessions []tmux.Session) {
 	// Build window lookup
 	allWindows := make(map[string]bool)
 	windowTargets := make(map[string]string)
-	for _, s := range tmuxSessions {
+	for _, s := range termSessions {
 		for _, w := range s.Windows {
 			allWindows[w.Name] = true
 			windowTargets[w.Name] = fmt.Sprintf("%s:%s", s.Name, w.Name)

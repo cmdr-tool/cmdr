@@ -3,12 +3,9 @@ package daemon
 import (
 	"encoding/json"
 	"net/http"
-	"os/exec"
-
-	"github.com/cmdr-tool/cmdr/internal/tmux"
 )
 
-func handleTmuxSwitch() http.HandlerFunc {
+func handleSessionSwitch() http.HandlerFunc {
 	type switchReq struct {
 		Name string `json:"name"`
 	}
@@ -24,7 +21,7 @@ func handleTmuxSwitch() http.HandlerFunc {
 			return
 		}
 
-		if err := tmux.SwitchClient(req.Name); err != nil {
+		if err := term.SwitchClient(req.Name); err != nil {
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
 			return
 		}
@@ -34,7 +31,7 @@ func handleTmuxSwitch() http.HandlerFunc {
 	}
 }
 
-func handleTmuxFocus() http.HandlerFunc {
+func handleSessionFocus() http.HandlerFunc {
 	type focusReq struct {
 		Name string `json:"name"`
 	}
@@ -50,14 +47,14 @@ func handleTmuxFocus() http.HandlerFunc {
 			return
 		}
 
-		// Switch tmux to the session
-		if err := tmux.SwitchClient(req.Name); err != nil {
+		// Switch to the session
+		if err := term.SwitchClient(req.Name); err != nil {
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
 			return
 		}
 
 		// Bring terminal to foreground (launch if not running)
-		exec.Command("open", "-a", "Ghostty").Run()
+		emu.Activate()
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"focused": req.Name})

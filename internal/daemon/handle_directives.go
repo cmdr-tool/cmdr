@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/cmdr-tool/cmdr/internal/prompts"
-	"github.com/cmdr-tool/cmdr/internal/tmux"
 )
 
 // handleCreateDirective creates a new claude_task in draft status.
@@ -180,9 +179,9 @@ func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	}
 }
 
-// findOrCreateSession finds an existing tmux session for the repo or creates one.
+// findOrCreateSession finds an existing terminal session for the repo or creates one.
 func findOrCreateSession(repoPath string) (string, error) {
-	sessions, _ := tmux.ListSessions()
+	sessions, _ := term.ListSessions()
 	resolved := repoPath
 	if r, err := resolveSymlinks(repoPath); err == nil {
 		resolved = r
@@ -198,7 +197,7 @@ func findOrCreateSession(repoPath string) (string, error) {
 		}
 	}
 
-	return tmux.CreateSession(repoPath)
+	return term.CreateSession(repoPath)
 }
 
 // handleListIntents returns available directive intent presets.

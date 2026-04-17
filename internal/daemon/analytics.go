@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/cmdr-tool/cmdr/internal/claude"
-	"github.com/cmdr-tool/cmdr/internal/tmux"
+	"github.com/cmdr-tool/cmdr/internal/terminal"
 )
 
 // lastClearedDay tracks which day-of-year we've verified the slot for.
@@ -15,7 +15,7 @@ var lastClearedDay = -1
 
 // recordActivity persists one 5-second activity snapshot into the fixed-bucket table.
 // When away=true, the user is idle — record tool as "away" but still capture Claude states.
-func recordActivity(db *sql.DB, tmuxSessions []tmux.Session, claudeSessions []claude.Session, now time.Time, away bool) {
+func recordActivity(db *sql.DB, termSessions []terminal.Session, claudeSessions []claude.Session, now time.Time, away bool) {
 	slot, bucket := currentBucket(now)
 	today := now.YearDay()
 
@@ -32,7 +32,7 @@ func recordActivity(db *sql.DB, tmuxSessions []tmux.Session, claudeSessions []cl
 	if away {
 		activeTool = "away"
 	} else {
-		activeTool = determineActiveTool(tmuxSessions)
+		activeTool = determineActiveTool(termSessions)
 	}
 	total, working, waiting, idle, unknown := countClaudeStates(claudeSessions)
 
@@ -99,7 +99,7 @@ func backfillSleep(db *sql.DB, sleepStart, wakeTime time.Time) {
 }
 
 // determineActiveTool returns what tool is focused in the attached tmux session.
-func determineActiveTool(sessions []tmux.Session) string {
+func determineActiveTool(sessions []terminal.Session) string {
 	for _, s := range sessions {
 		if !s.Attached {
 			continue

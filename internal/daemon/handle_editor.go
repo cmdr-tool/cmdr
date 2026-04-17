@@ -4,9 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"os/exec"
 
-	"github.com/cmdr-tool/cmdr/internal/tmux"
+	"github.com/cmdr-tool/cmdr/internal/terminal"
 )
 
 func handleEditorOpen() http.HandlerFunc {
@@ -36,7 +35,7 @@ func handleEditorOpen() http.HandlerFunc {
 		}
 
 		// Find or create an nvim pane for this repo
-		target, err := tmux.FindOrCreateEditor(req.RepoPath, req.File, req.Line)
+		target, err := terminal.FindOrCreateEditor(term, req.RepoPath, req.File, req.Line)
 		if err != nil {
 			log.Printf("cmdr: editor/open: find editor: %v", err)
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
@@ -45,18 +44,18 @@ func handleEditorOpen() http.HandlerFunc {
 
 		// If nvim already existed, send :e to open the file
 		if !target.Fresh {
-			if err := tmux.OpenFileInEditor(target.Target, req.File, req.Line); err != nil {
+			if err := terminal.OpenFileInEditor(term, target.Target, req.File, req.Line); err != nil {
 				log.Printf("cmdr: editor/open: open file: %v", err)
 				http.Error(w, jsonErr(err), http.StatusInternalServerError)
 				return
 			}
 		}
 
-		// Focus the tmux session
-		_ = tmux.FocusSession(target.Session)
+		// Focus the terminal session
+		_ = term.SwitchClient(target.Session)
 
-		// Bring Ghostty to the foreground
-		_ = exec.Command("osascript", "-e", `tell application "Ghostty" to activate`).Run()
+		// Bring terminal to the foreground
+		_ = emu.Activate()
 
 		log.Printf("cmdr: editor/open: %s +%d %s (target %s)", req.RepoPath, req.Line, req.File, target.Target)
 

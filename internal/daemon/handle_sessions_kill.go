@@ -4,10 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/cmdr-tool/cmdr/internal/tmux"
 )
 
-func handleTmuxKill() http.HandlerFunc {
+func handleSessionKill() http.HandlerFunc {
 	type killReq struct {
 		Name string `json:"name"`
 	}
@@ -23,7 +22,7 @@ func handleTmuxKill() http.HandlerFunc {
 			return
 		}
 
-		if err := tmux.KillSession(req.Name); err != nil {
+		if err := term.KillSession(req.Name); err != nil {
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
 			return
 		}

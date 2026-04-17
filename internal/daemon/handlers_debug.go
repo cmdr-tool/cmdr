@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/cmdr-tool/cmdr/internal/gitlocal"
-	"github.com/cmdr-tool/cmdr/internal/tmux"
 )
 
 func registerDebugAPI(mux *http.ServeMux) {
@@ -91,7 +90,7 @@ func handleDebugCodeDir() http.HandlerFunc {
 
 func handleDebugSessions() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sessions, err := tmux.ListSessions()
+		sessions, err := term.ListSessions()
 
 		// Also run the raw command to compare
 		socketPath := fmt.Sprintf("/private/tmp/tmux-%d/default", os.Getuid())

@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cmdr-tool/cmdr/internal/tmux"
 )
 
 // --- Headless task runner (claude -p with streaming) ---
@@ -245,8 +244,6 @@ func handleAsk(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 // --- Continue in interactive session ---
 
-const askSessionName = "ask_claude"
-
 func handleContinueSession(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -285,15 +282,15 @@ func handleContinueSession(db *sql.DB) http.HandlerFunc {
 		shellCmd := fmt.Sprintf("exec claude --resume '%s'", sessionID)
 		windowName := fmt.Sprintf("ask-%d", body.ID)
 
-		// Directives resume in the repo's tmux session; asks use a dedicated session
+		// Directives resume in the repo session; asks use a dedicated session
 		var target string
 		if taskType == "directive" && repoPath != "" {
-			tmuxSession, err := findOrCreateSession(repoPath)
+			sessionName, err := findOrCreateSession(repoPath)
 			if err != nil {
 				http.Error(w, jsonErr(err), http.StatusInternalServerError)
 				return
 			}
-			target, err = tmux.CreateDraftWindow(tmuxSession, windowName, resumeDir, shellCmd)
+			target, err = term.CreateWindow(sessionName, windowName, resumeDir, shellCmd)
 			if err != nil {
 				http.Error(w, jsonErr(err), http.StatusInternalServerError)
 				return
@@ -316,25 +313,14 @@ func handleContinueSession(db *sql.DB) http.HandlerFunc {
 }
 
 func createHeadlessWindow(windowName, dir, shellCmd string) (string, error) {
-	args := []string{"bash", "-c", shellCmd}
-
-	if err := exec.Command("tmux", "has-session", "-t="+askSessionName).Run(); err != nil {
-		cmdArgs := append([]string{"new-session", "-ds", askSessionName, "-n", windowName, "-c", dir}, args...)
-		if out, err := exec.Command("tmux", cmdArgs...).CombinedOutput(); err != nil {
-			return "", fmt.Errorf("tmux new-session: %s: %w", strings.TrimSpace(string(out)), err)
-		}
-	} else {
-		cmdArgs := append([]string{"new-window", "-t", askSessionName, "-n", windowName, "-c", dir}, args...)
-		if out, err := exec.Command("tmux", cmdArgs...).CombinedOutput(); err != nil {
-			return "", fmt.Errorf("tmux new-window: %s: %w", strings.TrimSpace(string(out)), err)
-		}
+	sessionName, err := term.CreateSession(dir)
+	if err != nil {
+		return "", fmt.Errorf("creating session: %w", err)
 	}
-
-	// Keep window alive if claude exits with an error so the user can see what happened
-	target := askSessionName + ":" + windowName
-	exec.Command("tmux", "set-option", "-t", target, "remain-on-exit", "on").Run()
-
-	exec.Command("tmux", "switch-client", "-t", askSessionName).Run()
+	target, err := term.CreateWindow(sessionName, windowName, dir, shellCmd)
+	if err != nil {
+		return "", fmt.Errorf("creating window: %w", err)
+	}
 	return target, nil
 }
 
