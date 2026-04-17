@@ -18,16 +18,19 @@ import (
 
 	"github.com/cmdr-tool/cmdr/internal/db"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
+	"github.com/cmdr-tool/cmdr/internal/summarizer"
+	_ "github.com/cmdr-tool/cmdr/internal/summarizer/apple"
+	_ "github.com/cmdr-tool/cmdr/internal/summarizer/ollama"
 	"github.com/cmdr-tool/cmdr/internal/terminal"
 	_ "github.com/cmdr-tool/cmdr/internal/terminal/adapters/cmux"
 	_ "github.com/cmdr-tool/cmdr/internal/terminal/adapters/tmux"
 )
 
-// term and emu are the active terminal multiplexer and emulator adapters,
-// resolved once at daemon startup from CMDR_MULTIPLEXER / CMDR_TERMINAL_APP.
+// term, emu, and sum are the active adapters, resolved once at daemon startup.
 var (
 	term terminal.Multiplexer
 	emu  terminal.Emulator
+	sum  summarizer.Summarizer
 )
 
 func httpAddr() string {
@@ -76,6 +79,16 @@ func Run() error {
 		appName = "Ghostty"
 	}
 	emu = &terminal.MacOSEmulator{AppName: appName}
+
+	// Resolve summarizer adapter
+	sumName := os.Getenv("CMDR_SUMMARIZER")
+	if sumName == "" {
+		sumName = "apple"
+	}
+	sum, err = summarizer.New(sumName)
+	if err != nil {
+		log.Printf("cmdr: summarizer %q unavailable, titles will not be enhanced: %v", sumName, err)
+	}
 
 	database, err := db.Open()
 	if err != nil {

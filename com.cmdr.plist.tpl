@@ -28,6 +28,8 @@
       <string>__CMDR_OLLAMA_URL__</string>
       <key>CMDR_OLLAMA_MODEL</key>
       <string>__CMDR_OLLAMA_MODEL__</string>
+      <key>CMDR_SUMMARIZER</key>
+      <string>__CMDR_SUMMARIZER__</string>
       <key>CMDR_MULTIPLEXER</key>
       <string>__CMDR_MULTIPLEXER__</string>
       <key>CMDR_TERMINAL_APP</key>

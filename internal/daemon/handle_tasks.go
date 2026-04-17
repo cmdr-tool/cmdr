@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cmdr-tool/cmdr/internal/ollama"
 	"github.com/cmdr-tool/cmdr/internal/prompts"
 )
 
@@ -640,22 +639,25 @@ func extractTitle(result string) string {
 	return raw
 }
 
-var ollamaSem = make(chan struct{}, 1)
+var summarizeSem = make(chan struct{}, 1)
 
-// enhanceTitle asynchronously replaces a task's heuristic title with an
-// LLM-generated summary via Ollama. Fire-and-forget: failures are logged
+// enhanceTitle asynchronously replaces a task's heuristic title with a
+// summarizer-generated title. Fire-and-forget: failures are logged
 // but never surfaced to the user.
 func enhanceTitle(db *sql.DB, bus *EventBus, taskID int, content string) {
+	if sum == nil {
+		return
+	}
 	go func() {
-		ollamaSem <- struct{}{}
-		defer func() { <-ollamaSem }()
+		summarizeSem <- struct{}{}
+		defer func() { <-summarizeSem }()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 
-		title, err := ollama.Summarize(ctx, content)
+		title, err := sum.Summarize(ctx, content)
 		if err != nil {
-			log.Printf("cmdr: ollama title for task %d failed: %v", taskID, err)
+			log.Printf("cmdr: title for task %d failed: %v", taskID, err)
 			return
 		}
 

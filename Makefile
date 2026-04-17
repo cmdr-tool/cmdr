@@ -10,18 +10,19 @@ LABEL             = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_LABEL= $(CONFIG_
 CMDR_CODE_DIR     = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_CODE_DIR= $(CONFIG_FILE) | cut -d= -f2-)
 CMDR_OLLAMA_URL   = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_OLLAMA_URL= $(CONFIG_FILE) | cut -d= -f2-)
 CMDR_OLLAMA_MODEL = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_OLLAMA_MODEL= $(CONFIG_FILE) | cut -d= -f2-)
+CMDR_SUMMARIZER   = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_SUMMARIZER= $(CONFIG_FILE) | cut -d= -f2-)
 CMDR_MULTIPLEXER  = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_MULTIPLEXER= $(CONFIG_FILE) | cut -d= -f2-)
 CMDR_TERMINAL_APP = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_TERMINAL_APP= $(CONFIG_FILE) | cut -d= -f2-)
 CMDR_EDITOR       = $(shell [ -f $(CONFIG_FILE) ] && grep ^CMDR_EDITOR= $(CONFIG_FILE) | cut -d= -f2-)
 PLIST_NAME        = $(LABEL).plist
 
-.PHONY: all build web go app install setup configure uninstall restart clean dev test
+.PHONY: all build web go app summarize install setup configure uninstall restart clean dev test
 
 # Default: build everything
 all: build
 
-# Build frontend + backend + app
-build: web go app
+# Build frontend + backend + app + summarizer
+build: web go app summarize
 
 # Build SvelteKit SPA → web/build/
 web:
@@ -34,6 +35,13 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 go:
 	@echo "cmdr: building backend ($(VERSION))..."
 	@go build -ldflags="-X main.version=$(VERSION)" -o cmdr ./cmd/cmdr
+
+# Build cmdr-summarize (Apple Intelligence title generation)
+summarize:
+	@echo "cmdr: building summarizer..."
+	@mkdir -p build
+	@swiftc -O -o build/cmdr-summarize tools/cmdr-summarize/main.swift -framework FoundationModels 2>/dev/null \
+		|| echo "cmdr: skipped cmdr-summarize (requires macOS 15.1+ SDK)"
 
 # Build macOS app bundle (frameless webview wrapper)
 app:
@@ -53,6 +61,11 @@ install: setup build
 	@cp cmdr $(BIN_DIR)/cmdr
 	@codesign --force --sign "cmdr" --options runtime $(BIN_DIR)/cmdr
 	@xattr -d com.apple.provenance $(BIN_DIR)/cmdr 2>/dev/null || true
+	@if [ -f build/cmdr-summarize ]; then \
+		cp build/cmdr-summarize $(BIN_DIR)/cmdr-summarize; \
+		codesign --force --sign "cmdr" --options runtime $(BIN_DIR)/cmdr-summarize; \
+		xattr -d com.apple.provenance $(BIN_DIR)/cmdr-summarize 2>/dev/null || true; \
+	fi
 	@echo "cmdr: installed binary to $(BIN_DIR)/cmdr"
 	@launchctl bootout "$(GUI_DOMAIN)/$(LABEL)" 2>/dev/null || true
 	@sleep 1
@@ -61,6 +74,7 @@ install: setup build
 	     -e 's|__CMDR_CODE_DIR__|$(CMDR_CODE_DIR)|g' \
 	     -e 's|__CMDR_OLLAMA_URL__|$(CMDR_OLLAMA_URL)|g' \
 	     -e 's|__CMDR_OLLAMA_MODEL__|$(CMDR_OLLAMA_MODEL)|g' \
+	     -e 's|__CMDR_SUMMARIZER__|$(CMDR_SUMMARIZER)|g' \
 	     -e 's|__CMDR_MULTIPLEXER__|$(CMDR_MULTIPLEXER)|g' \
 	     -e 's|__CMDR_TERMINAL_APP__|$(CMDR_TERMINAL_APP)|g' \
 	     -e 's|__CMDR_EDITOR__|$(CMDR_EDITOR)|g' \
@@ -83,7 +97,7 @@ configure:
 # Stop and remove service
 uninstall:
 	@launchctl bootout "$(GUI_DOMAIN)/$(LABEL)" 2>/dev/null || true
-	@rm -f $(BIN_DIR)/cmdr $(LAUNCH_DIR)/$(PLIST_NAME)
+	@rm -f $(BIN_DIR)/cmdr $(BIN_DIR)/cmdr-summarize $(LAUNCH_DIR)/$(PLIST_NAME)
 	@echo "cmdr: uninstalled ✓"
 
 # Restart service without rebuilding
