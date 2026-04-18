@@ -126,19 +126,19 @@ func runHeadless(db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
 
 	now := time.Now().Format(time.RFC3339)
 	title := extractTitle(finalResult)
-	db.Exec(`UPDATE claude_tasks SET status='completed', result=?, title=?, claude_session_id=?, completed_at=? WHERE id=?`,
+	db.Exec(`UPDATE claude_tasks SET status='resolved', result=?, title=?, claude_session_id=?, completed_at=? WHERE id=?`,
 		finalResult, title, sessionID, now, cfg.TaskID)
 
 	bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
 		"id": cfg.TaskID, "type": "done",
 	}})
 	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
-		"id": cfg.TaskID, "status": "completed", "title": title,
+		"id": cfg.TaskID, "status": "resolved", "title": title,
 	}})
 
 	enhanceTitle(db, bus, cfg.TaskID, truncate(finalResult, 1000))
 
-	log.Printf("cmdr: headless task %d completed", cfg.TaskID)
+	log.Printf("cmdr: headless task %d resolved (result ready)", cfg.TaskID)
 }
 
 func failHeadless(db *sql.DB, bus *EventBus, taskID int, err error) {

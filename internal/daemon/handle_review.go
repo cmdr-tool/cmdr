@@ -258,7 +258,7 @@ func runClaudeReview(db *sql.DB, bus *EventBus, taskID int, repoPath, sha, promp
 	// Clean up review comments after completion (only if task succeeded)
 	var status string
 	db.QueryRow(`SELECT status FROM claude_tasks WHERE id=?`, taskID).Scan(&status)
-	if status == "completed" {
+	if status == "resolved" {
 		db.Exec(`DELETE FROM review_comments WHERE repo_path=? AND sha=?`, repoPath, sha)
 		bus.Publish(Event{Type: "commits:sync", Data: true})
 	}

@@ -172,15 +172,11 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		var res sql.Result
 		var err error
 		if body.All == "completed" {
-			// Terminal tasks: failed, or completed (except ask/analysis).
-			// Mirrors isTerminalTask in api.ts.
+			// Terminal = failed or completed. Resolved tasks need user action.
 			res, err = db.Exec(`
 				DELETE FROM claude_tasks
 				WHERE type != 'delegation'
-				  AND (
-				    status = 'failed'
-				    OR (status = 'completed' AND type != 'ask' AND COALESCE(intent, '') != 'analysis')
-				  )
+				  AND status IN ('failed', 'completed')
 			`)
 		} else if body.ID > 0 {
 			res, err = db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, body.ID)

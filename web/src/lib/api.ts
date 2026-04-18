@@ -430,10 +430,7 @@ export interface ClaudeTask {
 // or generic directives. Ask and analysis tasks remain non-terminal even
 // when completed because their results are reference material.
 export function isTerminalTask(task: ClaudeTask): boolean {
-	if (task.status === 'failed') return true;
-	if (task.status !== 'completed') return false;
-	if (task.type === 'ask' || task.intent === 'analysis') return false;
-	return true;
+	return task.status === 'failed' || task.status === 'completed';
 }
 
 export interface ClaudeTaskResult {
