@@ -5,7 +5,7 @@
 	import { ScanSearch } from 'lucide-svelte';
 	import { connection } from '$lib/events';
 	import { sessions, claudeSessions } from '$lib/sessionStore';
-	import { commitsLoaded, unseenCount, toggleFlag, updateCommit } from '$lib/commitStore';
+	import { commits, commitsLoaded, unseenCount, toggleFlag, updateCommit } from '$lib/commitStore';
 
 	import BrewCard from '$lib/components/BrewCard.svelte';
 	import SessionCard from '$lib/components/SessionCard.svelte';
@@ -192,7 +192,14 @@
 
 <!-- Review Result Modal -->
 {#if reviewTask}
-	<ReviewResultModal taskId={reviewTask.id} prUrl={reviewTask.prUrl} repoPath={reviewTask.repoPath ?? ''} onclose={() => { reviewTask = null; }} />
+	<ReviewResultModal
+		taskId={reviewTask.id}
+		prUrl={reviewTask.prUrl}
+		repoPath={reviewTask.repoPath ?? ''}
+		commitSha={reviewTask.commitSha ?? ''}
+		commitUrl={$commits.find(c => c.sha === reviewTask?.commitSha)?.url ?? ''}
+		onclose={() => { reviewTask = null; }}
+	/>
 {/if}
 
 <!-- Draft Modal -->

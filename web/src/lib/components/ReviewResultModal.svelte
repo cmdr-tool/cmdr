@@ -16,11 +16,15 @@
 	let {
 		taskId,
 		repoPath = '',
+		commitSha = '',
+		commitUrl = '',
 		prUrl,
 		onclose,
 	}: {
 		taskId: number;
 		repoPath?: string;
+		commitSha?: string;
+		commitUrl?: string;
 		prUrl?: string;
 		onclose: () => void;
 	} = $props();
@@ -261,12 +265,25 @@
 					</div>
 				{/if}
 			</div>
-			<button
-				onclick={onclose}
-				class="text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
-			>
-				<X size={18} />
-			</button>
+			<div class="flex items-center gap-3">
+				{#if commitSha && commitUrl}
+					<a
+						href={commitUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						class="flex items-center gap-1 text-xs text-cmd-400 hover:text-cmd-300 transition-colors"
+					>
+						<ExternalLink size={12} />
+						<span>{commitSha.slice(0, 7)}</span>
+					</a>
+				{/if}
+				<button
+					onclick={onclose}
+					class="text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
+				>
+					<X size={18} />
+				</button>
+			</div>
 		</div>
 
 		<!-- Body -->
