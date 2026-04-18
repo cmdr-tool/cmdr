@@ -3,6 +3,7 @@ package daemon
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -215,11 +216,16 @@ func handleSubmitReview(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		// Create task
+		// Create task with a descriptive default title
+		shortSHA := body.SHA
+		if len(shortSHA) > 7 {
+			shortSHA = shortSHA[:7]
+		}
+		title := fmt.Sprintf("Review %s: %s", shortSHA, firstLine(message))
 		res, err := db.Exec(`
-			INSERT INTO claude_tasks (type, status, repo_path, commit_sha, prompt, created_at)
-			VALUES ('review', 'pending', ?, ?, ?, ?)
-		`, body.RepoPath, body.SHA, prompt, time.Now().Format(time.RFC3339))
+			INSERT INTO claude_tasks (type, status, repo_path, commit_sha, prompt, title, created_at)
+			VALUES ('review', 'pending', ?, ?, ?, ?, ?)
+		`, body.RepoPath, body.SHA, prompt, title, time.Now().Format(time.RFC3339))
 		if err != nil {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
@@ -227,7 +233,7 @@ func handleSubmitReview(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 		taskID, _ := res.LastInsertId()
 
-		// Launch async
+		// Launch async — title is enhanced on completion via runHeadless
 		go runClaudeReview(db, bus, int(taskID), body.RepoPath, body.SHA, prompt)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -261,4 +267,11 @@ func runClaudeReview(db *sql.DB, bus *EventBus, taskID int, repoPath, sha, promp
 type reviewAnnotation struct {
 	lineStart, lineEnd int
 	comment            string
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
