@@ -224,4 +224,12 @@
 			{/if}
 		</div>
 	</div>
+{:else}
+	<div class="bg-bourbon-900 rounded-2xl border border-bourbon-800 p-6">
+		<h2 class="font-display text-xs font-bold uppercase tracking-widest text-run-500 mb-4">Claude Inbox</h2>
+		<div class="flex items-center gap-2 text-bourbon-600 py-4">
+			<div class="w-3 h-3 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
+			<span class="text-[10px] font-mono">loading tasks</span>
+		</div>
+	</div>
 {/if}
