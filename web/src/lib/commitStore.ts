@@ -56,8 +56,6 @@ export function initCommitStore() {
 	if (initialized) return;
 	initialized = true;
 
-	fetchCommits();
-
 	events.on('commits:sync', async () => {
 		await refreshWithNotification();
 	});
@@ -69,7 +67,7 @@ export function initCommitStore() {
 	});
 
 	connection.subscribe((c) => {
-		if (c.connected && get(commitsLoaded)) fetchCommits();
+		if (c.connected) fetchCommits();
 	});
 }
 

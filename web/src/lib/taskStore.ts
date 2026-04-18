@@ -59,8 +59,6 @@ export function initTaskStore() {
 	if (initialized) return;
 	initialized = true;
 
-	fetchTasks();
-
 	events.on('claude:task', (evt) => {
 		if ((evt.status as string) === 'dismissed') {
 			if (evt.id) {

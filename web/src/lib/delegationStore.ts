@@ -1,7 +1,6 @@
 import { writable, derived } from 'svelte/store';
 import { getDelegationSummary, type DelegationSummary } from '$lib/api';
 import { events, connection } from '$lib/events';
-import { tasks } from '$lib/taskStore';
 
 export const delegationSummaries = writable<DelegationSummary[]>([]);
 
@@ -22,20 +21,7 @@ export function initDelegationStore() {
 	if (initialized) return;
 	initialized = true;
 
-	fetchSummaries();
-
-	// Refetch when task store changes (catches CLI-created delegations on task refetch)
-	tasks.subscribe(() => {
-		fetchSummaries();
-	});
-
 	events.on('delegation:update', () => {
-		fetchSummaries();
-	});
-
-	// Also refetch on any task status change — catches CLI-created delegations
-	// that bypass the API (e.g. cmdr enlist from a Claude session)
-	events.on('claude:task', () => {
 		fetchSummaries();
 	});
 

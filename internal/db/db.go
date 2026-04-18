@@ -29,10 +29,18 @@ func Open() (*sql.DB, error) {
 	}
 
 	path := filepath.Join(dir, "cmdr.db")
-	d, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_busy_timeout=5000")
+	d, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
+
+	// Verify pragmas are active — modernc.org/sqlite silently ignores
+	// malformed DSN params, so confirm WAL + busy_timeout took effect.
+	var journalMode string
+	d.QueryRow("PRAGMA journal_mode").Scan(&journalMode)
+	var busyTimeout int
+	d.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout)
+	log.Printf("cmdr: db opened (journal_mode=%s, busy_timeout=%d)", journalMode, busyTimeout)
 
 	if err := ensureSchema(d); err != nil {
 		d.Close()

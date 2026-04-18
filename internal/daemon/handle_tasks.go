@@ -161,14 +161,46 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			}
 		}
 
-		// Clean up worktrees and kill tmux windows for tasks being dismissed
+		// Collect cleanup info before deleting rows from the DB.
+		// Actual cleanup (git worktree remove, tmux kill-window) runs
+		// asynchronously so the DELETE + response aren't blocked by
+		// slow shell-outs — which caused tasks to reappear on refresh.
+		type cleanupInfo struct {
+			id           int
+			repoPath     string
+			worktreeName string
+			taskType     string
+			intent       string
+		}
+		var cleanups []cleanupInfo
+
 		if body.ID > 0 {
-			killTaskWindow(db, body.ID)
-			cleanupTaskWorktree(db, body.ID)
+			var ci cleanupInfo
+			ci.id = body.ID
+			err := db.QueryRow(
+				`SELECT repo_path, COALESCE(worktree, ''), type, COALESCE(intent, '') FROM claude_tasks WHERE id = ?`,
+				body.ID,
+			).Scan(&ci.repoPath, &ci.worktreeName, &ci.taskType, &ci.intent)
+			if err == nil {
+				cleanups = append(cleanups, ci)
+			}
 		} else if body.All == "completed" {
-			cleanupAllTaskWorktrees(db)
+			rows, err := db.Query(
+				`SELECT id, repo_path, COALESCE(worktree, ''), type, COALESCE(intent, '')
+				 FROM claude_tasks WHERE type != 'delegation' AND status IN ('failed', 'completed')`,
+			)
+			if err == nil {
+				for rows.Next() {
+					var ci cleanupInfo
+					if rows.Scan(&ci.id, &ci.repoPath, &ci.worktreeName, &ci.taskType, &ci.intent) == nil {
+						cleanups = append(cleanups, ci)
+					}
+				}
+				rows.Close()
+			}
 		}
 
+		// DELETE first so the response reflects the new state immediately.
 		var res sql.Result
 		var err error
 		if body.All == "completed" {
@@ -184,6 +216,28 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			http.Error(w, `{"error":"missing id or all"}`, http.StatusBadRequest)
 			return
 		}
+
+		// Async cleanup: kill windows and remove worktrees in the background.
+		go func() {
+			for _, ci := range cleanups {
+				windowName := taskWindowName(ci.taskType, ci.intent, ci.id)
+				sessions, sErr := term.ListSessions()
+				if sErr == nil {
+					for _, s := range sessions {
+						for _, w := range s.Windows {
+							if w.Name == windowName {
+								target := fmt.Sprintf("%s:%s", s.Name, w.Name)
+								term.KillWindow(target)
+								log.Printf("cmdr: killed task window %s (task %d)", target, ci.id)
+							}
+						}
+					}
+				}
+				if ci.worktreeName != "" {
+					removeWorktree(ci.repoPath, ci.id, ci.worktreeName)
+				}
+			}
+		}()
 
 		if err != nil {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
@@ -556,15 +610,25 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		enhanceTitle(db, bus, id, truncate(parentResult, 500))
-
-		// Mark parent task as completed (lifecycle done — artifact was consumed)
-		killTaskWindow(db, body.ParentID)
-		cleanupTaskWorktree(db, body.ParentID)
-		db.Exec(`UPDATE claude_tasks SET status='completed' WHERE id = ?`, body.ParentID)
+		// Mark parent task as completed first — this is the critical,
+		// non-retriable lifecycle transition. Everything else can be
+		// retried or is best-effort.
+		for range 3 {
+			if _, err := db.Exec(`UPDATE claude_tasks SET status='completed' WHERE id = ?`, body.ParentID); err != nil {
+				log.Printf("cmdr: retrying parent %d status update: %v", body.ParentID, err)
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			break
+		}
 		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
 			"id": body.ParentID, "status": "completed",
 		}})
+
+		// Best-effort: enhance child title, clean up parent window/worktree
+		enhanceTitle(db, bus, id, truncate(parentResult, 500))
+		killTaskWindow(db, body.ParentID)
+		cleanupTaskWorktree(db, body.ParentID)
 
 		log.Printf("cmdr: spawned task %d from parent %d (intent %q)", id, body.ParentID, intent)
 
@@ -778,24 +842,6 @@ func cleanupTaskWorktree(db *sql.DB, taskID int) {
 		return
 	}
 	removeWorktree(repoPath, taskID, worktreeName)
-}
-
-// cleanupAllTaskWorktrees removes worktrees for all completed tasks.
-// Does NOT touch running tasks — those have active sessions.
-func cleanupAllTaskWorktrees(db *sql.DB) {
-	rows, err := db.Query(`SELECT id, repo_path, worktree FROM claude_tasks WHERE worktree != '' AND status = 'completed'`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int
-		var repoPath, worktreeName string
-		if err := rows.Scan(&id, &repoPath, &worktreeName); err != nil {
-			continue
-		}
-		removeWorktree(repoPath, id, worktreeName)
-	}
 }
 
 // worktreeDir resolves the actual worktree directory name. Claude Code
