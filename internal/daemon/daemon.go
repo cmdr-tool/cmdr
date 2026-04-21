@@ -18,6 +18,7 @@ import (
 
 	"github.com/cmdr-tool/cmdr/internal/agent"
 	_ "github.com/cmdr-tool/cmdr/internal/agent/claude"
+	_ "github.com/cmdr-tool/cmdr/internal/agent/pi"
 	"github.com/cmdr-tool/cmdr/internal/db"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
 	"github.com/cmdr-tool/cmdr/internal/summarizer"
