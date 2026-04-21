@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cmdr-tool/cmdr/internal/claude"
+	"github.com/cmdr-tool/cmdr/internal/agent"
 	"github.com/cmdr-tool/cmdr/internal/prompts"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
 	"github.com/cmdr-tool/cmdr/internal/terminal"
@@ -70,14 +70,14 @@ func pollTick(bus *EventBus, s *scheduler.Scheduler, db *sql.DB, away bool, tick
 		termSessions = []terminal.Session{}
 	}
 
-	claudeSessions := enrichAndPublishClaude(bus, termSessions)
+	agentInstances := enrichAndPublishAgents(bus, termSessions)
 
 	if !away {
 		bus.Publish(Event{Type: "tmux:sessions", Data: termSessions})
 	}
 
 	now := time.Now()
-	recordActivity(db, termSessions, claudeSessions, now, away)
+	recordActivity(db, termSessions, agentInstances, now, away)
 
 	// Publish analytics snapshot every 60s (12 ticks)
 	if tickCount%12 == 0 {
@@ -160,53 +160,71 @@ func publishStatus(bus *EventBus, s *scheduler.Scheduler) {
 	})
 }
 
-// enrichAndPublishClaude matches Claude sessions to tmux panes and publishes them.
-// Returns the enriched sessions for use by analytics.
-func enrichAndPublishClaude(bus *EventBus, termSessions []terminal.Session) []claude.Session {
-	sessions, err := claude.ListSessions()
-	if err != nil {
-		log.Printf("cmdr: poller: claude list error: %v", err)
-		return nil
-	}
-
+// enrichAndPublishAgents detects all running agent instances across registered
+// adapters, matches them to tmux panes, scrapes status, and publishes via SSE.
+func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []agent.Instance {
 	ppidMap := getParentPIDs()
 
-	// Collect panes that have a claude process as a direct or indirect child
-	claudePIDs := make(map[int]bool, len(sessions))
-	for _, s := range sessions {
-		claudePIDs[s.PID] = true
-	}
-	claudePanes := collectClaudePanes(termSessions, claudePIDs, ppidMap)
+	var allInstances []agent.Instance
 
-	shellPIDs := make(map[int]*claudePane)
-	for i := range claudePanes {
-		shellPIDs[claudePanes[i].shellPID] = &claudePanes[i]
-	}
-
-	for i := range sessions {
-		if cp := findAncestorPane(sessions[i].PID, ppidMap, shellPIDs); cp != nil {
-			sessions[i].TmuxTarget = cp.target
-			sessions[i].Status = claude.PaneStatus(cp.target)
+	for _, a := range agent.All() {
+		instances, err := a.DetectInstances()
+		if err != nil {
+			log.Printf("cmdr: poller: %s detect error: %v", a.Name(), err)
+			continue
 		}
+		if len(instances) == 0 {
+			continue
+		}
+
+		// Collect PIDs for this agent's instances
+		agentPIDs := make(map[int]bool, len(instances))
+		for _, inst := range instances {
+			agentPIDs[inst.PID] = true
+		}
+
+		// Find panes running this agent (by command name or PID ancestry)
+		panes := collectAgentPanes(termSessions, a.ProcessName(), agentPIDs, ppidMap)
+
+		shellPIDs := make(map[int]*agentPane)
+		for i := range panes {
+			shellPIDs[panes[i].shellPID] = &panes[i]
+		}
+
+		// Match instances to panes and scrape status
+		for i := range instances {
+			if cp := findAncestorPane(instances[i].PID, ppidMap, shellPIDs); cp != nil {
+				instances[i].TmuxTarget = cp.target
+
+				// Capture pane output and determine status
+				lines := capturePaneLines(cp.target)
+				instances[i].Status = a.PaneStatus(lines)
+			}
+		}
+
+		allInstances = append(allInstances, instances...)
 	}
 
-	bus.Publish(Event{Type: "agent:sessions", Data: sessions})
-	return sessions
+	if allInstances == nil {
+		allInstances = []agent.Instance{}
+	}
+
+	bus.Publish(Event{Type: "agent:sessions", Data: allInstances})
+	return allInstances
 }
 
-type claudePane struct {
+type agentPane struct {
 	target   string // e.g. "cmdr:1.3"
 	shellPID int    // PID of the shell process in the pane
 }
 
-// collectClaudePanes returns panes that are running claude, either directly
-// (pane command is "claude") or indirectly (e.g. bash -c '... | claude ...').
-func collectClaudePanes(sessions []terminal.Session, claudePIDs map[int]bool, ppidMap map[int]int) []claudePane {
-	// For each pane, check if any known claude PID is a descendant
+// collectAgentPanes returns panes running a specific agent, matched by
+// command name or PID ancestry.
+func collectAgentPanes(sessions []terminal.Session, processName string, agentPIDs map[int]bool, ppidMap map[int]int) []agentPane {
 	paneAncestor := func(panePID int) bool {
-		for cPID := range claudePIDs {
+		for aPID := range agentPIDs {
 			visited := make(map[int]bool)
-			for cur := cPID; cur > 1 && !visited[cur]; cur = ppidMap[cur] {
+			for cur := aPID; cur > 1 && !visited[cur]; cur = ppidMap[cur] {
 				visited[cur] = true
 				if cur == panePID {
 					return true
@@ -216,13 +234,13 @@ func collectClaudePanes(sessions []terminal.Session, claudePIDs map[int]bool, pp
 		return false
 	}
 
-	var panes []claudePane
+	var panes []agentPane
 	for _, s := range sessions {
 		for _, w := range s.Windows {
 			for _, p := range w.Panes {
-				if p.Command == "claude" || paneAncestor(p.PID) {
+				if p.Command == processName || paneAncestor(p.PID) {
 					target := fmt.Sprintf("%s:%d.%d", s.Name, w.Index, p.Index)
-					panes = append(panes, claudePane{target: target, shellPID: p.PID})
+					panes = append(panes, agentPane{target: target, shellPID: p.PID})
 				}
 			}
 		}
@@ -230,9 +248,22 @@ func collectClaudePanes(sessions []terminal.Session, claudePIDs map[int]bool, pp
 	return panes
 }
 
+// capturePaneLines captures terminal output from a tmux pane and returns it as lines.
+func capturePaneLines(tmuxTarget string) []string {
+	socketPath := tmuxSocketPath()
+	out, err := exec.Command("tmux", "-S", socketPath, "capture-pane", "-t", tmuxTarget, "-p").Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+}
+
+func tmuxSocketPath() string {
+	return fmt.Sprintf("/private/tmp/tmux-%d/default", os.Getuid())
+}
+
 // findAncestorPane walks up the process tree from pid to find a matching pane shell.
-// Handles intermediate processes (e.g., zsh → volta-shim → node).
-func findAncestorPane(pid int, ppidMap map[int]int, shellPIDs map[int]*claudePane) *claudePane {
+func findAncestorPane(pid int, ppidMap map[int]int, shellPIDs map[int]*agentPane) *agentPane {
 	visited := make(map[int]bool)
 	for cur := pid; cur > 1 && !visited[cur]; cur = ppidMap[cur] {
 		visited[cur] = true

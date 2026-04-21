@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/cmdr-tool/cmdr/internal/agent"
 )
@@ -160,6 +164,171 @@ func (a *Adapter) InteractiveCommand(cfg agent.InteractiveConfig) (string, error
 // ResumeCommand returns the shell command to resume a prior Claude session.
 func (a *Adapter) ResumeCommand(sessionID string) (string, error) {
 	return fmt.Sprintf("exec claude --resume '%s'", sessionID), nil
+}
+
+// --- Detection ---
+
+func (a *Adapter) ProcessName() string { return "claude" }
+
+// DetectInstances reads ~/.claude/sessions/*.json for active Claude sessions.
+func (a *Adapter) DetectInstances() ([]agent.Instance, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
+	dir := filepath.Join(home, ".claude", "sessions")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []agent.Instance{}, nil
+		}
+		return nil, err
+	}
+
+	var instances []agent.Instance
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+
+		var raw struct {
+			PID       int    `json:"pid"`
+			SessionID string `json:"sessionId"`
+			CWD       string `json:"cwd"`
+			StartedAt int64  `json:"startedAt"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			continue
+		}
+
+		if !isAlive(raw.PID) {
+			continue
+		}
+
+		var uptime string
+		if raw.StartedAt > 0 {
+			uptime = formatUptime(time.Since(time.UnixMilli(raw.StartedAt)))
+		}
+
+		instances = append(instances, agent.Instance{
+			Agent:     "claude",
+			PID:       raw.PID,
+			SessionID: raw.SessionID,
+			CWD:       raw.CWD,
+			Project:   filepath.Base(raw.CWD),
+			StartedAt: raw.StartedAt,
+			Uptime:    uptime,
+			Status:    "unknown",
+		})
+	}
+
+	if instances == nil {
+		instances = []agent.Instance{}
+	}
+	return instances, nil
+}
+
+// PaneStatus determines Claude's status from captured terminal pane lines.
+func (a *Adapter) PaneStatus(lines []string) string {
+	// Scan the last few lines for hint text signals
+	tail := lines
+	if len(tail) > 5 {
+		tail = tail[len(tail)-5:]
+	}
+
+	statusTracker.mu.Lock()
+	defer statusTracker.mu.Unlock()
+
+	// Build a key from the lines for tracker (use first line as proxy)
+	key := ""
+	if len(lines) > 0 {
+		key = lines[0]
+	}
+
+	for _, line := range tail {
+		if strings.Contains(line, workingSignal) {
+			statusTracker.lastWorking[key] = time.Now()
+			return "working"
+		}
+	}
+
+	for _, line := range tail {
+		if strings.Contains(line, idleSignal) {
+			lastWork, exists := statusTracker.lastWorking[key]
+			if exists && time.Since(lastWork) < idleThreshold {
+				return "waiting"
+			}
+			return "idle"
+		}
+	}
+
+	for _, line := range tail {
+		for _, sig := range waitingSignals {
+			if strings.Contains(line, sig) {
+				return "waiting"
+			}
+		}
+	}
+
+	return "unknown"
+}
+
+// Claude pane hint text signals
+const (
+	workingSignal = "esc to interrupt"
+	idleSignal    = "hold Space to speak"
+	idleThreshold = 5 * time.Minute
+)
+
+var waitingSignals = []string{
+	"accept edits",
+	"to accept",
+	"to reject",
+	"shift+tab to cycle",
+}
+
+var statusTracker = struct {
+	mu          sync.Mutex
+	lastWorking map[string]time.Time
+}{
+	lastWorking: make(map[string]time.Time),
+}
+
+func isAlive(pid int) bool {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+func formatUptime(d time.Duration) string {
+	if d < time.Minute {
+		return "<1m"
+	}
+	if d < time.Hour {
+		return strings.TrimSuffix(d.Truncate(time.Minute).String(), "0s")
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if h >= 24 {
+		days := h / 24
+		h = h % 24
+		if h == 0 {
+			return fmt.Sprintf("%dd", days)
+		}
+		return fmt.Sprintf("%dd %dh", days, h)
+	}
+	if m == 0 {
+		return fmt.Sprintf("%dh", h)
+	}
+	return fmt.Sprintf("%dh %dm", h, m)
 }
 
 // toolDetail extracts a human-readable detail string from a tool_use input.

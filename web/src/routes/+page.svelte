@@ -91,7 +91,7 @@
 		<p class="text-bourbon-600 mt-1">
 			{dateStr}
 			&middot; {$sessions.length} session{$sessions.length !== 1 ? 's' : ''}
-		&middot; {$agentSessions.length} claude instance{$agentSessions.length !== 1 ? 's' : ''}
+		&middot; {$agentSessions.length} agent{$agentSessions.length !== 1 ? 's' : ''}
 		{#if $unseenCount > 0}
 			&middot; {$unseenCount} unseen commit{$unseenCount !== 1 ? 's' : ''}
 		{/if}

@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/cmdr-tool/cmdr/internal/claude"
+	"github.com/cmdr-tool/cmdr/internal/agent"
 	"github.com/cmdr-tool/cmdr/internal/terminal"
 )
 
@@ -15,7 +15,7 @@ var lastClearedDay = -1
 
 // recordActivity persists one 5-second activity snapshot into the fixed-bucket table.
 // When away=true, the user is idle — record tool as "away" but still capture Claude states.
-func recordActivity(db *sql.DB, termSessions []terminal.Session, claudeSessions []claude.Session, now time.Time, away bool) {
+func recordActivity(db *sql.DB, termSessions []terminal.Session, agentInstances []agent.Instance, now time.Time, away bool) {
 	slot, bucket := currentBucket(now)
 	today := now.YearDay()
 
@@ -34,7 +34,7 @@ func recordActivity(db *sql.DB, termSessions []terminal.Session, claudeSessions 
 	} else {
 		activeTool = determineActiveTool(termSessions)
 	}
-	total, working, waiting, idle, unknown := countClaudeStates(claudeSessions)
+	total, working, waiting, idle, unknown := countAgentStates(agentInstances, "claude")
 
 	_, err := db.Exec(`INSERT OR REPLACE INTO activity_buckets
 		(slot, bucket, active_tool, claude_total, claude_working, claude_waiting, claude_idle, claude_unknown, recorded_at)
@@ -114,6 +114,8 @@ func determineActiveTool(sessions []terminal.Session) string {
 					return "nvim"
 				case "claude":
 					return "claude"
+				case "pi", "volta-shim":
+					return "pi"
 				default:
 					return "other"
 				}
@@ -124,11 +126,14 @@ func determineActiveTool(sessions []terminal.Session) string {
 	return "inactive"
 }
 
-// countClaudeStates tallies Claude session statuses.
-func countClaudeStates(sessions []claude.Session) (total, working, waiting, idle, unknown int) {
-	for _, s := range sessions {
+// countAgentStates tallies statuses for instances of a specific agent.
+func countAgentStates(instances []agent.Instance, agentName string) (total, working, waiting, idle, unknown int) {
+	for _, inst := range instances {
+		if inst.Agent != agentName {
+			continue
+		}
 		total++
-		switch s.Status {
+		switch inst.Status {
 		case "working":
 			working++
 		case "waiting":

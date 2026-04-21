@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/cmdr-tool/cmdr/internal/agent"
 )
@@ -200,6 +203,91 @@ func (a *Adapter) InteractiveCommand(cfg agent.InteractiveConfig) (string, error
 // ResumeCommand returns the shell command to resume a prior pi session.
 func (a *Adapter) ResumeCommand(sessionID string) (string, error) {
 	return fmt.Sprintf("exec pi --session '%s'", sessionID), nil
+}
+
+// --- Detection ---
+
+func (a *Adapter) ProcessName() string { return "pi" }
+
+// DetectInstances finds running pi processes by scanning the process table.
+// Pi doesn't write PID-based session files, so we discover instances from `ps`.
+func (a *Adapter) DetectInstances() ([]agent.Instance, error) {
+	// ps -eo pid,comm — find processes with command "pi"
+	out, err := exec.Command("ps", "-eo", "pid,comm").Output()
+	if err != nil {
+		return []agent.Instance{}, nil
+	}
+
+	var instances []agent.Instance
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[1] != "pi" {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || !isAlive(pid) {
+			continue
+		}
+
+		cwd := getCWD(pid)
+		instances = append(instances, agent.Instance{
+			Agent:   "pi",
+			PID:     pid,
+			CWD:     cwd,
+			Project: filepath.Base(cwd),
+			Status:  "unknown",
+		})
+	}
+
+	if instances == nil {
+		instances = []agent.Instance{}
+	}
+	return instances, nil
+}
+
+// PaneStatus determines pi's status from captured terminal pane lines.
+func (a *Adapter) PaneStatus(lines []string) string {
+	tail := lines
+	if len(tail) > 5 {
+		tail = tail[len(tail)-5:]
+	}
+
+	for _, line := range tail {
+		if strings.Contains(line, "escape interrupt") {
+			return "working"
+		}
+	}
+
+	// Pi's idle prompt shows the path and model info at the bottom
+	for _, line := range tail {
+		if strings.Contains(line, "gpt-") || strings.Contains(line, "claude-") || strings.Contains(line, "gemini") {
+			return "idle"
+		}
+	}
+
+	return "unknown"
+}
+
+func isAlive(pid int) bool {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+// getCWD resolves the current working directory for a process via lsof.
+func getCWD(pid int) string {
+	out, err := exec.Command("lsof", "-p", strconv.Itoa(pid), "-Fn", "-d", "cwd").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "n/") {
+			return line[1:]
+		}
+	}
+	return ""
 }
 
 // toolDetail extracts a human-readable detail string from tool arguments.

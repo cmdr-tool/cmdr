@@ -118,12 +118,13 @@ export function getTmuxSessions(): Promise<TmuxSession[]> {
 // Agent
 
 export interface AgentSession {
+	agent: string;
 	pid: number;
-	sessionId: string;
+	sessionId?: string;
 	cwd: string;
 	project: string;
-	startedAt: number;
-	uptime: string;
+	startedAt?: number;
+	uptime?: string;
 	status: 'working' | 'waiting' | 'idle' | 'unknown';
 	tmuxTarget?: string;
 }

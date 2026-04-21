@@ -61,14 +61,14 @@
 		return `${sessionName}:${winIdx}.${paneIdx}`;
 	}
 
-	// Map Claude sessions by their tmux pane target
-	let claudeByTarget = $derived(
+	// Map agent sessions by their tmux pane target
+	let agentByTarget = $derived(
 		new Map($agentSessionsStore.filter((c) => c.tmuxTarget).map((c) => [c.tmuxTarget, c]))
 	);
 
-	// Best Claude status per tmux session (for session-level badge)
+	// Best agent status per tmux session (for session-level badge)
 	const statusRank: Record<string, number> = { working: 3, waiting: 2, idle: 1, unknown: 0 };
-	let claudeBySession = $derived(() => {
+	let agentBySession = $derived(() => {
 		const map = new Map<string, AgentSession>();
 		for (const c of $agentSessionsStore) {
 			if (!c.tmuxTarget) continue;
@@ -81,9 +81,17 @@
 		return map;
 	});
 
-	let unmatchedClaude = $derived(
-		$agentSessionsStore.filter((c) => !c.tmuxTarget)
-	);
+	// Group unmatched instances by agent name
+	let unmatchedByAgent = $derived(() => {
+		const groups = new Map<string, AgentSession[]>();
+		for (const inst of $agentSessionsStore) {
+			if (inst.tmuxTarget) continue;
+			const list = groups.get(inst.agent) ?? [];
+			list.push(inst);
+			groups.set(inst.agent, list);
+		}
+		return groups;
+	});
 </script>
 
 <div class="bg-bourbon-900 rounded-2xl border border-bourbon-800 p-6">
@@ -104,7 +112,7 @@
 	{:else}
 		<div class="flex flex-col gap-1.5">
 			{#each $sessionsStore as session}
-				{@const claude = claudeBySession().get(session.name)}
+				{@const agentInst = agentBySession().get(session.name)}
 				{#if killedSession === session.name}
 					<div class="flex items-center justify-center border border-red-900/30 rounded-lg px-5 py-3.5 text-red-400
 						animate-fade-out">
@@ -124,19 +132,19 @@
 							{#if session.attached}
 								<span class="text-xs font-medium text-run-500 bg-run-700/30 px-2.5 py-0.5 rounded-full">attached</span>
 							{/if}
-							{#if claude}
+							{#if agentInst}
 								{@const statusStyle = {
 									working: 'text-green-400 bg-green-900/30',
 									waiting: 'text-run-400 bg-run-700/30 animate-pulse',
 									idle: 'text-bourbon-500 bg-bourbon-800/30',
 									unknown: 'text-cmd-400 bg-cmd-700/30 animate-pulse'
-								}[claude.status]}
+								}[agentInst.status]}
 								{@const statusLabel = {
-									working: 'claude · working',
-									waiting: 'claude · waiting',
-									idle: `claude · idle · ${claude.uptime}`,
-									unknown: `claude · ? · ${claude.uptime}`
-								}[claude.status]}
+									working: `${agentInst.agent} · working`,
+									waiting: `${agentInst.agent} · waiting`,
+									idle: `${agentInst.agent} · idle${agentInst.uptime ? ` · ${agentInst.uptime}` : ''}`,
+									unknown: `${agentInst.agent} · ?${agentInst.uptime ? ` · ${agentInst.uptime}` : ''}`
+								}[agentInst.status]}
 								<span class="flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full {statusStyle}">
 									<Sparkles size={10} />
 									{statusLabel}
@@ -146,7 +154,7 @@
 						<div class="flex flex-col gap-1 ml-4">
 							{#each session.windows as window}
 								{#each window.panes as pane}
-									{@const paneClause = claudeByTarget.get(paneTarget(session.name, window.index, pane.index))}
+									{@const paneClause = agentByTarget.get(paneTarget(session.name, window.index, pane.index))}
 									<div class="flex items-center gap-3 text-sm min-w-0">
 										<span class="font-mono text-xs shrink-0 {pane.active ? 'text-run-600' : 'text-bourbon-600'}">{pane.command}</span>
 										{#if paneClause}
@@ -214,10 +222,10 @@
 		</div>
 	{/if}
 
-	{#if unmatchedClaude.length > 0}
-		<h3 class="text-xs font-semibold text-bourbon-500 mt-6 mb-2">Additional Claude Instances</h3>
+	{#each [...unmatchedByAgent().entries()] as [agentName, instances]}
+		<h3 class="text-xs font-semibold text-bourbon-500 mt-6 mb-2">Additional {agentName} Instances</h3>
 		<div class="flex flex-col gap-1.5">
-			{#each unmatchedClaude as instance}
+			{#each instances as instance}
 				<div class="flex items-center gap-3 bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5 min-w-0">
 					<span class="text-cmd-400 shrink-0"><Sparkles size={14} /></span>
 					<span class="text-xs font-semibold text-bourbon-100 shrink-0">{instance.project}</span>
@@ -225,10 +233,12 @@
 						class="text-xs text-bourbon-600 font-mono truncate min-w-0"
 						style="direction: rtl; text-align: left;"
 					><bdi>{shortenPath(instance.cwd)}</bdi></span>
-					<span class="text-xs text-bourbon-600 shrink-0">&middot; {instance.uptime}</span>
+					{#if instance.uptime}
+						<span class="text-xs text-bourbon-600 shrink-0">&middot; {instance.uptime}</span>
+					{/if}
 					<span class="text-xs text-bourbon-600 shrink-0">&middot; pid {instance.pid}</span>
 				</div>
 			{/each}
 		</div>
-	{/if}
+	{/each}
 </div>

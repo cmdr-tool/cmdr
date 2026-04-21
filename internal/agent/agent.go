@@ -29,6 +29,18 @@ type Agent interface {
 
 	// ResumeCommand returns the shell command string to resume a prior session.
 	ResumeCommand(sessionID string) (string, error)
+
+	// ProcessName returns the binary name to match in terminal pane commands.
+	// Used by the poller to identify which panes are running this agent.
+	ProcessName() string
+
+	// DetectInstances returns currently running instances of this agent.
+	// Used by the poller for process-to-pane matching and the "unmatched instances" UI.
+	DetectInstances() ([]Instance, error)
+
+	// PaneStatus determines the agent's status from captured terminal pane output.
+	// Returns "working", "waiting", "idle", or "unknown".
+	PaneStatus(lines []string) string
 }
 
 // Capabilities describes optional features an agent supports.
@@ -66,6 +78,19 @@ type StreamResult struct {
 	Output    string
 	SessionID string    // agent-specific session ID for resume (empty if not supported)
 	Cmd       *exec.Cmd // for cancellation tracking
+}
+
+// Instance represents a running agent process detected by the adapter.
+type Instance struct {
+	Agent     string `json:"agent"`               // adapter name
+	PID       int    `json:"pid"`
+	SessionID string `json:"sessionId,omitempty"`
+	CWD       string `json:"cwd"`
+	Project   string `json:"project"`
+	StartedAt int64  `json:"startedAt,omitempty"`
+	Uptime    string `json:"uptime,omitempty"`
+	Status    string `json:"status"`              // "working", "waiting", "idle", "unknown"
+	TmuxTarget string `json:"tmuxTarget,omitempty"`
 }
 
 // InteractiveConfig configures an interactive terminal session launch.
@@ -108,4 +133,15 @@ func available() []string {
 		names = append(names, k)
 	}
 	return names
+}
+
+// All returns an instance of every registered adapter.
+func All() []Agent {
+	mu.RLock()
+	defer mu.RUnlock()
+	agents := make([]Agent, 0, len(adapters))
+	for _, factory := range adapters {
+		agents = append(agents, factory())
+	}
+	return agents
 }
