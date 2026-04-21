@@ -1,7 +1,7 @@
 package daemon
 
 import (
-	"bufio"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,120 +14,62 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cmdr-tool/cmdr/internal/agent"
 )
 
-// --- Headless task runner (claude -p with streaming) ---
+// --- Headless task runner (agent-agnostic with streaming) ---
 
-// headlessProcesses tracks running headless claude processes by task ID for cancellation.
+// headlessProcesses tracks running agent processes by task ID for cancellation.
 var headlessProcesses sync.Map // map[int]*exec.Cmd
 
-// HeadlessConfig describes how to run a headless claude -p task.
+// HeadlessConfig describes how to run a headless agent task.
 type HeadlessConfig struct {
 	TaskID       int
 	Prompt       string
 	WorkDir      string
-	SystemPrompt string // optional --append-system-prompt
+	SystemPrompt string
 }
 
-// runHeadless runs claude -p with streaming, publishing progress via SSE.
-// Used by both ask tasks and headless directive intents (e.g. analysis).
+// runHeadless runs a headless agent task with streaming (if supported),
+// publishing progress via SSE. Falls back to simple execution if the
+// agent doesn't support streaming.
 func runHeadless(db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
-	args := []string{"-p", cfg.Prompt, "--output-format", "stream-json", "--verbose"}
-	if cfg.SystemPrompt != "" {
-		args = append(args, "--append-system-prompt", cfg.SystemPrompt)
+	ctx := context.Background()
+
+	if agt.Capabilities().Streaming {
+		runHeadlessStreaming(ctx, db, bus, cfg)
+	} else {
+		runHeadlessSimple(ctx, db, bus, cfg)
 	}
+}
 
-	cmd := exec.Command("claude", args...)
-	cmd.Dir = cfg.WorkDir
+// runHeadlessStreaming runs with incremental event streaming.
+func runHeadlessStreaming(ctx context.Context, db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
+	result, err := agt.RunStreaming(ctx, agent.StreamingConfig{
+		Prompt:       cfg.Prompt,
+		WorkDir:      cfg.WorkDir,
+		SystemPrompt: cfg.SystemPrompt,
+	}, func(evt agent.StreamEvent) {
+		bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+			"id": cfg.TaskID, "type": evt.Type, "text": evt.Text, "tool": evt.Tool, "detail": evt.Detail,
+		}})
+	})
 
-	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		failHeadless(db, bus, cfg.TaskID, err)
 		return
 	}
-	cmd.Stderr = os.Stderr
 
-	if err := cmd.Start(); err != nil {
-		failHeadless(db, bus, cfg.TaskID, err)
-		return
-	}
-
-	headlessProcesses.Store(cfg.TaskID, cmd)
-	defer headlessProcesses.Delete(cfg.TaskID)
-
-	log.Printf("cmdr: headless task %d started (pid %d)", cfg.TaskID, cmd.Process.Pid)
-
-	var finalResult, sessionID string
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 512*1024), 512*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var evt map[string]any
-		if err := json.Unmarshal([]byte(line), &evt); err != nil {
-			continue
-		}
-
-		evtType, _ := evt["type"].(string)
-
-		switch evtType {
-		case "assistant":
-			msg, _ := evt["message"].(map[string]any)
-			if msg == nil {
-				continue
-			}
-			content, _ := msg["content"].([]any)
-			for _, block := range content {
-				b, ok := block.(map[string]any)
-				if !ok {
-					continue
-				}
-				switch b["type"] {
-				case "text":
-					if text, ok := b["text"].(string); ok && text != "" {
-						bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
-							"id": cfg.TaskID, "type": "text", "text": text,
-						}})
-					}
-				case "tool_use":
-					name, _ := b["name"].(string)
-					if name != "" {
-						detail := toolDetail(name, b["input"])
-						bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
-							"id": cfg.TaskID, "type": "tool", "tool": name, "detail": detail,
-						}})
-					}
-				}
-			}
-
-		case "result":
-			if r, ok := evt["result"].(string); ok {
-				finalResult = r
-			}
-			if sid, ok := evt["session_id"].(string); ok {
-				sessionID = sid
-			}
-		}
-	}
-
-	if err := cmd.Wait(); err != nil && finalResult == "" {
-		failHeadless(db, bus, cfg.TaskID, fmt.Errorf("claude exited: %w", err))
-		return
-	}
-
-	if finalResult == "" {
-		failHeadless(db, bus, cfg.TaskID, fmt.Errorf("no result from claude"))
-		return
+	// Store process handle for cancellation
+	if result.Cmd != nil {
+		headlessProcesses.Store(cfg.TaskID, result.Cmd)
+		defer headlessProcesses.Delete(cfg.TaskID)
 	}
 
 	now := time.Now().Format(time.RFC3339)
-	title := extractTitle(finalResult)
+	title := extractTitle(result.Output)
 	db.Exec(`UPDATE claude_tasks SET status='resolved', result=?, title=?, claude_session_id=?, completed_at=? WHERE id=?`,
-		finalResult, title, sessionID, now, cfg.TaskID)
+		result.Output, title, result.SessionID, now, cfg.TaskID)
 
 	bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
 		"id": cfg.TaskID, "type": "done",
@@ -136,7 +78,36 @@ func runHeadless(db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
 		"id": cfg.TaskID, "status": "resolved", "title": title,
 	}})
 
-	enhanceTitle(db, bus, cfg.TaskID, truncate(finalResult, 1000))
+	enhanceTitle(db, bus, cfg.TaskID, truncate(result.Output, 1000))
+
+	log.Printf("cmdr: headless task %d resolved (result ready)", cfg.TaskID)
+}
+
+// runHeadlessSimple runs without streaming — just final result.
+func runHeadlessSimple(ctx context.Context, db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
+	out, err := agt.RunSimple(ctx, agent.SimpleConfig{
+		Prompt:  cfg.Prompt,
+		WorkDir: cfg.WorkDir,
+	})
+
+	if err != nil {
+		failHeadless(db, bus, cfg.TaskID, err)
+		return
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	title := extractTitle(out)
+	db.Exec(`UPDATE claude_tasks SET status='resolved', result=?, title=?, completed_at=? WHERE id=?`,
+		out, title, now, cfg.TaskID)
+
+	bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+		"id": cfg.TaskID, "type": "done",
+	}})
+	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+		"id": cfg.TaskID, "status": "resolved", "title": title,
+	}})
+
+	enhanceTitle(db, bus, cfg.TaskID, truncate(out, 1000))
 
 	log.Printf("cmdr: headless task %d resolved (result ready)", cfg.TaskID)
 }
@@ -154,7 +125,7 @@ func failHeadless(db *sql.DB, bus *EventBus, taskID int, err error) {
 	log.Printf("cmdr: headless task %d failed: %v", taskID, err)
 }
 
-// cancelHeadlessProcess kills the running claude process for a headless task.
+// cancelHeadlessProcess kills the running agent process for a headless task.
 func cancelHeadlessProcess(taskID int) bool {
 	v, ok := headlessProcesses.LoadAndDelete(taskID)
 	if !ok {
@@ -286,7 +257,11 @@ func handleContinueSession(db *sql.DB) http.HandlerFunc {
 			resumeDir = filepath.Join(home, ".cmdr")
 		}
 
-		shellCmd := fmt.Sprintf("exec claude --resume '%s'", sessionID)
+		shellCmd, err := agt.ResumeCommand(sessionID)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
 		windowName := fmt.Sprintf("ask-%d", body.ID)
 
 		// Directives resume in the repo session; asks use a dedicated session
@@ -335,31 +310,6 @@ func createHeadlessWindow(windowName, dir, shellCmd string) (string, error) {
 }
 
 // --- Helpers ---
-
-func toolDetail(name string, input any) string {
-	m, ok := input.(map[string]any)
-	if !ok {
-		return ""
-	}
-	switch name {
-	case "Read":
-		if p, ok := m["file_path"].(string); ok {
-			if i := strings.Index(p, "ThoughtQuarry/"); i >= 0 {
-				return p[i+len("ThoughtQuarry/"):]
-			}
-			return p
-		}
-	case "Glob":
-		if p, ok := m["pattern"].(string); ok {
-			return p
-		}
-	case "Grep":
-		if p, ok := m["pattern"].(string); ok {
-			return p
-		}
-	}
-	return ""
-}
 
 func askTitle(question string) string {
 	t := strings.TrimSpace(question)

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/cmdr-tool/cmdr/internal/agent"
+	_ "github.com/cmdr-tool/cmdr/internal/agent/claude"
 	"github.com/cmdr-tool/cmdr/internal/db"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
 	"github.com/cmdr-tool/cmdr/internal/summarizer"
@@ -26,11 +28,12 @@ import (
 	_ "github.com/cmdr-tool/cmdr/internal/terminal/adapters/tmux"
 )
 
-// term, emu, and sum are the active adapters, resolved once at daemon startup.
+// term, emu, sum, and agt are the active adapters, resolved once at daemon startup.
 var (
 	term terminal.Multiplexer
 	emu  terminal.Emulator
 	sum  summarizer.Summarizer
+	agt  agent.Agent
 	caps Capabilities
 )
 
@@ -120,6 +123,14 @@ func Run() error {
 	if err != nil {
 		log.Printf("cmdr: summarizer %q unavailable, titles will not be enhanced: %v", sumName, err)
 	}
+
+	// Resolve default agent adapter (claude is the baseline)
+	agt, err = agent.New("claude")
+	if err != nil {
+		return fmt.Errorf("agent adapter: %w", err)
+	}
+	agentCaps := agt.Capabilities()
+	log.Printf("cmdr: agent %q (streaming=%v worktrees=%v)", agt.Name(), agentCaps.Streaming, agentCaps.Worktrees)
 
 	// Detect available capabilities
 	caps = detectCapabilities()
@@ -371,6 +382,10 @@ func handleStatus(s *scheduler.Scheduler) http.HandlerFunc {
 			"tasks":        len(s.Tasks()),
 			"user":         currentUserName(),
 			"capabilities": caps,
+			"agent": map[string]any{
+				"name":         agt.Name(),
+				"capabilities": agt.Capabilities(),
+			},
 		})
 	}
 }

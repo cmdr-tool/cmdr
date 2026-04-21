@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cmdr-tool/cmdr/internal/agent"
 	"github.com/cmdr-tool/cmdr/internal/prompts"
 )
 
@@ -431,18 +432,9 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 	promptFile := filepath.Join(promptDir, fmt.Sprintf("task-%d-prompt.md", cfg.TaskID))
 	os.WriteFile(promptFile, []byte(prompt), 0o644)
 
-	// Build claude command — omit -w when no worktree prefix (e.g. delegations)
-	var baseCmd string
-	if worktreePrefix != "" {
-		baseCmd = fmt.Sprintf("claude -w %s --name 'cmdr-task-%d'", worktreeName, cfg.TaskID)
-	} else {
-		baseCmd = fmt.Sprintf("claude --name 'cmdr-task-%d'", cfg.TaskID)
-	}
-	var cmd string
+	// Resolve system prompt from intent
+	var systemPrompt string
 	if cfg.Intent != "" {
-		// For design-phase intents (e.g. new-feature), use the design prompt
-		// for the initial dispatch; the intent prompt is used for implementation
-		var systemPrompt string
 		if dp, err := prompts.GetDesignPrompt(cfg.Intent); err == nil && dp != "" {
 			systemPrompt = dp
 		}
@@ -451,21 +443,25 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 				systemPrompt = ip
 			}
 		}
-
-		if systemPrompt != "" {
-			escapedIntent := strings.ReplaceAll(systemPrompt, "'", "'\\''")
-			cmd = fmt.Sprintf("exec %s --append-system-prompt '%s' < '%s'", baseCmd, escapedIntent, promptFile)
-		} else {
-			cmd = fmt.Sprintf("exec %s < '%s'", baseCmd, promptFile)
-		}
 	} else {
-		// No explicit intent — apply generic guidance as baseline
 		if gp, err := prompts.GetIntentPrompt("generic"); err == nil {
-			escapedGeneric := strings.ReplaceAll(gp, "'", "'\\''")
-			cmd = fmt.Sprintf("exec %s --append-system-prompt '%s' < '%s'", baseCmd, escapedGeneric, promptFile)
-		} else {
-			cmd = fmt.Sprintf("exec %s < '%s'", baseCmd, promptFile)
+			systemPrompt = gp
 		}
+	}
+
+	// Build agent command via adapter — handles binary, flags, worktree support
+	wt := worktreeName
+	if !agt.Capabilities().Worktrees {
+		wt = ""
+	}
+	cmd, err := agt.InteractiveCommand(agent.InteractiveConfig{
+		WorktreeName: wt,
+		TaskName:     fmt.Sprintf("cmdr-task-%d", cfg.TaskID),
+		SystemPrompt: systemPrompt,
+		PromptFile:   promptFile,
+	})
+	if err != nil {
+		return TaskLaunchResult{}, fmt.Errorf("agent command: %w", err)
 	}
 
 	// Resolve session and create window

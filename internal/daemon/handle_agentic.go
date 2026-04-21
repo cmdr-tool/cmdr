@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log"
@@ -9,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cmdr-tool/cmdr/internal/agent"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
-	"github.com/cmdr-tool/cmdr/internal/tasks"
 )
 
 // --- Agentic task CRUD + execution ---
@@ -255,7 +256,7 @@ func agenticTaskName(name string) string {
 	return "agentic:" + name
 }
 
-// runAgenticTask executes a claude -p call and persists the result.
+// runAgenticTask executes a headless agent call and persists the result.
 func runAgenticTask(db *sql.DB, bus *EventBus, taskID int, name, prompt, workDir string) {
 	if workDir == "" {
 		workDir, _ = os.UserHomeDir()
@@ -267,7 +268,10 @@ func runAgenticTask(db *sql.DB, bus *EventBus, taskID int, name, prompt, workDir
 		"id": taskID, "status": "running",
 	}})
 
-	out, err := tasks.Claude(prompt, workDir)
+	out, err := agt.RunSimple(context.Background(), agent.SimpleConfig{
+		Prompt:  prompt,
+		WorkDir: workDir,
+	})
 	now := time.Now().Format(time.RFC3339)
 
 	status := "success"
