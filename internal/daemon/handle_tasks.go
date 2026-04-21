@@ -389,6 +389,45 @@ func handleResolveTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	}
 }
 
+func handleRestoreTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			ID int `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == 0 {
+			http.Error(w, `{"error":"missing id"}`, http.StatusBadRequest)
+			return
+		}
+
+		var status string
+		if err := db.QueryRow(`SELECT status FROM agent_tasks WHERE id = ?`, body.ID).Scan(&status); err != nil {
+			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
+			return
+		}
+
+		if status != "failed" && status != "completed" {
+			http.Error(w, `{"error":"can only restore failed or completed tasks"}`, http.StatusConflict)
+			return
+		}
+
+		db.Exec(`UPDATE agent_tasks SET status='draft', intent='', worktree='', started_at=NULL, completed_at=NULL, result='', error_msg='', pr_url='' WHERE id=?`, body.ID)
+
+		bus.Publish(Event{Type: "agent:task", Data: map[string]any{
+			"id": body.ID, "status": "draft",
+		}})
+
+		log.Printf("cmdr: task %d restored to draft", body.ID)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "draft"})
+	}
+}
+
 // --- Task launch (config-driven) ---
 
 // TaskLaunchConfig describes how to launch a Claude session.

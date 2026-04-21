@@ -627,6 +627,14 @@ export function cancelTask(id: number): Promise<{ status: string }> {
 	});
 }
 
+export function restoreTask(id: number): Promise<{ status: string }> {
+	return request('/agent/tasks/restore', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ id })
+	});
+}
+
 export interface DirectiveIntent {
 	id: string;
 	name: string;

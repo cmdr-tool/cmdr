@@ -3,6 +3,7 @@ import {
 	getAgentTasks,
 	dismissAgentTask,
 	dismissAllAgentTasks,
+	restoreTask,
 	createDirective,
 	isTerminalTask,
 	type AgentTask
@@ -44,6 +45,10 @@ export async function dismiss(id: number) {
 export async function clearAllCompleted() {
 	tasks.update((t) => t.filter((task) => task.type === 'delegation' || !isTerminalTask(task)));
 	await dismissAllAgentTasks();
+}
+
+export async function restore(id: number) {
+	await restoreTask(id);
 }
 
 export async function create(repoPath: string, content: string = '') {

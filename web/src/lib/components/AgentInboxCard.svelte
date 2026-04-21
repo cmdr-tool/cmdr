@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { CircleCheck, CircleX, GitPullRequestArrow, GitMerge, X, Pencil, Plus, CircleQuestionMark, Users, Square, ScanSearch, FileSearch, FileCheck } from 'lucide-svelte';
-	import { cancelTask, isTerminalTask, type AgentTask } from '$lib/api';
+	import { CircleCheck, CircleX, GitPullRequestArrow, GitMerge, X, Pencil, Plus, CircleQuestionMark, Users, Square, ScanSearch, FileSearch, FileCheck, RotateCcw } from 'lucide-svelte';
+	import { cancelTask, restoreTask, isTerminalTask, type AgentTask } from '$lib/api';
 	import {
 		loaded as loadedStore,
 		visibleTasks as visibleTasksStore,
 		activeCount as activeCountStore,
 		dismissableCount as dismissableCountStore,
 		dismiss as dismissTask,
+		restore as restoreTaskToDraft,
 		clearAllCompleted
 	} from '$lib/taskStore';
 	import { delegationSummaries } from '$lib/delegationStore';
@@ -190,6 +191,18 @@
 						</div>
 					{:else if task.status !== 'running' && task.status !== 'pending'}
 						<div class="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-3 pl-20 invisible group-hover:visible bg-linear-to-r from-transparent to-30% to-bourbon-800 rounded-r-lg">
+							{#if task.status === 'failed' && task.type === 'directive'}
+								<span
+									role="button"
+									tabindex="0"
+									onclick={(e) => { e.stopPropagation(); restoreTaskToDraft(task.id); }}
+									onkeydown={(e) => { if (e.key === 'Enter') restoreTaskToDraft(task.id); }}
+									class="btn-chiclet-sm"
+									title="Restore to draft"
+								>
+									<RotateCcw size={12} />
+								</span>
+							{/if}
 							<span
 								role="button"
 								tabindex="0"
