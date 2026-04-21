@@ -415,13 +415,13 @@ func handleRestoreTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		db.Exec(`UPDATE agent_tasks SET status='draft', intent='', worktree='', started_at=NULL, completed_at=NULL, result='', error_msg='', pr_url='' WHERE id=?`, body.ID)
+		db.Exec(`UPDATE agent_tasks SET status='draft', worktree='', started_at=NULL, completed_at=NULL, result='', error_msg='', pr_url='' WHERE id=?`, body.ID)
 
 		bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 			"id": body.ID, "status": "draft",
 		}})
 
-		log.Printf("cmdr: task %d restored to draft", body.ID)
+		log.Printf("cmdr: task %d restored to draft (intent preserved)", body.ID)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "draft"})
