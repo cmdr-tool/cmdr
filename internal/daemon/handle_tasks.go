@@ -24,7 +24,7 @@ import (
 
 func handleListAgentTasks(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		query := `SELECT id, type, status, repo_path, commit_sha, COALESCE(title, ''), COALESCE(pr_url, ''), error_msg, created_at, started_at, completed_at, COALESCE(prompt, ''), COALESCE(intent, ''), parent_id
+		query := `SELECT id, type, status, repo_path, commit_sha, COALESCE(title, ''), COALESCE(pr_url, ''), error_msg, created_at, started_at, completed_at, COALESCE(prompt, ''), COALESCE(intent, ''), parent_id, COALESCE(output_format, 'markdown')
 			FROM agent_tasks ORDER BY created_at DESC LIMIT 50`
 		rows, err := db.Query(query)
 		if err != nil {
@@ -47,15 +47,16 @@ func handleListAgentTasks(db *sql.DB) http.HandlerFunc {
 			CompletedAt *string `json:"completedAt"`
 			Intent      string  `json:"intent,omitempty"`
 			ParentID    *int    `json:"parentId,omitempty"`
-			Headless    bool    `json:"headless,omitempty"`
-			prompt      string
+			Headless     bool    `json:"headless,omitempty"`
+			OutputFormat string  `json:"outputFormat,omitempty"`
+			prompt       string
 		}
 
 		var taskList []task
 		for rows.Next() {
 			var t task
 			if err := rows.Scan(&t.ID, &t.Type, &t.Status, &t.RepoPath, &t.CommitSHA, &t.Title, &t.PRUrl,
-				&t.ErrorMsg, &t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.prompt, &t.Intent, &t.ParentID); err != nil {
+				&t.ErrorMsg, &t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.prompt, &t.Intent, &t.ParentID, &t.OutputFormat); err != nil {
 				continue
 			}
 			t.Headless = t.Type == "ask" || t.Type == "review" || prompts.IntentIsHeadless(t.Intent)

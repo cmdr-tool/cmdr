@@ -28,24 +28,28 @@ type HeadlessConfig struct {
 	Prompt       string
 	WorkDir      string
 	SystemPrompt string
+	OutputFormat string // "markdown" (default), "html", or "text"
 }
 
-// runHeadless runs a headless agent task with streaming (if supported),
-// publishing progress via SSE. Falls back to simple execution if the
-// agent doesn't support streaming.
+// runHeadless runs a headless task using the default agent.
 func runHeadless(db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
+	runHeadlessWithAgent(agt, db, bus, cfg)
+}
+
+// runHeadlessWithAgent runs a headless task using a specific agent.
+func runHeadlessWithAgent(a agent.Agent, db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
 	ctx := context.Background()
 
-	if agt.Capabilities().Streaming {
-		runHeadlessStreaming(ctx, db, bus, cfg)
+	if a.Capabilities().Streaming {
+		runHeadlessStreaming(a, ctx, db, bus, cfg)
 	} else {
-		runHeadlessSimple(ctx, db, bus, cfg)
+		runHeadlessSimple(a, ctx, db, bus, cfg)
 	}
 }
 
 // runHeadlessStreaming runs with incremental event streaming.
-func runHeadlessStreaming(ctx context.Context, db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
-	result, err := agt.RunStreaming(ctx, agent.StreamingConfig{
+func runHeadlessStreaming(a agent.Agent, ctx context.Context, db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
+	result, err := a.RunStreaming(ctx, agent.StreamingConfig{
 		Prompt:       cfg.Prompt,
 		WorkDir:      cfg.WorkDir,
 		SystemPrompt: cfg.SystemPrompt,
@@ -68,8 +72,12 @@ func runHeadlessStreaming(ctx context.Context, db *sql.DB, bus *EventBus, cfg He
 
 	now := time.Now().Format(time.RFC3339)
 	title := extractTitle(result.Output)
-	db.Exec(`UPDATE agent_tasks SET status='resolved', result=?, title=?, agent_session_id=?, completed_at=? WHERE id=?`,
-		result.Output, title, result.SessionID, now, cfg.TaskID)
+	outputFmt := cfg.OutputFormat
+	if outputFmt == "" {
+		outputFmt = "markdown"
+	}
+	db.Exec(`UPDATE agent_tasks SET status='resolved', result=?, title=?, agent_session_id=?, output_format=?, completed_at=? WHERE id=?`,
+		result.Output, title, result.SessionID, outputFmt, now, cfg.TaskID)
 
 	bus.Publish(Event{Type: "agent:stream", Data: map[string]any{
 		"id": cfg.TaskID, "type": "done",
@@ -84,8 +92,8 @@ func runHeadlessStreaming(ctx context.Context, db *sql.DB, bus *EventBus, cfg He
 }
 
 // runHeadlessSimple runs without streaming — just final result.
-func runHeadlessSimple(ctx context.Context, db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
-	out, err := agt.RunSimple(ctx, agent.SimpleConfig{
+func runHeadlessSimple(a agent.Agent, ctx context.Context, db *sql.DB, bus *EventBus, cfg HeadlessConfig) {
+	out, err := a.RunSimple(ctx, agent.SimpleConfig{
 		Prompt:  cfg.Prompt,
 		WorkDir: cfg.WorkDir,
 	})
@@ -97,8 +105,12 @@ func runHeadlessSimple(ctx context.Context, db *sql.DB, bus *EventBus, cfg Headl
 
 	now := time.Now().Format(time.RFC3339)
 	title := extractTitle(out)
-	db.Exec(`UPDATE agent_tasks SET status='resolved', result=?, title=?, completed_at=? WHERE id=?`,
-		out, title, now, cfg.TaskID)
+	outputFmt := cfg.OutputFormat
+	if outputFmt == "" {
+		outputFmt = "markdown"
+	}
+	db.Exec(`UPDATE agent_tasks SET status='resolved', result=?, title=?, output_format=?, completed_at=? WHERE id=?`,
+		out, title, outputFmt, now, cfg.TaskID)
 
 	bus.Publish(Event{Type: "agent:stream", Data: map[string]any{
 		"id": cfg.TaskID, "type": "done",

@@ -127,6 +127,7 @@ func ensureSchema(d *sql.DB) error {
 			pr_url            TEXT NOT NULL DEFAULT '',
 			intent            TEXT NOT NULL DEFAULT '',
 			agent_session_id  TEXT NOT NULL DEFAULT '',
+			output_format     TEXT NOT NULL DEFAULT 'markdown',
 			refactored        INTEGER NOT NULL DEFAULT 0,
 			created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
 			started_at        DATETIME,

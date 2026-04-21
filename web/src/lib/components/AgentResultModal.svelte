@@ -13,6 +13,7 @@
 		titleClass = 'text-run-500',
 		icon: Icon = CircleQuestionMark,
 		emptyHint = 'thinking',
+		outputFormat = 'markdown',
 		oncontinue,
 	}: {
 		taskId: number;
@@ -21,6 +22,7 @@
 		titleClass?: string;
 		icon?: typeof CircleQuestionMark;
 		emptyHint?: string;
+		outputFormat?: string;
 		oncontinue?: (() => Promise<void>) | null;
 	} = $props();
 
@@ -302,9 +304,20 @@
 			{#if status === 'failed'}
 				<div class="text-red-400 text-xs font-mono">{errorMsg}</div>
 			{:else if streamedText}
-				<div class={proseClasses}>
-					{@html renderedHtml}
-				</div>
+				{#if outputFormat === 'html'}
+					<iframe
+						srcdoc={streamedText}
+						class="w-full h-full border-0 rounded-lg bg-white"
+						sandbox="allow-same-origin"
+						title="Agent output"
+					></iframe>
+				{:else if outputFormat === 'text'}
+					<pre class="text-sm whitespace-pre-wrap wrap-break-word text-bourbon-300 font-mono">{streamedText}</pre>
+				{:else}
+					<div class={proseClasses}>
+						{@html renderedHtml}
+					</div>
+				{/if}
 			{:else}
 				<!-- Empty state while waiting for first text -->
 				<div class="flex flex-col items-center justify-center py-12 gap-3">

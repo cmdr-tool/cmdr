@@ -45,7 +45,8 @@ The daemon runs as a launchd user agent whose label is chosen at setup time (def
 - **`cmd/cmdr/`** — CLI entry point using Cobra. Subcommands: `start`, `stop`, `status`, `run`, `list`.
 - **`internal/daemon/`** — Daemon lifecycle with dual listeners: Unix socket for CLI IPC and TCP for the web UI. Environment-aware paths/ports via `CMDR_ENV`. API routes are registered with and without `/api` prefix.
 - **`internal/scheduler/`** — Wraps `robfig/cron/v3` with seconds precision. Tasks are registered in `New()` with cron expressions.
-- **`internal/tasks/`** — Individual task implementations. `Claude()` helper shells out to `claude -p` CLI. Tasks that need dependencies (e.g. `*sql.DB`) return closures. Add new tasks here and register them in the scheduler.
+- **`internal/agent/`** — Pluggable agent adapter system. `agent.go` defines the `Agent` interface (RunSimple, RunStreaming, InteractiveCommand, ResumeCommand), `Capabilities` struct, and adapter registry. Same Register/New pattern as terminal and summarizer. Claude is the default adapter (`internal/agent/claude/`).
+- **`internal/tasks/`** — Individual task implementations. Tasks that need dependencies (e.g. `*sql.DB`) return closures. Add new tasks here and register them in the scheduler.
 - **`internal/terminal/`** — Pluggable terminal adapter system. `terminal.go` defines the `Multiplexer` interface (10 methods) and `Emulator` interface, plus shared helpers (`SessionName`, `FindWindowTarget`, editor utilities). Adapters live in `adapters/<name>/` and register via `init()`. Selected at startup by `CMDR_MULTIPLEXER` env var (default `tmux`).
 - **`internal/terminal/adapters/tmux/`** — Tmux adapter. Session listing via `list-panes -a`, worktree-aware naming, editor pane reuse by process detection.
 - **`internal/terminal/adapters/cmux/`** — [cmux](https://github.com/manaflow-ai/cmux) adapter. Workspace/surface management via cmux CLI subprocess. In-memory ref map rebuilt on each ListSessions. Known limitations: no PID/process detection, editor always creates fresh surfaces.
@@ -53,7 +54,7 @@ The daemon runs as a launchd user agent whose label is chosen at setup time (def
 - **`internal/summarizer/apple/`** — Apple Intelligence adapter. Spawns `cmdr-summarize` Swift binary (in `tools/cmdr-summarize/`), reads JSON result. Requires macOS 15.1+, Apple Silicon.
 - **`internal/summarizer/ollama/`** — Ollama adapter. Wraps `internal/ollama/` for HTTP-based summarization.
 - **`internal/ollama/`** — Thin Ollama API client. Uses tool calling for structured output. Configured via `CMDR_OLLAMA_URL` (default `http://localhost:11434`) and `CMDR_OLLAMA_MODEL` (default `gemma4:e4b`).
-- **`internal/db/`** — SQLite database (`~/.cmdr/cmdr.db`) using `modernc.org/sqlite` (pure Go). Schema migrations run on startup. Tables: `repos` (local git repos by path), `commits` (tracked commits with seen state), `task_config` (schedule/enabled overrides), `claude_tasks` (task lifecycle with `terminal_target` for adapter-native refs).
+- **`internal/db/`** — SQLite database (`~/.cmdr/cmdr.db`) using `modernc.org/sqlite` (pure Go). Schema migrations run on startup. Tables: `repos` (local git repos by path), `commits` (tracked commits with seen state), `agent_tasks` (task lifecycle with `terminal_target` for adapter-native refs, `agent` column tracking which agent handled the task), `agentic_tasks` (user-configurable scheduled tasks).
 - **`internal/gitlocal/`** — Local git repo integration. Discovers repos under `CMDR_CODE_DIR` (default `~/Code`), fetches via `git fetch`, reads commits via `git log`, diffs via `difft` (falls back to `git show`). All operations use local filesystem, no GitHub API.
 - **`tools/cmdr-summarize/`** — Swift binary using `FoundationModels` for on-device title generation. Built by `make install`, installed alongside `cmdr` in `~/.local/bin/`.
 
@@ -77,6 +78,23 @@ Key rules:
 
 1. Create a function in `internal/tasks/` that returns `error`
 2. Register it in `internal/scheduler/New()` with a name, description, cron schedule, and the function
+
+### Agent Overrides
+
+Override files in `~/.cmdr/agents/<task-type>.md` route specific headless task types to alternative agents with custom prompts. Loaded once at daemon startup.
+
+Supported task types: `review`, `analysis`
+
+```markdown
+---
+agent: pi              # registered adapter name
+output: html           # "markdown"/"md" (default), "html", or "text"/"plain"
+---
+
+Custom system prompt for this task type...
+```
+
+The body replaces the default system prompt. The existing prompt template (e.g. `review.md` with diff data) is still used as the main prompt. If no override file exists for a task type, the default agent (Claude) is used with the built-in prompt.
 
 ### API Endpoints
 

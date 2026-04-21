@@ -242,17 +242,20 @@ func handleSubmitReview(db *sql.DB, bus *EventBus) http.HandlerFunc {
 }
 
 func runClaudeReview(db *sql.DB, bus *EventBus, taskID int, repoPath, sha, prompt string) {
-	db.Exec(`UPDATE agent_tasks SET status='running', started_at=? WHERE id=?`,
-		time.Now().Format(time.RFC3339), taskID)
+	// Resolve agent override for review tasks
+	taskAgent, systemPrompt, outputFmt := resolveAgent("review")
+	db.Exec(`UPDATE agent_tasks SET status='running', agent=?, started_at=? WHERE id=?`,
+		taskAgent.Name(), time.Now().Format(time.RFC3339), taskID)
 	bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 		"id": taskID, "status": "running", "repoPath": repoPath, "commitSha": sha,
 	}})
 
-	// Use the headless runner for streaming, process tracking, and cancellation
-	runHeadless(db, bus, HeadlessConfig{
-		TaskID:  taskID,
-		Prompt:  prompt,
-		WorkDir: repoPath,
+	runHeadlessWithAgent(taskAgent, db, bus, HeadlessConfig{
+		TaskID:       taskID,
+		Prompt:       prompt,
+		WorkDir:      repoPath,
+		SystemPrompt: systemPrompt,
+		OutputFormat: outputFmt,
 	})
 
 	// Clean up review comments after completion (only if task succeeded)

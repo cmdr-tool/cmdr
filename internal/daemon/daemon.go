@@ -132,6 +132,9 @@ func Run() error {
 	agentCaps := agt.Capabilities()
 	log.Printf("cmdr: agent %q (streaming=%v worktrees=%v)", agt.Name(), agentCaps.Streaming, agentCaps.Worktrees)
 
+	// Load agent override files
+	loadOverrides()
+
 	// Detect available capabilities
 	caps = detectCapabilities()
 	log.Printf("cmdr: capabilities: askSkill=%v", caps.AskSkill)

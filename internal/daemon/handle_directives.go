@@ -125,22 +125,28 @@ func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		// Headless intents: run via claude -p (no tmux window)
+		// Headless intents: run via agent (no tmux window)
 		if prompts.IntentIsHeadless(body.Intent) {
+			// Resolve agent override for this intent type
+			taskAgent, overridePrompt, outputFmt := resolveAgent(body.Intent)
+			systemPrompt := overridePrompt
+			if systemPrompt == "" {
+				systemPrompt, _ = prompts.GetIntentPrompt(body.Intent)
+			}
+
 			now := time.Now().Format(time.RFC3339)
-			db.Exec(`UPDATE agent_tasks SET status='running', intent=?, started_at=? WHERE id=?`,
-				body.Intent, now, body.ID)
+			db.Exec(`UPDATE agent_tasks SET status='running', intent=?, agent=?, started_at=? WHERE id=?`,
+				body.Intent, taskAgent.Name(), now, body.ID)
 			bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 				"id": body.ID, "status": "running", "intent": body.Intent, "repoPath": repoPath,
 			}})
 
-			systemPrompt, _ := prompts.GetIntentPrompt(body.Intent)
-
-			go runHeadless(db, bus, HeadlessConfig{
+			go runHeadlessWithAgent(taskAgent, db, bus, HeadlessConfig{
 				TaskID:       body.ID,
 				Prompt:       prompt,
 				WorkDir:      repoPath,
 				SystemPrompt: systemPrompt,
+				OutputFormat: outputFmt,
 			})
 
 			enhanceTitle(db, bus, body.ID, truncate(prompt, 500))

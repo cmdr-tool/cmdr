@@ -188,6 +188,7 @@
 		titleClass="text-run-500"
 		icon={resultTask.intent === 'analysis' ? ScanSearch : undefined}
 		emptyHint={resultTask.intent === 'analysis' ? 'analyzing' : 'thinking'}
+		outputFormat={resultTask.outputFormat ?? 'markdown'}
 		onclose={() => { resultTask = null; }}
 	/>
 {/if}

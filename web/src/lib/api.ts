@@ -479,6 +479,7 @@ export interface AgentTask {
 	completedAt: string | null;
 	parentId?: number;
 	headless?: boolean;
+	outputFormat?: string;
 }
 
 // A task is "terminal" when its lifecycle is fully done and there's nothing
