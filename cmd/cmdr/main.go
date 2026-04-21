@@ -294,10 +294,17 @@ You are part of a squad — a group of repos managed by cmdr that can collaborat
 
 ## When to use
 
-When your current task requires changes in another repository that is part of your squad. For example:
+ONLY when your current task genuinely requires changes in another repository that is part of your squad. For example:
 - You need a new API endpoint in a sibling service
 - You need a shared type exported from a common library
 - You need a config change in an infrastructure repo
+
+## IMPORTANT: Do NOT use for testing
+
+- Never call this command with test or placeholder data
+- Never call this to "try it out" or verify it works
+- Every call creates a real task and launches a real session in the target repo
+- Only call when you have a concrete, well-specified need for cross-repo work
 
 ## How to enlist
 
@@ -309,7 +316,9 @@ Run the cmdr CLI to dispatch work to a squad member:
   --details "Full specification — be precise about interfaces, types, behavior"
 `+"```"+`
 
-Cmdr will validate the squad, create a branch, and launch a Claude session in the target repo.
+The --summary should be a concise one-liner. The --details should be a thorough specification with enough context for someone unfamiliar with your repo to implement the change — include expected interfaces, types, endpoints, and behavior.
+
+Cmdr will validate the squad, create a branch, and launch a session in the target repo.
 
 After dispatching, continue working on parts of your task that don't depend on the enlisted work. You will be automatically notified when the enlistment is complete.
 `, bin)
