@@ -259,11 +259,11 @@ func initCmd() *cobra.Command {
 				return err
 			}
 
-			// Install /enlist command
-			cmdDir := filepath.Join(home, ".claude", "commands")
-			os.MkdirAll(cmdDir, 0o755)
+			// Install /enlist skill
+			skillDir := filepath.Join(home, ".agents", "skills", "enlist")
+			os.MkdirAll(skillDir, 0o755)
 
-			enlistPath := filepath.Join(cmdDir, "enlist.md")
+			enlistPath := filepath.Join(skillDir, "SKILL.md")
 			if err := installEnlistCommand(enlistPath); err != nil {
 				return fmt.Errorf("installing enlist command: %w", err)
 			}
@@ -283,7 +283,12 @@ func initCmd() *cobra.Command {
 
 func installEnlistCommand(path string) error {
 	bin := cmdrBin()
-	content := fmt.Sprintf(`Enlist a squad member to help with cross-repo work.
+	content := fmt.Sprintf(`---
+name: enlist
+description: Enlist a squad member to help with cross-repo work.
+---
+
+Enlist a squad member to help with cross-repo work.
 
 You are part of a squad — a group of repos managed by cmdr that can collaborate on cross-repo work.
 

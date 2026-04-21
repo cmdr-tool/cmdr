@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/cmdr-tool/cmdr/internal/tasks"
 	"github.com/robfig/cron/v3"
@@ -15,10 +16,12 @@ type Task struct {
 	Description string
 	Schedule    string // cron expression (with seconds)
 	Fn          func() error
+	entryID     cron.EntryID
 }
 
 // Scheduler manages cron-scheduled tasks.
 type Scheduler struct {
+	mu    sync.Mutex
 	cron  *cron.Cron
 	tasks []Task
 }
@@ -52,27 +55,27 @@ func (s *Scheduler) register(db *sql.DB, hooks Hooks) {
 			Schedule:    "0 0 3 * * *", // daily at 3am
 			Fn:          tasks.Prune(db),
 		},
-		{
-			Name:        "distill",
-			Description: "Process raw ThoughtQuarry notes into concepts",
-			Schedule:    "0 7 * * * *", // every hour at :07
-			Fn:          tasks.Distill,
-		},
 	}
 }
 
 // Start begins running all scheduled tasks.
 func (s *Scheduler) Start() {
-	for _, t := range s.tasks {
-		task := t // capture
-		if _, err := s.cron.AddFunc(task.Schedule, func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.tasks {
+		task := &s.tasks[i]
+		eid, err := s.cron.AddFunc(task.Schedule, func() {
 			log.Printf("cmdr: running task %q", task.Name)
 			if err := task.Fn(); err != nil {
 				log.Printf("cmdr: task %q failed: %v", task.Name, err)
 			}
-		}); err != nil {
+		})
+		if err != nil {
 			log.Printf("cmdr: failed to schedule %q: %v", task.Name, err)
+			continue
 		}
+		task.entryID = eid
 	}
 	s.cron.Start()
 	log.Printf("cmdr: scheduler started with %d tasks", len(s.tasks))
@@ -85,15 +88,57 @@ func (s *Scheduler) Stop() {
 
 // Tasks returns all registered tasks.
 func (s *Scheduler) Tasks() []Task {
-	return s.tasks
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Task, len(s.tasks))
+	copy(out, s.tasks)
+	return out
 }
 
 // RunTask runs a task by name immediately.
 func (s *Scheduler) RunTask(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, t := range s.tasks {
 		if t.Name == name {
 			return t.Fn()
 		}
 	}
 	return fmt.Errorf("unknown task: %s", name)
+}
+
+// AddTask dynamically registers a new task into the running scheduler.
+func (s *Scheduler) AddTask(t Task) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task := t // capture for closure
+	eid, err := s.cron.AddFunc(task.Schedule, func() {
+		log.Printf("cmdr: running task %q", task.Name)
+		if err := task.Fn(); err != nil {
+			log.Printf("cmdr: task %q failed: %v", task.Name, err)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("schedule %q: %w", t.Name, err)
+	}
+	t.entryID = eid
+	s.tasks = append(s.tasks, t)
+	log.Printf("cmdr: scheduled dynamic task %q", t.Name)
+	return nil
+}
+
+// RemoveTask unschedules and removes a task by name.
+func (s *Scheduler) RemoveTask(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, t := range s.tasks {
+		if t.Name == name {
+			s.cron.Remove(t.entryID)
+			s.tasks = append(s.tasks[:i], s.tasks[i+1:]...)
+			log.Printf("cmdr: removed task %q", name)
+			return
+		}
+	}
 }

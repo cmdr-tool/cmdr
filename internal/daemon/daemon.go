@@ -31,7 +31,38 @@ var (
 	term terminal.Multiplexer
 	emu  terminal.Emulator
 	sum  summarizer.Summarizer
+	caps Capabilities
 )
+
+// Capabilities describes optional features available in the current environment.
+// Computed once at startup and served via /api/status.
+type Capabilities struct {
+	AskSkill bool `json:"askSkill"`
+}
+
+// detectCapabilities probes the local environment for optional features.
+func detectCapabilities() Capabilities {
+	return Capabilities{
+		AskSkill: skillExists("ask"),
+	}
+}
+
+// skillExists checks whether a Claude skill directory exists in the standard locations.
+func skillExists(name string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	for _, base := range []string{
+		filepath.Join(home, ".agents", "skills"),
+		filepath.Join(home, ".claude", "skills"),
+	} {
+		if _, err := os.Stat(filepath.Join(base, name, "SKILL.md")); err == nil {
+			return true
+		}
+	}
+	return false
+}
 
 func httpAddr() string {
 	return "127.0.0.1:7369"
@@ -90,6 +121,10 @@ func Run() error {
 		log.Printf("cmdr: summarizer %q unavailable, titles will not be enhanced: %v", sumName, err)
 	}
 
+	// Detect available capabilities
+	caps = detectCapabilities()
+	log.Printf("cmdr: capabilities: askSkill=%v", caps.AskSkill)
+
 	database, err := db.Open()
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
@@ -106,6 +141,7 @@ func Run() error {
 			bus.Publish(Event{Type: "commits:sync", Data: true})
 		},
 	})
+	LoadAgenticTasks(s, database, bus)
 	s.Start()
 	defer s.Stop()
 	stopPoller := startPoller(bus, s, database)
@@ -301,6 +337,13 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 	mux.HandleFunc("/api/ask", handleAsk(database, bus))
 	mux.HandleFunc("/api/ask/continue", handleContinueSession(database))
 
+	// Agentic tasks
+	mux.HandleFunc("/api/agentic-tasks", handleListAgenticTasks(database))
+	mux.HandleFunc("/api/agentic-tasks/create", handleCreateAgenticTask(database, bus, s))
+	mux.HandleFunc("/api/agentic-tasks/update", handleUpdateAgenticTask(database, bus, s))
+	mux.HandleFunc("/api/agentic-tasks/delete", handleDeleteAgenticTask(database, bus, s))
+	mux.HandleFunc("/api/agentic-tasks/run", handleRunAgenticTask(database, bus))
+
 	// Analytics
 	mux.HandleFunc("/api/analytics/activity", handleActivityAnalytics(database))
 
@@ -322,11 +365,12 @@ func handleStatus(s *scheduler.Scheduler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"status":  "running",
-			"version": Version,
-			"pid":     os.Getpid(),
-			"tasks":   len(s.Tasks()),
-			"user":    currentUserName(),
+			"status":       "running",
+			"version":      Version,
+			"pid":          os.Getpid(),
+			"tasks":        len(s.Tasks()),
+			"user":         currentUserName(),
+			"capabilities": caps,
 		})
 	}
 }
@@ -350,6 +394,9 @@ func handleTasks(s *scheduler.Scheduler) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		items := make([]taskInfo, 0, len(s.Tasks()))
 		for _, t := range s.Tasks() {
+			if strings.HasPrefix(t.Name, "agentic:") {
+				continue
+			}
 			items = append(items, taskInfo{
 				Name:        t.Name,
 				Description: t.Description,

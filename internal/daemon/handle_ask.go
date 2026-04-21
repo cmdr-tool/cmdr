@@ -191,7 +191,14 @@ func cleanupOrphanedHeadlessTasks(db *sql.DB) {
 
 // --- Ask handler ---
 
-const askSystemPrompt = "Answer the question directly. If it seems like something the user may have personal notes on, use /ask to check their knowledge base. For general knowledge questions, just answer."
+// askSystemPromptFor returns the system prompt for ask tasks, adapting based
+// on whether the /ask skill is available to consult the knowledge base.
+func askSystemPromptFor(hasAskSkill bool) string {
+	if hasAskSkill {
+		return "Answer the question directly. If it seems like something the user may have personal notes on, use /ask to check their knowledge base. For general knowledge questions, just answer."
+	}
+	return "Answer the question directly and concisely."
+}
 
 func handleAsk(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +241,7 @@ func handleAsk(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			TaskID:       id,
 			Prompt:       body.Question,
 			WorkDir:      askDir,
-			SystemPrompt: askSystemPrompt,
+			SystemPrompt: askSystemPromptFor(caps.AskSkill),
 		})
 
 		w.Header().Set("Content-Type", "application/json")

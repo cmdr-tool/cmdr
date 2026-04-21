@@ -157,6 +157,19 @@ func ensureSchema(d *sql.DB) error {
 			UNIQUE(task_id)
 		);
 
+		CREATE TABLE IF NOT EXISTS agentic_tasks (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			name        TEXT NOT NULL UNIQUE,
+			prompt      TEXT NOT NULL,
+			schedule    TEXT NOT NULL,
+			enabled     INTEGER NOT NULL DEFAULT 1,
+			working_dir TEXT NOT NULL DEFAULT '',
+			last_run_at DATETIME,
+			last_result TEXT NOT NULL DEFAULT '',
+			last_status TEXT NOT NULL DEFAULT '',
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
 		CREATE TABLE IF NOT EXISTS migrations (
 			name       TEXT PRIMARY KEY,
 			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP

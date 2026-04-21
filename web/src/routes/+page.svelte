@@ -29,10 +29,12 @@
 	});
 
 	let userName = $state('');
+	let askSkillAvailable = $state(false);
 	onMount(async () => {
 		try {
 			const status = await getStatus();
 			userName = status.user ?? '';
+			askSkillAvailable = status.capabilities?.askSkill ?? false;
 		} catch {
 			// Silent — greeting falls back to just the time-of-day phrase.
 		}
@@ -215,5 +217,7 @@
 	<MissionsModal squad={missionsSquad} onclose={() => { missionsSquad = null; }} />
 {/if}
 
-<!-- Ask Bubble -->
-<AskBubble />
+<!-- Ask Bubble (only when /ask skill is available) -->
+{#if askSkillAvailable}
+	<AskBubble />
+{/if}

@@ -1,10 +1,15 @@
 const BASE = '/api';
 
+export interface Capabilities {
+	askSkill: boolean;
+}
+
 export interface DaemonStatus {
 	pid: number;
 	version: string;
 	tasks: number;
 	user: string;
+	capabilities: Capabilities;
 }
 
 export interface Task {
@@ -31,6 +36,57 @@ export function getTasks(): Promise<Task[]> {
 
 export function runTask(name: string): Promise<{ output: string }> {
 	return request(`/run?task=${encodeURIComponent(name)}`, { method: 'POST' });
+}
+
+// Agentic tasks
+
+export interface AgenticTask {
+	id: number;
+	name: string;
+	prompt: string;
+	schedule: string;
+	enabled: boolean;
+	working_dir: string;
+	last_run_at: string | null;
+	last_result: string;
+	last_status: string;
+	created_at: string;
+}
+
+export function getAgenticTasks(): Promise<AgenticTask[]> {
+	return request('/agentic-tasks');
+}
+
+export function createAgenticTask(task: { name: string; prompt: string; schedule: string; enabled: boolean; working_dir: string }): Promise<{ id: number; name: string }> {
+	return request('/agentic-tasks/create', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(task),
+	});
+}
+
+export function updateAgenticTask(task: { id: number; name: string; prompt: string; schedule: string; enabled: boolean; working_dir: string }): Promise<{ status: string }> {
+	return request('/agentic-tasks/update', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(task),
+	});
+}
+
+export function deleteAgenticTask(id: number): Promise<{ status: string }> {
+	return request('/agentic-tasks/delete', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ id }),
+	});
+}
+
+export function runAgenticTask(id: number): Promise<{ status: string }> {
+	return request('/agentic-tasks/run', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ id }),
+	});
 }
 
 // Tmux

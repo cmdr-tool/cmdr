@@ -12,6 +12,8 @@ type EventMap = {
 	'commits:sync': boolean;
 	'commits:watermark': { latestId: number };
 	'delegation:update': { squad: string; taskId: number; status: string };
+	'agentic:run': { id: number; status: string; last_run_at?: string };
+	'agentic:update': { action: string; id: number };
 };
 
 type EventHandler<K extends keyof EventMap> = (data: EventMap[K]) => void;
