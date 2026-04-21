@@ -16,7 +16,7 @@ type activityBucket struct {
 	Other         int `json:"other"`          // samples where active tool was other
 	Inactive      int `json:"inactive"`       // samples where inactive (no attached session)
 	Away          int `json:"away"`           // samples where user was away from keyboard
-	ClaudeTotal   int `json:"claudeTotal"`    // avg total claude instances
+	ClaudeTotal   int `json:"claudeTotal"`    // avg total agent instances
 	ClaudeWorking int `json:"claudeWorking"`  // avg working
 	ClaudeWaiting int `json:"claudeWaiting"`  // avg waiting
 	ClaudeIdle    int `json:"claudeIdle"`     // avg idle

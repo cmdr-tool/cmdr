@@ -327,15 +327,15 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 	mux.HandleFunc("/api/review/comments/delete", handleDeleteReviewComment(database, bus))
 	mux.HandleFunc("/api/review/submit", handleSubmitReview(database, bus))
 
-	// Claude tasks
-	mux.HandleFunc("/api/claude/sessions", handleClaudeSessions())
-	mux.HandleFunc("/api/claude/tasks", handleListClaudeTasks(database))
-	mux.HandleFunc("/api/claude/tasks/result", handleGetClaudeTaskResult(database))
-	mux.HandleFunc("/api/claude/tasks/update", handleUpdateClaudeTaskResult(database, bus))
-	mux.HandleFunc("/api/claude/tasks/dismiss", handleDismissClaudeTask(database, bus))
-	mux.HandleFunc("/api/claude/tasks/cancel", handleCancelTask(database, bus))
-	mux.HandleFunc("/api/claude/tasks/resolve", handleResolveTask(database, bus))
-	mux.HandleFunc("/api/claude/tasks/spawn", handleSpawnTask(database, bus))
+	// Agent tasks
+	mux.HandleFunc("/api/agent/sessions", handleAgentSessions())
+	mux.HandleFunc("/api/agent/tasks", handleListAgentTasks(database))
+	mux.HandleFunc("/api/agent/tasks/result", handleGetAgentTaskResult(database))
+	mux.HandleFunc("/api/agent/tasks/update", handleUpdateAgentTaskResult(database, bus))
+	mux.HandleFunc("/api/agent/tasks/dismiss", handleDismissAgentTask(database, bus))
+	mux.HandleFunc("/api/agent/tasks/cancel", handleCancelTask(database, bus))
+	mux.HandleFunc("/api/agent/tasks/resolve", handleResolveTask(database, bus))
+	mux.HandleFunc("/api/agent/tasks/spawn", handleSpawnTask(database, bus))
 
 	// Directives
 	mux.HandleFunc("/api/directives/create", handleCreateDirective(database, bus))

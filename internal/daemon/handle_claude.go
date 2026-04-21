@@ -7,7 +7,7 @@ import (
 	"github.com/cmdr-tool/cmdr/internal/claude"
 )
 
-func handleClaudeSessions() http.HandlerFunc {
+func handleAgentSessions() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessions, err := claude.ListSessions()
 		if err != nil {

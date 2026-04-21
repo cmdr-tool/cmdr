@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { CircleCheck, CircleX, GitPullRequestArrow, GitMerge, X, Pencil, Plus, CircleQuestionMark, Users, Square, ScanSearch, FileSearch, FileCheck } from 'lucide-svelte';
-	import { cancelTask, isTerminalTask, type ClaudeTask } from '$lib/api';
+	import { cancelTask, isTerminalTask, type AgentTask } from '$lib/api';
 	import {
 		loaded as loadedStore,
 		visibleTasks as visibleTasksStore,
@@ -17,7 +17,7 @@
 		ondraft,
 		onopenmissions
 	}: {
-		ontaskclick: (task: ClaudeTask) => void;
+		ontaskclick: (task: AgentTask) => void;
 		ondraft: (taskId?: number, repoPath?: string) => void;
 		onopenmissions: (squad: string) => void;
 	} = $props();
@@ -28,7 +28,7 @@
 		return path.split('/').pop() ?? path;
 	}
 
-	function fallbackTitle(task: ClaudeTask): string {
+	function fallbackTitle(task: AgentTask): string {
 		const parts: string[] = [];
 		if (task.intent) parts.push(task.intent.replaceAll('-', ' '));
 		if (task.repoPath) parts.push(repoName(task.repoPath));

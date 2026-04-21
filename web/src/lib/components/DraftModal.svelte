@@ -5,7 +5,7 @@
 	import { compositeAndSerialize } from '$lib/composite';
 	import {
 		getRepos,
-		getClaudeTaskResult,
+		getAgentTaskResult,
 		getDirectiveIntents,
 		saveDirective,
 		submitDirective,
@@ -59,7 +59,7 @@
 		if (initial?.taskId) {
 			taskId = initial.taskId;
 			try {
-				const data = await getClaudeTaskResult(taskId);
+				const data = await getAgentTaskResult(taskId);
 				content = data.result || '';
 				if (data.intent) selectedIntent = data.intent;
 			} catch { /* use initial content */ }

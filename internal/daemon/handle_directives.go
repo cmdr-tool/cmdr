@@ -29,7 +29,7 @@ func handleCreateDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		now := time.Now().Format(time.RFC3339)
 		title := directiveTitle(body.Content)
 		result, err := db.Exec(
-			`INSERT INTO claude_tasks (type, status, repo_path, prompt, title, created_at, started_at)
+			`INSERT INTO agent_tasks (type, status, repo_path, prompt, title, created_at, started_at)
 			 VALUES ('directive', 'draft', ?, ?, ?, ?, ?)`,
 			body.RepoPath, body.Content, title, now, now,
 		)
@@ -40,7 +40,7 @@ func handleCreateDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 		id, _ := result.LastInsertId()
 
-		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+		bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 			"id": int(id), "status": "draft",
 		}})
 
@@ -70,15 +70,15 @@ func handleSaveDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 		// Read old values to diff against
 		var oldRepo, oldIntent, oldTitle string
-		db.QueryRow(`SELECT COALESCE(repo_path, ''), COALESCE(intent, ''), COALESCE(title, '') FROM claude_tasks WHERE id=?`, body.ID).
+		db.QueryRow(`SELECT COALESCE(repo_path, ''), COALESCE(intent, ''), COALESCE(title, '') FROM agent_tasks WHERE id=?`, body.ID).
 			Scan(&oldRepo, &oldIntent, &oldTitle)
 
 		title := directiveTitle(body.Content)
-		db.Exec(`UPDATE claude_tasks SET repo_path=?, prompt=?, intent=?, title=? WHERE id=? AND status='draft'`,
+		db.Exec(`UPDATE agent_tasks SET repo_path=?, prompt=?, intent=?, title=? WHERE id=? AND status='draft'`,
 			body.RepoPath, body.Content, body.Intent, title, body.ID)
 
 		if body.RepoPath != oldRepo || body.Intent != oldIntent || title != oldTitle {
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+			bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 				"id": body.ID, "status": "draft", "repoPath": body.RepoPath, "intent": body.Intent, "title": title,
 			}})
 		}
@@ -113,7 +113,7 @@ func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		}
 
 		var repoPath, prompt string
-		err := db.QueryRow(`SELECT repo_path, prompt FROM claude_tasks WHERE id=? AND status='draft'`, body.ID).
+		err := db.QueryRow(`SELECT repo_path, prompt FROM agent_tasks WHERE id=? AND status='draft'`, body.ID).
 			Scan(&repoPath, &prompt)
 		if err != nil {
 			http.Error(w, `{"error":"draft not found"}`, http.StatusNotFound)
@@ -128,9 +128,9 @@ func handleSubmitDirective(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		// Headless intents: run via claude -p (no tmux window)
 		if prompts.IntentIsHeadless(body.Intent) {
 			now := time.Now().Format(time.RFC3339)
-			db.Exec(`UPDATE claude_tasks SET status='running', intent=?, started_at=? WHERE id=?`,
+			db.Exec(`UPDATE agent_tasks SET status='running', intent=?, started_at=? WHERE id=?`,
 				body.Intent, now, body.ID)
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+			bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 				"id": body.ID, "status": "running", "intent": body.Intent, "repoPath": repoPath,
 			}})
 

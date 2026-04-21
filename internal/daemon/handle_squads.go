@@ -226,7 +226,7 @@ func handleListDelegations(db *sql.DB) http.HandlerFunc {
 		query := `SELECT ct.id, ct.status, d.squad, d.from_alias, d.to_alias,
 				COALESCE(ct.title, ''), d.summary, d.branch, ct.repo_path,
 				COALESCE(ct.result, ''), ct.created_at, COALESCE(ct.completed_at, '')
-			FROM claude_tasks ct
+			FROM agent_tasks ct
 			JOIN delegations d ON d.task_id = ct.id
 			WHERE ct.type = 'delegation'`
 		var args []any
@@ -276,7 +276,7 @@ func handleDelegationSummary(db *sql.DB) http.HandlerFunc {
 				SUM(CASE WHEN ct.status IN ('running','pending') THEN 1 ELSE 0 END),
 				COUNT(*),
 				MAX(ct.created_at)
-			FROM claude_tasks ct
+			FROM agent_tasks ct
 			JOIN delegations d ON d.task_id = ct.id
 			WHERE ct.type = 'delegation'
 			GROUP BY d.squad
@@ -315,7 +315,7 @@ func handleDelegationSummary(db *sql.DB) http.HandlerFunc {
 
 			// Get latest title
 			db.QueryRow(
-				`SELECT COALESCE(ct.title, d.summary) FROM claude_tasks ct
+				`SELECT COALESCE(ct.title, d.summary) FROM agent_tasks ct
 				 JOIN delegations d ON d.task_id = ct.id
 				 WHERE d.squad = ? ORDER BY ct.created_at DESC LIMIT 1`, s.Squad,
 			).Scan(&s.LatestTitle)
@@ -372,7 +372,7 @@ func handleEnlist(db *sql.DB, bus *EventBus) http.HandlerFunc {
 
 		// Check no running delegation already targets this repo
 		var running int
-		db.QueryRow(`SELECT COUNT(*) FROM claude_tasks WHERE type = 'delegation' AND repo_path = ? AND status = 'running'`, targetPath).Scan(&running)
+		db.QueryRow(`SELECT COUNT(*) FROM agent_tasks WHERE type = 'delegation' AND repo_path = ? AND status = 'running'`, targetPath).Scan(&running)
 		if running > 0 {
 			http.Error(w, fmt.Sprintf(`{"error":"%s already has an active delegation"}`, body.To), http.StatusConflict)
 			return
@@ -390,7 +390,7 @@ func handleEnlist(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		prompt := fmt.Sprintf("## Enlistment from %s\n\n**Summary:** %s\n\n%s\n\n%s", body.From, body.Summary, body.Details, delivery)
 		now := time.Now().Format(time.RFC3339)
 		taskResult, err := db.Exec(
-			`INSERT INTO claude_tasks (type, status, repo_path, prompt, intent, created_at, started_at)
+			`INSERT INTO agent_tasks (type, status, repo_path, prompt, intent, created_at, started_at)
 			 VALUES ('delegation', 'pending', ?, ?, 'delegation', ?, ?)`,
 			targetPath, prompt, now, now,
 		)
@@ -408,7 +408,7 @@ func handleEnlist(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			taskID, body.Squad, body.From, body.To, branchName, body.Summary, body.Details,
 		); err != nil {
-			db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, taskID)
+			db.Exec(`DELETE FROM agent_tasks WHERE id = ?`, taskID)
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
 		}
@@ -430,7 +430,7 @@ func handleEnlist(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		})
 		if err != nil {
 			db.Exec(`DELETE FROM delegations WHERE task_id = ?`, taskID)
-			db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, taskID)
+			db.Exec(`DELETE FROM agent_tasks WHERE id = ?`, taskID)
 			log.Printf("cmdr: enlist launch failed: %v", err)
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { X, Pencil, Wrench, MessageSquarePlus, Trash2, Undo2, FileCheck } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
-	import { updateClaudeTaskResult, spawnTask } from '$lib/api';
+	import { updateAgentTaskResult, spawnTask } from '$lib/api';
 	import LaunchGuard from './LaunchGuard.svelte';
 	import {
 		parseADR,
@@ -60,7 +60,7 @@
 	async function handleSave() {
 		saving = true;
 		try {
-			await updateClaudeTaskResult(taskId, draft);
+			await updateAgentTaskResult(taskId, draft);
 			onupdate?.(draft);
 			editing = false;
 		} catch { /* silent */ }
@@ -75,7 +75,7 @@
 	// --- Section note actions ---
 	async function persistResult(newResult: string) {
 		try {
-			await updateClaudeTaskResult(taskId, newResult);
+			await updateAgentTaskResult(taskId, newResult);
 			onupdate?.(newResult);
 		} catch { /* silent */ }
 	}

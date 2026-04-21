@@ -223,7 +223,7 @@ func handleSubmitReview(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		}
 		title := fmt.Sprintf("Review %s: %s", shortSHA, firstLine(message))
 		res, err := db.Exec(`
-			INSERT INTO claude_tasks (type, status, repo_path, commit_sha, prompt, title, created_at)
+			INSERT INTO agent_tasks (type, status, repo_path, commit_sha, prompt, title, created_at)
 			VALUES ('review', 'pending', ?, ?, ?, ?, ?)
 		`, body.RepoPath, body.SHA, prompt, title, time.Now().Format(time.RFC3339))
 		if err != nil {
@@ -242,9 +242,9 @@ func handleSubmitReview(db *sql.DB, bus *EventBus) http.HandlerFunc {
 }
 
 func runClaudeReview(db *sql.DB, bus *EventBus, taskID int, repoPath, sha, prompt string) {
-	db.Exec(`UPDATE claude_tasks SET status='running', started_at=? WHERE id=?`,
+	db.Exec(`UPDATE agent_tasks SET status='running', started_at=? WHERE id=?`,
 		time.Now().Format(time.RFC3339), taskID)
-	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+	bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 		"id": taskID, "status": "running", "repoPath": repoPath, "commitSha": sha,
 	}})
 
@@ -257,7 +257,7 @@ func runClaudeReview(db *sql.DB, bus *EventBus, taskID int, repoPath, sha, promp
 
 	// Clean up review comments after completion (only if task succeeded)
 	var status string
-	db.QueryRow(`SELECT status FROM claude_tasks WHERE id=?`, taskID).Scan(&status)
+	db.QueryRow(`SELECT status FROM agent_tasks WHERE id=?`, taskID).Scan(&status)
 	if status == "resolved" {
 		db.Exec(`DELETE FROM review_comments WHERE repo_path=? AND sha=?`, repoPath, sha)
 		bus.Publish(Event{Type: "commits:sync", Data: true})

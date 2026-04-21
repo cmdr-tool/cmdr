@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { X, Wrench, ExternalLink, Pencil, Trash2, MessageSquarePlus, Undo2, FileSearch } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
-	import { spawnTask, updateClaudeTaskResult, getClaudeTaskResult } from '$lib/api';
+	import { spawnTask, updateAgentTaskResult, getAgentTaskResult } from '$lib/api';
 	import { dismiss as dismissTask } from '$lib/taskStore';
 	import { events } from '$lib/events';
 	import LaunchGuard from './LaunchGuard.svelte';
@@ -81,7 +81,7 @@
 	// --- Data lifecycle ---
 	onMount(async () => {
 		try {
-			const data = await getClaudeTaskResult(taskId);
+			const data = await getAgentTaskResult(taskId);
 			if ((data.status === 'resolved' || data.status === 'completed') && data.result) {
 				result = data.result;
 				status = data.status as 'resolved' | 'completed';
@@ -95,7 +95,7 @@
 		} catch { /* proceed to stream */ }
 
 		// Subscribe to streaming events while running
-		unsub = events.on('claude:ask:stream', (evt) => {
+		unsub = events.on('agent:stream', (evt) => {
 			if (evt.id !== taskId) return;
 			switch (evt.type) {
 				case 'text':
@@ -106,7 +106,7 @@
 					toolStatus = toolStatusLabel(evt.tool ?? '', evt.detail ?? '');
 					break;
 				case 'done':
-					getClaudeTaskResult(taskId).then((data) => {
+					getAgentTaskResult(taskId).then((data) => {
 						if (data.result) result = data.result;
 						status = (data.status === 'completed') ? 'completed' : 'resolved';
 					}).catch(() => { status = 'resolved'; });
@@ -125,7 +125,7 @@
 	async function handleSave() {
 		saving = true;
 		try {
-			await updateClaudeTaskResult(taskId, draft);
+			await updateAgentTaskResult(taskId, draft);
 			result = draft;
 			editing = false;
 		} catch { /* silent */ }
@@ -140,7 +140,7 @@
 	// --- Section actions ---
 	async function persistResult(newResult: string) {
 		try {
-			await updateClaudeTaskResult(taskId, newResult);
+			await updateAgentTaskResult(taskId, newResult);
 			result = newResult;
 		} catch { /* silent */ }
 	}

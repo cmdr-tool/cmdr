@@ -1,21 +1,21 @@
 <script lang="ts">
-	import type { ClaudeTask, GitCommit } from '$lib/api';
-	import { getClaudeTaskResult, getStatus } from '$lib/api';
+	import type { AgentTask, GitCommit } from '$lib/api';
+	import { getAgentTaskResult, getStatus } from '$lib/api';
 	import { onMount } from 'svelte';
 	import { ScanSearch } from 'lucide-svelte';
 	import { connection } from '$lib/events';
-	import { sessions, claudeSessions } from '$lib/sessionStore';
+	import { sessions, agentSessions } from '$lib/sessionStore';
 	import { commits, commitsLoaded, unseenCount, toggleFlag, updateCommit } from '$lib/commitStore';
 
 	import BrewCard from '$lib/components/BrewCard.svelte';
 	import SessionCard from '$lib/components/SessionCard.svelte';
 	import CommitCard from '$lib/components/CommitCard.svelte';
 	import AskBubble from '$lib/components/AskBubble.svelte';
-	import ClaudeInboxCard from '$lib/components/ClaudeInboxCard.svelte';
+	import AgentInboxCard from '$lib/components/AgentInboxCard.svelte';
 	import DiffModal from '$lib/components/DiffModal.svelte';
 	import ReviewResultModal from '$lib/components/ReviewResultModal.svelte';
 	import DesignResultModal from '$lib/components/DesignResultModal.svelte';
-	import ClaudeResultModal from '$lib/components/ClaudeResultModal.svelte';
+	import AgentResultModal from '$lib/components/AgentResultModal.svelte';
 	import DraftModal from '$lib/components/DraftModal.svelte';
 	import MissionsModal from '$lib/components/MissionsModal.svelte';
 
@@ -63,14 +63,14 @@
 	}
 
 	// --- Review result modal ---
-	let reviewTask: ClaudeTask | null = $state(null);
+	let reviewTask: AgentTask | null = $state(null);
 
 	// --- Design result modal ---
 	let designResult: string | null = $state(null);
-	let designTask: ClaudeTask | null = $state(null);
+	let designTask: AgentTask | null = $state(null);
 
 	// --- Claude result modal (ask, analysis, etc.) ---
-	let resultTask: ClaudeTask | null = $state(null);
+	let resultTask: AgentTask | null = $state(null);
 
 	// --- Missions modal ---
 	let missionsSquad: string | null = $state(null);
@@ -91,7 +91,7 @@
 		<p class="text-bourbon-600 mt-1">
 			{dateStr}
 			&middot; {$sessions.length} session{$sessions.length !== 1 ? 's' : ''}
-		&middot; {$claudeSessions.length} claude instance{$claudeSessions.length !== 1 ? 's' : ''}
+		&middot; {$agentSessions.length} claude instance{$agentSessions.length !== 1 ? 's' : ''}
 		{#if $unseenCount > 0}
 			&middot; {$unseenCount} unseen commit{$unseenCount !== 1 ? 's' : ''}
 		{/if}
@@ -115,7 +115,7 @@
 
 	<!-- Right column: Inbox + Commits -->
 	<div class="flex flex-col gap-4">
-		<ClaudeInboxCard
+		<AgentInboxCard
 			ontaskclick={async (task) => {
 				if (task.type === 'review') {
 					reviewTask = task;
@@ -125,7 +125,7 @@
 					window.open(task.prUrl, '_blank');
 				} else if (task.status === 'resolved' && task.intent === 'new-feature') {
 					try {
-						const { result } = await getClaudeTaskResult(task.id);
+						const { result } = await getAgentTaskResult(task.id);
 						designTask = task;
 						designResult = result;
 					} catch { /* silent */ }
@@ -182,7 +182,7 @@
 
 <!-- Claude Result Modal (ask, analysis, etc.) -->
 {#if resultTask}
-	<ClaudeResultModal
+	<AgentResultModal
 		taskId={resultTask.id}
 		title={resultTask.intent === 'analysis' ? 'Analysis' : 'Ask Claude'}
 		titleClass="text-run-500"

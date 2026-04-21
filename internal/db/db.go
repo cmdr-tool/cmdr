@@ -93,11 +93,11 @@ func ensureSchema(d *sql.DB) error {
 			slot            INTEGER NOT NULL,
 			bucket          INTEGER NOT NULL,
 			active_tool     TEXT NOT NULL DEFAULT '',
-			claude_total    INTEGER NOT NULL DEFAULT 0,
-			claude_working  INTEGER NOT NULL DEFAULT 0,
-			claude_waiting  INTEGER NOT NULL DEFAULT 0,
-			claude_idle     INTEGER NOT NULL DEFAULT 0,
-			claude_unknown  INTEGER NOT NULL DEFAULT 0,
+			claude_total     INTEGER NOT NULL DEFAULT 0,
+			claude_working   INTEGER NOT NULL DEFAULT 0,
+			claude_waiting   INTEGER NOT NULL DEFAULT 0,
+			claude_idle      INTEGER NOT NULL DEFAULT 0,
+			claude_unknown   INTEGER NOT NULL DEFAULT 0,
 			recorded_at     DATETIME,
 			PRIMARY KEY (slot, bucket)
 		);
@@ -113,10 +113,11 @@ func ensureSchema(d *sql.DB) error {
 			UNIQUE(repo_path, sha, line_start, line_end)
 		);
 
-		CREATE TABLE IF NOT EXISTS claude_tasks (
+		CREATE TABLE IF NOT EXISTS agent_tasks (
 			id                INTEGER PRIMARY KEY AUTOINCREMENT,
 			type              TEXT NOT NULL DEFAULT 'review',
 			status            TEXT NOT NULL DEFAULT 'pending',
+			agent             TEXT NOT NULL DEFAULT 'claude',
 			repo_path         TEXT NOT NULL,
 			commit_sha        TEXT NOT NULL DEFAULT '',
 			prompt            TEXT NOT NULL,
@@ -125,13 +126,13 @@ func ensureSchema(d *sql.DB) error {
 			title             TEXT NOT NULL DEFAULT '',
 			pr_url            TEXT NOT NULL DEFAULT '',
 			intent            TEXT NOT NULL DEFAULT '',
-			claude_session_id TEXT NOT NULL DEFAULT '',
+			agent_session_id  TEXT NOT NULL DEFAULT '',
 			refactored        INTEGER NOT NULL DEFAULT 0,
 			created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
 			started_at        DATETIME,
 			completed_at      DATETIME,
 			worktree          TEXT NOT NULL DEFAULT '',
-			parent_id         INTEGER REFERENCES claude_tasks(id),
+			parent_id         INTEGER REFERENCES agent_tasks(id),
 			-- vestigial delegation columns (kept for SQLite compat, data lives in delegations table)
 			squad             TEXT NOT NULL DEFAULT '',
 			delegation_from   TEXT NOT NULL DEFAULT '',
@@ -146,7 +147,7 @@ func ensureSchema(d *sql.DB) error {
 
 		CREATE TABLE IF NOT EXISTS delegations (
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			task_id    INTEGER NOT NULL REFERENCES claude_tasks(id) ON DELETE CASCADE,
+			task_id    INTEGER NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
 			squad      TEXT NOT NULL,
 			from_alias TEXT NOT NULL,
 			to_alias   TEXT NOT NULL,

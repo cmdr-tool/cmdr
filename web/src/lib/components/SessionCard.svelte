@@ -5,11 +5,11 @@
 		focusTmuxSession,
 		switchTmuxSession,
 		openFolder,
-		type ClaudeSession
+		type AgentSession
 	} from '$lib/api';
 	import {
 		sessions as sessionsStore,
-		claudeSessions as claudeSessionsStore,
+		agentSessions as agentSessionsStore,
 		sessionsLoaded as sessionsLoadedStore,
 		killSession,
 		markAttached
@@ -63,14 +63,14 @@
 
 	// Map Claude sessions by their tmux pane target
 	let claudeByTarget = $derived(
-		new Map($claudeSessionsStore.filter((c) => c.tmuxTarget).map((c) => [c.tmuxTarget, c]))
+		new Map($agentSessionsStore.filter((c) => c.tmuxTarget).map((c) => [c.tmuxTarget, c]))
 	);
 
 	// Best Claude status per tmux session (for session-level badge)
 	const statusRank: Record<string, number> = { working: 3, waiting: 2, idle: 1, unknown: 0 };
 	let claudeBySession = $derived(() => {
-		const map = new Map<string, ClaudeSession>();
-		for (const c of $claudeSessionsStore) {
+		const map = new Map<string, AgentSession>();
+		for (const c of $agentSessionsStore) {
 			if (!c.tmuxTarget) continue;
 			const sessName = c.tmuxTarget.split(':')[0];
 			const existing = map.get(sessName);
@@ -82,7 +82,7 @@
 	});
 
 	let unmatchedClaude = $derived(
-		$claudeSessionsStore.filter((c) => !c.tmuxTarget)
+		$agentSessionsStore.filter((c) => !c.tmuxTarget)
 	);
 </script>
 

@@ -28,14 +28,14 @@ func Prune(db *sql.DB) func() error {
 		}
 
 		// Terminal Claude tasks older than 30 days
-		res, _ = db.Exec(`DELETE FROM claude_tasks WHERE status IN ('done','failed')
+		res, _ = db.Exec(`DELETE FROM agent_tasks WHERE status IN ('done','failed')
 			AND completed_at < datetime('now', '-30 days')`)
 		if rc, _ := res.RowsAffected(); rc > 0 {
 			log.Printf("cmdr: prune: deleted %d old claude tasks", rc)
 		}
 
 		// Stale pending tasks that never launched (stuck for >1 hour).
-		res, _ = db.Exec(`DELETE FROM claude_tasks WHERE status = 'pending'
+		res, _ = db.Exec(`DELETE FROM agent_tasks WHERE status = 'pending'
 			AND created_at < datetime('now', '-1 hour')`)
 		if rc, _ := res.RowsAffected(); rc > 0 {
 			log.Printf("cmdr: prune: deleted %d stuck pending tasks", rc)
@@ -44,21 +44,21 @@ func Prune(db *sql.DB) func() error {
 		// Stuck headless tasks (review, ask) — these run via `claude -p` and should
 		// complete in minutes. Interactive tmux sessions (directives, refactors) are
 		// managed by the poller's window-alive check.
-		res, _ = db.Exec(`DELETE FROM claude_tasks WHERE type IN ('review', 'ask') AND status = 'running'
+		res, _ = db.Exec(`DELETE FROM agent_tasks WHERE type IN ('review', 'ask') AND status = 'running'
 			AND created_at < datetime('now', '-1 hour')`)
 		if rc, _ := res.RowsAffected(); rc > 0 {
 			log.Printf("cmdr: prune: deleted %d stuck headless tasks", rc)
 		}
 
 		// Delegation tasks for squads with no activity in 24h (delegations row cascades).
-		res, _ = db.Exec(`DELETE FROM claude_tasks WHERE type = 'delegation'
+		res, _ = db.Exec(`DELETE FROM agent_tasks WHERE type = 'delegation'
 			AND status IN ('completed', 'done', 'failed')
 			AND id IN (
-				SELECT ct.id FROM claude_tasks ct
+				SELECT ct.id FROM agent_tasks ct
 				JOIN delegations d ON d.task_id = ct.id
 				WHERE ct.type = 'delegation' AND ct.status IN ('completed', 'done', 'failed')
 				AND d.squad NOT IN (
-					SELECT d2.squad FROM claude_tasks ct2
+					SELECT d2.squad FROM agent_tasks ct2
 					JOIN delegations d2 ON d2.task_id = ct2.id
 					WHERE ct2.created_at > datetime('now', '-24 hours')
 						OR ct2.status IN ('running', 'pending')

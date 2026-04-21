@@ -227,7 +227,7 @@ func printSquadContext(database *sql.DB, repoPath string) error {
 	// Append active delegation status
 	dRows, err := database.Query(
 		`SELECT d.to_alias, COALESCE(ct.title, ''), ct.status
-		 FROM claude_tasks ct
+		 FROM agent_tasks ct
 		 JOIN delegations d ON d.task_id = ct.id
 		 WHERE ct.type = 'delegation' AND d.squad = ? AND d.from_alias = ?
 		   AND ct.status IN ('running', 'completed')`,
@@ -536,7 +536,7 @@ func missionsCmd() *cobra.Command {
 			// Find completed delegations from this repo that haven't been notified
 			rows, err := database.Query(
 				`SELECT ct.id, d.to_alias, COALESCE(ct.title, ''), COALESCE(ct.result, '')
-				 FROM claude_tasks ct
+				 FROM agent_tasks ct
 				 JOIN delegations d ON d.task_id = ct.id
 				 WHERE ct.type = 'delegation' AND d.squad = ? AND d.from_alias = ?
 				   AND ct.status IN ('completed', 'done') AND d.notified = 0`,
@@ -622,7 +622,7 @@ Status values: draft, running, completed, failed.`,
 			err = database.QueryRow(
 				`SELECT ct.title, ct.status, ct.result, ct.error_msg, ct.intent,
 				        d.squad, d.from_alias, d.to_alias
-				 FROM claude_tasks ct
+				 FROM agent_tasks ct
 				 LEFT JOIN delegations d ON d.task_id = ct.id
 				 WHERE ct.id = ?`, id,
 			).Scan(&title, &status, &result, &errMsg, &intent, &squad, &fromAlias, &toAlias)
@@ -674,7 +674,7 @@ landed and to read the debrief.`,
 			defer database.Close()
 
 			query := `SELECT ct.id, d.to_alias, ct.status, COALESCE(ct.title, ''), COALESCE(ct.result, '')
-				FROM claude_tasks ct
+				FROM agent_tasks ct
 				JOIN delegations d ON d.task_id = ct.id
 				WHERE ct.type = 'delegation' AND d.squad = ?`
 			queryArgs := []any{squad}

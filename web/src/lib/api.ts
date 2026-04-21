@@ -115,9 +115,9 @@ export function getTmuxSessions(): Promise<TmuxSession[]> {
 	return request('/tmux/sessions');
 }
 
-// Claude
+// Agent
 
-export interface ClaudeSession {
+export interface AgentSession {
 	pid: number;
 	sessionId: string;
 	cwd: string;
@@ -128,8 +128,8 @@ export interface ClaudeSession {
 	tmuxTarget?: string;
 }
 
-export function getClaudeSessions(): Promise<ClaudeSession[]> {
-	return request('/claude/sessions');
+export function getAgentSessions(): Promise<AgentSession[]> {
+	return request('/agent/sessions');
 }
 
 export function createTmuxSession(dir: string): Promise<{ name: string }> {
@@ -462,9 +462,9 @@ export function submitReview(repoPath: string, sha: string): Promise<{ id: numbe
 	});
 }
 
-// Claude Tasks
+// Agent Tasks
 
-export interface ClaudeTask {
+export interface AgentTask {
 	id: number;
 	type: string;
 	status: 'draft' | 'pending' | 'running' | 'completed' | 'failed' | 'resolved';
@@ -485,11 +485,11 @@ export interface ClaudeTask {
 // worth referencing: failed, artifact consumed (review→implementation),
 // or generic directives. Ask and analysis tasks remain non-terminal even
 // when completed because their results are reference material.
-export function isTerminalTask(task: ClaudeTask): boolean {
+export function isTerminalTask(task: AgentTask): boolean {
 	return task.status === 'failed' || task.status === 'completed';
 }
 
-export interface ClaudeTaskResult {
+export interface AgentTaskResult {
 	result: string;
 	status: string;
 	errorMsg: string;
@@ -498,7 +498,7 @@ export interface ClaudeTaskResult {
 
 // Ask (vault Q&A)
 
-export function askClaude(question: string): Promise<{ id: number; status: string }> {
+export function askAgent(question: string): Promise<{ id: number; status: string }> {
 	return request('/ask', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -514,32 +514,32 @@ export function continueAsk(id: number): Promise<{ target: string }> {
 	});
 }
 
-export function getClaudeTasks(): Promise<ClaudeTask[]> {
-	return request('/claude/tasks');
+export function getAgentTasks(): Promise<AgentTask[]> {
+	return request('/agent/tasks');
 }
 
-export function getClaudeTaskResult(id: number): Promise<ClaudeTaskResult> {
-	return request(`/claude/tasks/result?id=${id}`);
+export function getAgentTaskResult(id: number): Promise<AgentTaskResult> {
+	return request(`/agent/tasks/result?id=${id}`);
 }
 
-export function dismissClaudeTask(id: number): Promise<{ dismissed: number }> {
-	return request('/claude/tasks/dismiss', {
+export function dismissAgentTask(id: number): Promise<{ dismissed: number }> {
+	return request('/agent/tasks/dismiss', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ id })
 	});
 }
 
-export function updateClaudeTaskResult(id: number, result: string): Promise<{ status: string }> {
-	return request('/claude/tasks/update', {
+export function updateAgentTaskResult(id: number, result: string): Promise<{ status: string }> {
+	return request('/agent/tasks/update', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ id, result })
 	});
 }
 
-export function dismissAllClaudeTasks(): Promise<{ dismissed: number }> {
-	return request('/claude/tasks/dismiss', {
+export function dismissAllAgentTasks(): Promise<{ dismissed: number }> {
+	return request('/agent/tasks/dismiss', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ all: 'completed' })
@@ -604,7 +604,7 @@ export async function submitDirective(id: number, intent?: string): Promise<{ st
 }
 
 export async function spawnTask(parentId: number, intent?: string, options?: { commitADR?: boolean }): Promise<{ id: number; target: string; session: string }> {
-	const res = await fetch(`${BASE}/claude/tasks/spawn`, {
+	const res = await fetch(`${BASE}/agent/tasks/spawn`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ parentId, intent, commitADR: options?.commitADR })
@@ -619,7 +619,7 @@ export async function spawnTask(parentId: number, intent?: string, options?: { c
 }
 
 export function cancelTask(id: number): Promise<{ status: string }> {
-	return request('/claude/tasks/cancel', {
+	return request('/agent/tasks/cancel', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ id })

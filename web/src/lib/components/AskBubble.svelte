@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { CircleQuestionMark, Send } from 'lucide-svelte';
-	import { askClaude } from '$lib/api';
+	import { askAgent } from '$lib/api';
 
 	let open = $state(false);
 	let question = $state('');
@@ -12,7 +12,7 @@
 		if (!q || submitting) return;
 		submitting = true;
 		try {
-			await askClaude(q);
+			await askAgent(q);
 			question = '';
 			open = false;
 		} catch { /* silent */ }

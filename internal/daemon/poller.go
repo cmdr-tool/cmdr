@@ -190,7 +190,7 @@ func enrichAndPublishClaude(bus *EventBus, termSessions []terminal.Session) []cl
 		}
 	}
 
-	bus.Publish(Event{Type: "claude:sessions", Data: sessions})
+	bus.Publish(Event{Type: "agent:sessions", Data: sessions})
 	return sessions
 }
 
@@ -268,7 +268,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 	rows, err := db.Query(`
 		SELECT id, type, repo_path, COALESCE(intent, ''), worktree,
 		       COALESCE(started_at, created_at), COALESCE(terminal_target, '')
-		FROM claude_tasks
+		FROM agent_tasks
 		WHERE status = 'running'
 		  AND NOT (type IN ('review', 'ask'))
 	`)
@@ -317,14 +317,14 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 		// ADR-producing tasks: capture ADR from worktree as completion signal
 		if meta.Artifact == "adr" {
 			var existingResult string
-			db.QueryRow(`SELECT COALESCE(result, '') FROM claude_tasks WHERE id=?`, t.id).Scan(&existingResult)
+			db.QueryRow(`SELECT COALESCE(result, '') FROM agent_tasks WHERE id=?`, t.id).Scan(&existingResult)
 			if existingResult == "" {
 				if adr := scrapeADRFromWorktree(t.repoPath, t.worktree, t.startedAt); adr != "" {
 					now := time.Now().Format(time.RFC3339)
 					title := extractTitle(adr)
-					db.Exec(`UPDATE claude_tasks SET status='resolved', result=?, title=?, completed_at=? WHERE id=?`,
+					db.Exec(`UPDATE agent_tasks SET status='resolved', result=?, title=?, completed_at=? WHERE id=?`,
 						adr, title, now, t.id)
-					bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+					bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 						"id": t.id, "status": "resolved", "title": title,
 					}})
 					enhanceTitle(db, bus, t.id, truncate(adr, 1000))
@@ -339,8 +339,8 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 			if !windowAlive {
 				now := time.Now().Format(time.RFC3339)
 				errMsg := "design session closed without producing an ADR"
-				db.Exec(`UPDATE claude_tasks SET status='failed', error_msg=?, completed_at=? WHERE id=?`, errMsg, now, t.id)
-				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				db.Exec(`UPDATE agent_tasks SET status='failed', error_msg=?, completed_at=? WHERE id=?`, errMsg, now, t.id)
+				bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 					"id": t.id, "status": "failed", "errorMsg": errMsg,
 				}})
 				log.Printf("cmdr: task %d failed (no ADR found)", t.id)
@@ -351,16 +351,16 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 		// Delegation tasks: capture debrief file as completion signal
 		if t.taskType == "delegation" {
 			var existingResult string
-			db.QueryRow(`SELECT COALESCE(result, '') FROM claude_tasks WHERE id=?`, t.id).Scan(&existingResult)
+			db.QueryRow(`SELECT COALESCE(result, '') FROM agent_tasks WHERE id=?`, t.id).Scan(&existingResult)
 			if existingResult != "" {
 				continue
 			}
 			if debriefPath, debrief := scrapeDebrief(t.id); debrief != "" {
 				now := time.Now().Format(time.RFC3339)
-				db.Exec(`UPDATE claude_tasks SET status='completed', result=?, completed_at=? WHERE id=?`,
+				db.Exec(`UPDATE agent_tasks SET status='completed', result=?, completed_at=? WHERE id=?`,
 					debrief, now, t.id)
 				os.Remove(debriefPath)
-				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 					"id": t.id, "status": "completed",
 				}})
 				var squadName string
@@ -379,8 +379,8 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 		if meta.Artifact == "pr" && windowAlive && target != "" {
 			if prUrl := scrapePaneForPR(target); prUrl != "" {
 				now := time.Now().Format(time.RFC3339)
-				db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
-				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				db.Exec(`UPDATE agent_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
+				bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 					"id": t.id, "status": "resolved", "prUrl": prUrl,
 				}})
 				log.Printf("cmdr: task %d resolved (PR: %s)", t.id, prUrl)
@@ -397,8 +397,8 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 			if t.taskType == "review" {
 				status = "resolved"
 			}
-			db.Exec(`UPDATE claude_tasks SET status=?, completed_at=? WHERE id=?`, status, now, t.id)
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+			db.Exec(`UPDATE agent_tasks SET status=?, completed_at=? WHERE id=?`, status, now, t.id)
+			bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 				"id": t.id, "status": status,
 			}})
 			if t.taskType == "delegation" {
@@ -418,7 +418,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 // checkResolvedTasks monitors tasks with PRs awaiting merge.
 // When the PR is merged/closed AND the worktree is gone, marks completed.
 func checkResolvedTasks(db *sql.DB, bus *EventBus) {
-	rows, err := db.Query(`SELECT id, repo_path, worktree, COALESCE(pr_url, '') FROM claude_tasks WHERE status = 'resolved' AND pr_url != ''`)
+	rows, err := db.Query(`SELECT id, repo_path, worktree, COALESCE(pr_url, '') FROM agent_tasks WHERE status = 'resolved' AND pr_url != ''`)
 	if err != nil {
 		return
 	}
@@ -445,8 +445,8 @@ func checkResolvedTasks(db *sql.DB, bus *EventBus) {
 
 		if !prOpen && !worktreeExists {
 			now := time.Now().Format(time.RFC3339)
-			db.Exec(`UPDATE claude_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+			db.Exec(`UPDATE agent_tasks SET status='completed', completed_at=? WHERE id=?`, now, t.id)
+			bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 				"id": t.id, "status": "completed",
 			}})
 			log.Printf("cmdr: task %d completed (PR merged, worktree gone)", t.id)

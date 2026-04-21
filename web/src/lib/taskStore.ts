@@ -1,17 +1,17 @@
 import { writable, derived } from 'svelte/store';
 import {
-	getClaudeTasks,
-	dismissClaudeTask,
-	dismissAllClaudeTasks,
+	getAgentTasks,
+	dismissAgentTask,
+	dismissAllAgentTasks,
 	createDirective,
 	isTerminalTask,
-	type ClaudeTask
+	type AgentTask
 } from '$lib/api';
 import { events, connection } from '$lib/events';
 
 // --- Core state ---
 
-export const tasks = writable<ClaudeTask[]>([]);
+export const tasks = writable<AgentTask[]>([]);
 export const loaded = writable(false);
 
 // --- Derived views ---
@@ -30,7 +30,7 @@ export const dismissableCount = derived(visibleTasks, (t) =>
 
 export async function fetchTasks() {
 	try {
-		const t = await getClaudeTasks();
+		const t = await getAgentTasks();
 		tasks.set(t);
 	} catch { /* silent */ }
 	loaded.set(true);
@@ -38,12 +38,12 @@ export async function fetchTasks() {
 
 export async function dismiss(id: number) {
 	tasks.update((t) => t.filter((task) => task.id !== id));
-	await dismissClaudeTask(id);
+	await dismissAgentTask(id);
 }
 
 export async function clearAllCompleted() {
 	tasks.update((t) => t.filter((task) => task.type === 'delegation' || !isTerminalTask(task)));
-	await dismissAllClaudeTasks();
+	await dismissAllAgentTasks();
 }
 
 export async function create(repoPath: string, content: string = '') {
@@ -59,7 +59,7 @@ export function initTaskStore() {
 	if (initialized) return;
 	initialized = true;
 
-	events.on('claude:task', (evt) => {
+	events.on('agent:task', (evt) => {
 		if ((evt.status as string) === 'dismissed') {
 			if (evt.id) {
 				tasks.update((t) => t.filter((task) => task.id !== evt.id));

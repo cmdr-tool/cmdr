@@ -1,11 +1,11 @@
 import { writable } from 'svelte/store';
-import { killTmuxSession, type TmuxSession, type ClaudeSession } from '$lib/api';
+import { killTmuxSession, type TmuxSession, type AgentSession } from '$lib/api';
 import { events } from '$lib/events';
 
 // --- Core state ---
 
 export const sessions = writable<TmuxSession[]>([]);
-export const claudeSessions = writable<ClaudeSession[]>([]);
+export const agentSessions = writable<AgentSession[]>([]);
 export const sessionsLoaded = writable(false);
 
 // --- Actions ---
@@ -32,11 +32,11 @@ export function initSessionStore() {
 		sessionsLoaded.set(true);
 	});
 
-	events.on('claude:sessions', (data: ClaudeSession[]) => {
-		claudeSessions.set(data);
+	events.on('agent:sessions', (data: AgentSession[]) => {
+		agentSessions.set(data);
 		// Signal native app (cmdr.app) about claude activity for menubar indicator
 		if ((window as any).webkit?.messageHandlers?.activity) {
-			const hasActive = data.some((s: ClaudeSession) => s.status === 'working');
+			const hasActive = data.some((s: AgentSession) => s.status === 'working');
 			(window as any).webkit.messageHandlers.activity.postMessage({ active: hasActive });
 		}
 	});

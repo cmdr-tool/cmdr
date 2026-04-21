@@ -22,10 +22,10 @@ import (
 
 // --- Task CRUD ---
 
-func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
+func handleListAgentTasks(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		query := `SELECT id, type, status, repo_path, commit_sha, COALESCE(title, ''), COALESCE(pr_url, ''), error_msg, created_at, started_at, completed_at, COALESCE(prompt, ''), COALESCE(intent, ''), parent_id
-			FROM claude_tasks ORDER BY created_at DESC LIMIT 50`
+			FROM agent_tasks ORDER BY created_at DESC LIMIT 50`
 		rows, err := db.Query(query)
 		if err != nil {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
@@ -70,7 +70,7 @@ func handleListClaudeTasks(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func handleGetClaudeTaskResult(db *sql.DB) http.HandlerFunc {
+func handleGetAgentTaskResult(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("id")
 		if id == "" {
@@ -79,7 +79,7 @@ func handleGetClaudeTaskResult(db *sql.DB) http.HandlerFunc {
 		}
 
 		var result, prompt, status, errMsg, intent string
-		err := db.QueryRow(`SELECT result, prompt, status, error_msg, COALESCE(intent, '') FROM claude_tasks WHERE id = ?`, id).
+		err := db.QueryRow(`SELECT result, prompt, status, error_msg, COALESCE(intent, '') FROM agent_tasks WHERE id = ?`, id).
 			Scan(&result, &prompt, &status, &errMsg, &intent)
 		if err != nil {
 			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
@@ -102,7 +102,7 @@ func handleGetClaudeTaskResult(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func handleUpdateClaudeTaskResult(db *sql.DB, bus *EventBus) http.HandlerFunc {
+func handleUpdateAgentTaskResult(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -119,7 +119,7 @@ func handleUpdateClaudeTaskResult(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		}
 
 		title := extractTitle(body.Result)
-		db.Exec(`UPDATE claude_tasks SET result=?, title=? WHERE id=?`, body.Result, title, body.ID)
+		db.Exec(`UPDATE agent_tasks SET result=?, title=? WHERE id=?`, body.Result, title, body.ID)
 
 		enhanceTitle(db, bus, body.ID, truncate(body.Result, 1000))
 
@@ -128,7 +128,7 @@ func handleUpdateClaudeTaskResult(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	}
 }
 
-func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
+func handleDismissAgentTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -148,7 +148,7 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		// Guard: don't dismiss running tasks without explicit confirmation
 		if body.ID > 0 {
 			var status string
-			if err := db.QueryRow(`SELECT status FROM claude_tasks WHERE id = ?`, body.ID).Scan(&status); err == nil {
+			if err := db.QueryRow(`SELECT status FROM agent_tasks WHERE id = ?`, body.ID).Scan(&status); err == nil {
 				if status == "running" && !body.Force {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusConflict)
@@ -179,7 +179,7 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			var ci cleanupInfo
 			ci.id = body.ID
 			err := db.QueryRow(
-				`SELECT repo_path, COALESCE(worktree, ''), type, COALESCE(intent, '') FROM claude_tasks WHERE id = ?`,
+				`SELECT repo_path, COALESCE(worktree, ''), type, COALESCE(intent, '') FROM agent_tasks WHERE id = ?`,
 				body.ID,
 			).Scan(&ci.repoPath, &ci.worktreeName, &ci.taskType, &ci.intent)
 			if err == nil {
@@ -188,7 +188,7 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		} else if body.All == "completed" {
 			rows, err := db.Query(
 				`SELECT id, repo_path, COALESCE(worktree, ''), type, COALESCE(intent, '')
-				 FROM claude_tasks WHERE type != 'delegation' AND status IN ('failed', 'completed')`,
+				 FROM agent_tasks WHERE type != 'delegation' AND status IN ('failed', 'completed')`,
 			)
 			if err == nil {
 				for rows.Next() {
@@ -207,12 +207,12 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		if body.All == "completed" {
 			// Terminal = failed or completed. Resolved tasks need user action.
 			res, err = db.Exec(`
-				DELETE FROM claude_tasks
+				DELETE FROM agent_tasks
 				WHERE type != 'delegation'
 				  AND status IN ('failed', 'completed')
 			`)
 		} else if body.ID > 0 {
-			res, err = db.Exec(`DELETE FROM claude_tasks WHERE id = ?`, body.ID)
+			res, err = db.Exec(`DELETE FROM agent_tasks WHERE id = ?`, body.ID)
 		} else {
 			http.Error(w, `{"error":"missing id or all"}`, http.StatusBadRequest)
 			return
@@ -247,11 +247,11 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		n, _ := res.RowsAffected()
 
 		if body.ID > 0 && n > 0 {
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+			bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 				"id": body.ID, "status": "dismissed",
 			}})
 		} else if body.All == "completed" && n > 0 {
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+			bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 				"id": 0, "status": "dismissed",
 			}})
 		}
@@ -264,7 +264,7 @@ func handleDismissClaudeTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 // killTaskWindow kills the tmux window for a task if it's still alive.
 func killTaskWindow(db *sql.DB, taskID int) {
 	var taskType, intent string
-	if err := db.QueryRow(`SELECT type, COALESCE(intent, '') FROM claude_tasks WHERE id = ?`, taskID).Scan(&taskType, &intent); err != nil {
+	if err := db.QueryRow(`SELECT type, COALESCE(intent, '') FROM agent_tasks WHERE id = ?`, taskID).Scan(&taskType, &intent); err != nil {
 		return
 	}
 	windowName := taskWindowName(taskType, intent, taskID)
@@ -304,7 +304,7 @@ func handleCancelTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		}
 
 		var taskType, status, intent string
-		err := db.QueryRow(`SELECT type, status, COALESCE(intent, '') FROM claude_tasks WHERE id = ?`, body.ID).Scan(&taskType, &status, &intent)
+		err := db.QueryRow(`SELECT type, status, COALESCE(intent, '') FROM agent_tasks WHERE id = ?`, body.ID).Scan(&taskType, &status, &intent)
 		if err != nil {
 			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
 			return
@@ -320,20 +320,20 @@ func handleCancelTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			now := time.Now().Format(time.RFC3339)
 			if taskType == "directive" {
 				// Headless directives reset to draft like interactive ones
-				db.Exec(`UPDATE claude_tasks SET status='draft', intent='', worktree='', started_at=NULL, completed_at=NULL, result='', error_msg='', pr_url='' WHERE id=?`, body.ID)
-				bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+				db.Exec(`UPDATE agent_tasks SET status='draft', intent='', worktree='', started_at=NULL, completed_at=NULL, result='', error_msg='', pr_url='' WHERE id=?`, body.ID)
+				bus.Publish(Event{Type: "agent:stream", Data: map[string]any{
 					"id": body.ID, "type": "done",
 				}})
-				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 					"id": body.ID, "status": "draft",
 				}})
 				log.Printf("cmdr: headless directive %d cancelled, restored to draft", body.ID)
 			} else {
-				db.Exec(`UPDATE claude_tasks SET status='failed', error_msg='cancelled', completed_at=? WHERE id=?`, now, body.ID)
-				bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+				db.Exec(`UPDATE agent_tasks SET status='failed', error_msg='cancelled', completed_at=? WHERE id=?`, now, body.ID)
+				bus.Publish(Event{Type: "agent:stream", Data: map[string]any{
 					"id": body.ID, "type": "done",
 				}})
-				bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+				bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 					"id": body.ID, "status": "failed",
 				}})
 				log.Printf("cmdr: ask %d cancelled", body.ID)
@@ -342,8 +342,8 @@ func handleCancelTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			// Interactive directives: kill tmux window, reset to draft
 			killTaskWindow(db, body.ID)
 			cleanupTaskWorktree(db, body.ID)
-			db.Exec(`UPDATE claude_tasks SET status='draft', intent='', worktree='', started_at=NULL, completed_at=NULL, result='', error_msg='', pr_url='' WHERE id=?`, body.ID)
-			bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+			db.Exec(`UPDATE agent_tasks SET status='draft', intent='', worktree='', started_at=NULL, completed_at=NULL, result='', error_msg='', pr_url='' WHERE id=?`, body.ID)
+			bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 				"id": body.ID, "status": "draft",
 			}})
 			log.Printf("cmdr: directive %d cancelled, restored to draft", body.ID)
@@ -374,10 +374,10 @@ func handleResolveTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		}
 
 		now := time.Now().Format(time.RFC3339)
-		db.Exec(`UPDATE claude_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`,
+		db.Exec(`UPDATE agent_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`,
 			body.PRUrl, now, body.ID)
 
-		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+		bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 			"id": body.ID, "status": "resolved", "prUrl": body.PRUrl,
 		}})
 
@@ -476,9 +476,9 @@ func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResu
 
 	// Update task status
 	now := time.Now().Format(time.RFC3339)
-	db.Exec(`UPDATE claude_tasks SET status='running', intent=?, worktree=?, terminal_target=?, started_at=? WHERE id=?`,
+	db.Exec(`UPDATE agent_tasks SET status='running', intent=?, worktree=?, terminal_target=?, started_at=? WHERE id=?`,
 		cfg.Intent, worktreeName, target, now, cfg.TaskID)
-	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+	bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 		"id": cfg.TaskID, "status": "running", "intent": cfg.Intent, "repoPath": cfg.RepoPath,
 	}})
 
@@ -512,7 +512,7 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		var parentType, parentIntent, parentResult, repoPath, commitSha string
 		err := db.QueryRow(
 			`SELECT type, COALESCE(intent, ''), COALESCE(result, ''), repo_path, COALESCE(commit_sha, '')
-			 FROM claude_tasks WHERE id = ? AND status = 'resolved'`,
+			 FROM agent_tasks WHERE id = ? AND status = 'resolved'`,
 			body.ParentID,
 		).Scan(&parentType, &parentIntent, &parentResult, &repoPath, &commitSha)
 		if err != nil {
@@ -580,7 +580,7 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		now := time.Now().Format(time.RFC3339)
 		title := directiveTitle(childPrompt)
 		res, err := db.Exec(
-			`INSERT INTO claude_tasks (type, status, repo_path, commit_sha, prompt, title, intent, parent_id, created_at, started_at)
+			`INSERT INTO agent_tasks (type, status, repo_path, commit_sha, prompt, title, intent, parent_id, created_at, started_at)
 			 VALUES ('directive', 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`,
 			repoPath, commitSha, childPrompt, title, intent, body.ParentID, now, now,
 		)
@@ -610,14 +610,14 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		// non-retriable lifecycle transition. Everything else can be
 		// retried or is best-effort.
 		for range 3 {
-			if _, err := db.Exec(`UPDATE claude_tasks SET status='completed' WHERE id = ?`, body.ParentID); err != nil {
+			if _, err := db.Exec(`UPDATE agent_tasks SET status='completed' WHERE id = ?`, body.ParentID); err != nil {
 				log.Printf("cmdr: retrying parent %d status update: %v", body.ParentID, err)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 			break
 		}
-		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+		bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 			"id": body.ParentID, "status": "completed",
 		}})
 
@@ -751,8 +751,8 @@ func enhanceTitle(db *sql.DB, bus *EventBus, taskID int, content string) {
 			return
 		}
 
-		db.Exec(`UPDATE claude_tasks SET title=? WHERE id=?`, title, taskID)
-		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+		db.Exec(`UPDATE agent_tasks SET title=? WHERE id=?`, title, taskID)
+		bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 			"id": taskID, "title": title,
 		}})
 
@@ -829,7 +829,7 @@ func buildWorktreeName(prefix string, taskID int) string {
 // cleanupTaskWorktree removes the worktree for a single task.
 func cleanupTaskWorktree(db *sql.DB, taskID int) {
 	var repoPath, worktreeName, status string
-	err := db.QueryRow(`SELECT repo_path, worktree, status FROM claude_tasks WHERE id = ?`, taskID).
+	err := db.QueryRow(`SELECT repo_path, worktree, status FROM agent_tasks WHERE id = ?`, taskID).
 		Scan(&repoPath, &worktreeName, &status)
 	if err != nil || worktreeName == "" {
 		return

@@ -1,13 +1,13 @@
 import { writable } from 'svelte/store';
-import type { DaemonStatus, TmuxSession, ClaudeSession, ActivityResponse, ClaudeTask, BrewOutdated } from './api';
+import type { DaemonStatus, TmuxSession, AgentSession, ActivityResponse, AgentTask, BrewOutdated } from './api';
 
 type EventMap = {
 	status: DaemonStatus;
 	'tmux:sessions': TmuxSession[];
-	'claude:sessions': ClaudeSession[];
+	'agent:sessions': AgentSession[];
 	'analytics:activity': ActivityResponse;
-	'claude:task': Partial<ClaudeTask> & { id: number; status: string };
-	'claude:ask:stream': { id: number; type: 'text' | 'tool' | 'done' | 'error'; text?: string; tool?: string; detail?: string; error?: string };
+	'agent:task': Partial<AgentTask> & { id: number; status: string };
+	'agent:stream': { id: number; type: 'text' | 'tool' | 'done' | 'error'; text?: string; tool?: string; detail?: string; error?: string };
 	'brew:outdated': BrewOutdated;
 	'commits:sync': boolean;
 	'commits:watermark': { latestId: number };

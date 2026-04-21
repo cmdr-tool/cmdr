@@ -50,7 +50,7 @@ func runHeadlessStreaming(ctx context.Context, db *sql.DB, bus *EventBus, cfg He
 		WorkDir:      cfg.WorkDir,
 		SystemPrompt: cfg.SystemPrompt,
 	}, func(evt agent.StreamEvent) {
-		bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+		bus.Publish(Event{Type: "agent:stream", Data: map[string]any{
 			"id": cfg.TaskID, "type": evt.Type, "text": evt.Text, "tool": evt.Tool, "detail": evt.Detail,
 		}})
 	})
@@ -68,13 +68,13 @@ func runHeadlessStreaming(ctx context.Context, db *sql.DB, bus *EventBus, cfg He
 
 	now := time.Now().Format(time.RFC3339)
 	title := extractTitle(result.Output)
-	db.Exec(`UPDATE claude_tasks SET status='resolved', result=?, title=?, claude_session_id=?, completed_at=? WHERE id=?`,
+	db.Exec(`UPDATE agent_tasks SET status='resolved', result=?, title=?, agent_session_id=?, completed_at=? WHERE id=?`,
 		result.Output, title, result.SessionID, now, cfg.TaskID)
 
-	bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+	bus.Publish(Event{Type: "agent:stream", Data: map[string]any{
 		"id": cfg.TaskID, "type": "done",
 	}})
-	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+	bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 		"id": cfg.TaskID, "status": "resolved", "title": title,
 	}})
 
@@ -97,13 +97,13 @@ func runHeadlessSimple(ctx context.Context, db *sql.DB, bus *EventBus, cfg Headl
 
 	now := time.Now().Format(time.RFC3339)
 	title := extractTitle(out)
-	db.Exec(`UPDATE claude_tasks SET status='resolved', result=?, title=?, completed_at=? WHERE id=?`,
+	db.Exec(`UPDATE agent_tasks SET status='resolved', result=?, title=?, completed_at=? WHERE id=?`,
 		out, title, now, cfg.TaskID)
 
-	bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+	bus.Publish(Event{Type: "agent:stream", Data: map[string]any{
 		"id": cfg.TaskID, "type": "done",
 	}})
-	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+	bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 		"id": cfg.TaskID, "status": "resolved", "title": title,
 	}})
 
@@ -114,12 +114,12 @@ func runHeadlessSimple(ctx context.Context, db *sql.DB, bus *EventBus, cfg Headl
 
 func failHeadless(db *sql.DB, bus *EventBus, taskID int, err error) {
 	now := time.Now().Format(time.RFC3339)
-	db.Exec(`UPDATE claude_tasks SET status='failed', error_msg=?, completed_at=? WHERE id=?`,
+	db.Exec(`UPDATE agent_tasks SET status='failed', error_msg=?, completed_at=? WHERE id=?`,
 		err.Error(), now, taskID)
-	bus.Publish(Event{Type: "claude:ask:stream", Data: map[string]any{
+	bus.Publish(Event{Type: "agent:stream", Data: map[string]any{
 		"id": taskID, "type": "error", "error": err.Error(),
 	}})
-	bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+	bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 		"id": taskID, "status": "failed",
 	}})
 	log.Printf("cmdr: headless task %d failed: %v", taskID, err)
@@ -146,12 +146,12 @@ func cleanupOrphanedHeadlessTasks(db *sql.DB) {
 	now := time.Now().Format(time.RFC3339)
 
 	// Ask and review tasks → failed
-	res, _ := db.Exec(`UPDATE claude_tasks SET status='failed', error_msg='daemon restarted', completed_at=?
+	res, _ := db.Exec(`UPDATE agent_tasks SET status='failed', error_msg='daemon restarted', completed_at=?
 		WHERE type IN ('ask', 'review') AND status = 'running'`, now)
 	n, _ := res.RowsAffected()
 
 	// Headless directive intents (e.g. analysis) → draft
-	res2, _ := db.Exec(`UPDATE claude_tasks SET status='draft', error_msg='daemon restarted'
+	res2, _ := db.Exec(`UPDATE agent_tasks SET status='draft', error_msg='daemon restarted'
 		WHERE type = 'directive' AND status = 'running' AND intent = 'analysis'`)
 	n2, _ := res2.RowsAffected()
 
@@ -193,7 +193,7 @@ func handleAsk(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		now := time.Now().Format(time.RFC3339)
 		title := askTitle(body.Question)
 		res, err := db.Exec(`
-			INSERT INTO claude_tasks (type, status, repo_path, prompt, title, created_at, started_at)
+			INSERT INTO agent_tasks (type, status, repo_path, prompt, title, created_at, started_at)
 			VALUES ('ask', 'running', ?, ?, ?, ?, ?)
 		`, askDir, body.Question, title, now, now)
 		if err != nil {
@@ -204,7 +204,7 @@ func handleAsk(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		taskID, _ := res.LastInsertId()
 		id := int(taskID)
 
-		bus.Publish(Event{Type: "claude:task", Data: map[string]any{
+		bus.Publish(Event{Type: "agent:task", Data: map[string]any{
 			"id": id, "type": "ask", "status": "running", "title": title,
 		}})
 
@@ -238,7 +238,7 @@ func handleContinueSession(db *sql.DB) http.HandlerFunc {
 		}
 
 		var taskType, sessionID, repoPath string
-		err := db.QueryRow(`SELECT type, COALESCE(claude_session_id, ''), COALESCE(repo_path, '') FROM claude_tasks WHERE id = ?`, body.ID).
+		err := db.QueryRow(`SELECT type, COALESCE(agent_session_id, ''), COALESCE(repo_path, '') FROM agent_tasks WHERE id = ?`, body.ID).
 			Scan(&taskType, &sessionID, &repoPath)
 		if err != nil {
 			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
@@ -288,7 +288,7 @@ func handleContinueSession(db *sql.DB) http.HandlerFunc {
 		}
 
 		// Store the terminal ref for lifecycle tracking
-		db.Exec(`UPDATE claude_tasks SET terminal_target=? WHERE id=?`, target, body.ID)
+		db.Exec(`UPDATE agent_tasks SET terminal_target=? WHERE id=?`, target, body.ID)
 
 		log.Printf("cmdr: task %d continued in %s (session %s)", body.ID, target, sessionID)
 

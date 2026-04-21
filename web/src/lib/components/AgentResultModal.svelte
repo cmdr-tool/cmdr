@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { X, CircleQuestionMark, Terminal, Trash2, List } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
-	import { getClaudeTaskResult, continueAsk } from '$lib/api';
+	import { getAgentTaskResult, continueAsk } from '$lib/api';
 	import { dismiss as dismissTask } from '$lib/taskStore';
 	import { events } from '$lib/events';
 
@@ -188,7 +188,7 @@
 	onMount(async () => {
 		// Check if task is already completed (e.g., clicking a finished task)
 		try {
-			const data = await getClaudeTaskResult(taskId);
+			const data = await getAgentTaskResult(taskId);
 			if (data.status === 'completed' && data.result) {
 				streamedText = data.result;
 				status = 'completed';
@@ -202,7 +202,7 @@
 		} catch { /* task might be brand new, proceed to stream */ }
 
 		// Subscribe to streaming events
-		unsub = events.on('claude:ask:stream', (evt) => {
+		unsub = events.on('agent:stream', (evt) => {
 			if (evt.id !== taskId) return;
 
 			switch (evt.type) {
@@ -216,7 +216,7 @@
 				case 'done':
 					status = 'completed';
 					// Re-fetch to get the stored result (may differ from streamed text)
-					getClaudeTaskResult(taskId).then((data) => {
+					getAgentTaskResult(taskId).then((data) => {
 						if (data.result) streamedText = data.result;
 					}).catch(() => {});
 					break;
