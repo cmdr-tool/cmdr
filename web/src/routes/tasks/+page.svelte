@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Play, Plus, Pencil, Trash2, Power, PowerOff, ChevronDown, ChevronUp, Timer, Bot } from 'lucide-svelte';
+	import { Play, Plus, Pencil, Trash2, Power, PowerOff, Timer, Bot } from 'lucide-svelte';
 	import {
 		getTasks, runTask, type Task,
 		getAgenticTasks, createAgenticTask, updateAgenticTask, deleteAgenticTask, runAgenticTask,
@@ -348,9 +348,17 @@
 									<span class="text-bourbon-200" class:text-bourbon-500={!task.enabled}>{task.name}</span>
 									<span class="text-xs font-medium text-cmd-400 bg-cmd-700/40 px-2.5 py-0.5 rounded-full font-mono">{task.schedule}</span>
 									{#if task.last_status === 'success'}
-										<span class="text-[9px] font-mono text-green-500">passed</span>
+										<button
+											onclick={() => { if (task.last_result) expandedId = expandedId === task.id ? null : task.id; }}
+											class="text-[9px] font-mono text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full transition-colors cursor-pointer hover:bg-green-500/20"
+											class:cursor-default={!task.last_result}
+										>succeeded</button>
 									{:else if task.last_status === 'failed'}
-										<span class="text-[9px] font-mono text-red-500">failed</span>
+										<button
+											onclick={() => { if (task.last_result) expandedId = expandedId === task.id ? null : task.id; }}
+											class="text-[9px] font-mono text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full transition-colors cursor-pointer hover:bg-red-500/20"
+											class:cursor-default={!task.last_result}
+										>failed</button>
 									{/if}
 									{#if task.last_run_at}
 										<span class="text-[9px] font-mono text-bourbon-700">{timeAgo(task.last_run_at)}</span>
@@ -361,21 +369,6 @@
 						</div>
 
 						<div class="flex items-center gap-4 shrink-0 ml-4">
-							<!-- Expand result -->
-							{#if task.last_result}
-								<button
-									onclick={() => { expandedId = expandedId === task.id ? null : task.id; }}
-									class="text-bourbon-600 hover:text-bourbon-400 transition-colors cursor-pointer"
-									title="View last output"
-								>
-									{#if expandedId === task.id}
-										<ChevronUp size={14} />
-									{:else}
-										<ChevronDown size={14} />
-									{/if}
-								</button>
-							{/if}
-
 							<!-- Edit (hover reveal) -->
 							<button
 								onclick={() => openEditForm(task)}
