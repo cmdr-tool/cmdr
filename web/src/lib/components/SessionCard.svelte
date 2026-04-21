@@ -169,7 +169,7 @@
 													 st === 'waiting' ? 'bg-run-500' :
 													 st === 'idle' ? 'bg-bourbon-600' :
 													 'bg-cmd-500'}"></span>
-												{st === 'idle' ? `idle · ${paneClause.uptime}` : st === 'unknown' ? `? · ${paneClause.uptime}` : st}
+												{st === 'idle' ? `idle${paneClause.uptime ? ` · ${paneClause.uptime}` : ''}` : st === 'unknown' ? `?${paneClause.uptime ? ` · ${paneClause.uptime}` : ''}` : st}
 											</span>
 										{/if}
 										<button

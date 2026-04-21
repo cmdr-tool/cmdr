@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -212,30 +211,28 @@ func (a *Adapter) ProcessName() string { return "pi" }
 // DetectInstances finds running pi processes by scanning the process table.
 // Pi doesn't write PID-based session files, so we discover instances from `ps`.
 func (a *Adapter) DetectInstances() ([]agent.Instance, error) {
-	// ps -eo pid,comm — find processes with command "pi"
-	out, err := exec.Command("ps", "-eo", "pid,comm").Output()
-	if err != nil {
+	out, err := exec.Command("/usr/bin/pgrep", "-x", "pi").Output()
+	if err != nil || len(out) == 0 {
 		return []agent.Instance{}, nil
 	}
 
 	var instances []agent.Instance
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 || fields[1] != "pi" {
+	seen := make(map[int]bool)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
 			continue
 		}
-		pid, err := strconv.Atoi(fields[0])
-		if err != nil || !isAlive(pid) {
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil || !isAlive(pid) || seen[pid] {
 			continue
 		}
-
-		cwd := getCWD(pid)
+		seen[pid] = true
+		// CWD will be populated from the tmux pane during pane matching.
+		// We only need the PID here for process tree walking.
 		instances = append(instances, agent.Instance{
-			Agent:   "pi",
-			PID:     pid,
-			CWD:     cwd,
-			Project: filepath.Base(cwd),
-			Status:  "unknown",
+			Agent:  "pi",
+			PID:    pid,
+			Status: "unknown",
 		})
 	}
 
@@ -276,19 +273,6 @@ func isAlive(pid int) bool {
 	return proc.Signal(syscall.Signal(0)) == nil
 }
 
-// getCWD resolves the current working directory for a process via lsof.
-func getCWD(pid int) string {
-	out, err := exec.Command("lsof", "-p", strconv.Itoa(pid), "-Fn", "-d", "cwd").Output()
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.HasPrefix(line, "n/") {
-			return line[1:]
-		}
-	}
-	return ""
-}
 
 // toolDetail extracts a human-readable detail string from tool arguments.
 func toolDetail(name string, args any) string {

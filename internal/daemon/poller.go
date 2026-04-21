@@ -167,7 +167,8 @@ func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []ag
 
 	var allInstances []agent.Instance
 
-	for _, a := range agent.All() {
+	allAgents := agent.All()
+	for _, a := range allAgents {
 		instances, err := a.DetectInstances()
 		if err != nil {
 			log.Printf("cmdr: poller: %s detect error: %v", a.Name(), err)
@@ -196,6 +197,12 @@ func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []ag
 			if cp := findAncestorPane(instances[i].PID, ppidMap, shellPIDs); cp != nil {
 				instances[i].TmuxTarget = cp.target
 
+				// Populate CWD from pane if not already set (e.g. pi adapter)
+				if instances[i].CWD == "" {
+					instances[i].CWD = cp.cwd
+					instances[i].Project = filepath.Base(cp.cwd)
+				}
+
 				// Capture pane output and determine status
 				lines := capturePaneLines(cp.target)
 				instances[i].Status = a.PaneStatus(lines)
@@ -216,6 +223,7 @@ func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []ag
 type agentPane struct {
 	target   string // e.g. "cmdr:1.3"
 	shellPID int    // PID of the shell process in the pane
+	cwd      string // pane's working directory
 }
 
 // collectAgentPanes returns panes running a specific agent, matched by
@@ -240,7 +248,7 @@ func collectAgentPanes(sessions []terminal.Session, processName string, agentPID
 			for _, p := range w.Panes {
 				if p.Command == processName || paneAncestor(p.PID) {
 					target := fmt.Sprintf("%s:%d.%d", s.Name, w.Index, p.Index)
-					panes = append(panes, agentPane{target: target, shellPID: p.PID})
+					panes = append(panes, agentPane{target: target, shellPID: p.PID, cwd: p.CWD})
 				}
 			}
 		}
