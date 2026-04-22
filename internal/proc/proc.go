@@ -28,7 +28,7 @@ type Snapshot struct {
 
 // List returns a process snapshot from a single ps invocation.
 func List() (*Snapshot, error) {
-	out, err := exec.Command("ps", "-axo", "pid=,ppid=,tty=,etimes=,comm=,args=").Output()
+	out, err := exec.Command("ps", "-axo", "pid=,ppid=,tty=,lstart=,comm=,args=").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -40,22 +40,26 @@ func List() (*Snapshot, error) {
 
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 5 {
+		if len(fields) < 10 {
 			continue
 		}
 		pid, err1 := strconv.Atoi(fields[0])
 		ppid, err2 := strconv.Atoi(fields[1])
-		elapsedSec, err3 := strconv.Atoi(fields[3])
+		startedAt, err3 := time.Parse("Mon Jan 2 15:04:05 2006", strings.Join(fields[3:8], " "))
 		if err1 != nil || err2 != nil || err3 != nil {
 			continue
+		}
+		elapsed := time.Since(startedAt)
+		if elapsed < 0 {
+			elapsed = 0
 		}
 		p := Process{
 			PID:     pid,
 			PPID:    ppid,
 			TTY:     fields[2],
-			Elapsed: time.Duration(elapsedSec) * time.Second,
-			Comm:    fields[4],
-			Args:    strings.Join(fields[5:], " "),
+			Elapsed: elapsed,
+			Comm:    fields[8],
+			Args:    strings.Join(fields[9:], " "),
 		}
 		s.processes = append(s.processes, p)
 		s.byPID[pid] = p

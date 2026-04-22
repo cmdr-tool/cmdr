@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os/exec"
 	"path/filepath"
-
 )
 
 func handleSessions() http.HandlerFunc {
@@ -15,6 +14,7 @@ func handleSessions() http.HandlerFunc {
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
 			return
 		}
+		collectAgentInstances(sessions)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(sessions)
 	}

@@ -161,9 +161,10 @@ func publishStatus(bus *EventBus, s *scheduler.Scheduler) {
 	})
 }
 
-// enrichAndPublishAgents detects all running agent instances across registered
-// adapters, matches them to tmux panes, scrapes status, and publishes via SSE.
-func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []agent.Instance {
+// collectAgentInstances detects all running agent instances across registered
+// adapters, matches them to panes, scrapes status, and mutates termSessions to
+// replace shim commands (e.g. volta-shim → pi).
+func collectAgentInstances(termSessions []terminal.Session) []agent.Instance {
 	snapshot, err := proc.List()
 	if err != nil {
 		log.Printf("cmdr: poller: process snapshot error: %v", err)
@@ -184,37 +185,26 @@ func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []ag
 			continue
 		}
 
-		// Collect PIDs for this agent's instances
 		agentPIDs := make(map[int]bool, len(instances))
 		for _, inst := range instances {
 			agentPIDs[inst.PID] = true
 		}
 
-		// Find panes running this agent (by command name or PID ancestry)
 		panes := collectAgentPanes(termSessions, a.ProcessName(), agentPIDs, ppidMap)
-
 		shellPIDs := make(map[int]*agentPane)
 		for i := range panes {
 			shellPIDs[panes[i].shellPID] = &panes[i]
 		}
 
-		// Match instances to panes and scrape status
 		for i := range instances {
 			if cp := findAncestorPane(instances[i].PID, ppidMap, shellPIDs); cp != nil {
 				instances[i].TmuxTarget = cp.target
-
-				// Populate CWD from pane if not already set (e.g. pi adapter)
 				if instances[i].CWD == "" {
 					instances[i].CWD = cp.cwd
 					instances[i].Project = filepath.Base(cp.cwd)
 				}
-
-				// Override pane command with agent name (e.g. "volta-shim" → "pi")
 				paneOverrides[cp.target] = a.Name()
-
-				// Capture pane output and determine status
-				lines := capturePaneLines(cp.target)
-				instances[i].Status = a.PaneStatus(lines)
+				instances[i].Status = a.PaneStatus(capturePaneLines(cp.target))
 			}
 		}
 
@@ -224,9 +214,14 @@ func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []ag
 	if allInstances == nil {
 		allInstances = []agent.Instance{}
 	}
-
 	overridePaneCommands(termSessions, paneOverrides)
+	return allInstances
+}
 
+// enrichAndPublishAgents detects all running agent instances across registered
+// adapters, matches them to tmux panes, scrapes status, and publishes via SSE.
+func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []agent.Instance {
+	allInstances := collectAgentInstances(termSessions)
 	bus.Publish(Event{Type: "agent:sessions", Data: allInstances})
 	return allInstances
 }
