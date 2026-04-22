@@ -211,8 +211,10 @@ func (a *Adapter) ResumeCommand(sessionID string) (string, error) {
 
 func (a *Adapter) ProcessName() string { return "pi" }
 
-// DetectInstances finds interactive pi processes from a shared process snapshot.
-// Pi often forks a child pi process, so we keep only root pi processes with a TTY.
+// DetectInstances finds root pi processes from a shared process snapshot.
+// Pi often forks a child pi process, so we keep only top-level pi processes.
+// Interactive instances will later be matched to tmux panes; headless ones stay
+// unmatched and show up in the UI's "Additional pi Instances" section.
 func (a *Adapter) DetectInstances(snapshot *proc.Snapshot) ([]agent.Instance, error) {
 	if snapshot == nil {
 		var err error
@@ -224,20 +226,24 @@ func (a *Adapter) DetectInstances(snapshot *proc.Snapshot) ([]agent.Instance, er
 
 	var instances []agent.Instance
 	for _, p := range snapshot.Processes() {
-		if !isPiProcess(p) || !isInteractiveTTY(p.TTY) || !isAlive(p.PID) {
+		if !isPiProcess(p) || !isAlive(p.PID) {
 			continue
 		}
 		if parent, ok := snapshot.Process(p.PPID); ok && isPiProcess(parent) {
-			continue // nested pi child of the same interactive run
+			continue // nested pi child of the same run
 		}
 
 		cwd := proc.Cwd(p.PID)
+		project := ""
+		if cwd != "" {
+			project = filepath.Base(cwd)
+		}
 		startedAt := time.Now().Add(-p.Elapsed).UnixMilli()
 		instances = append(instances, agent.Instance{
 			Agent:     "pi",
 			PID:       p.PID,
 			CWD:       cwd,
-			Project:   filepath.Base(cwd),
+			Project:   project,
 			StartedAt: startedAt,
 			Uptime:    proc.FormatUptime(p.Elapsed),
 			Status:    "unknown",
@@ -306,11 +312,6 @@ func isPiProcess(p proc.Process) bool {
 	return proc.BaseCommand(p.Args) == "pi"
 }
 
-func isInteractiveTTY(tty string) bool {
-	tty = strings.TrimSpace(tty)
-	return tty != "" && tty != "??"
-}
-
 func piFooterKey(lines []string) (string, bool) {
 	for i := 0; i < len(lines)-1; i++ {
 		pwdLine := strings.TrimSpace(lines[i])
@@ -376,7 +377,7 @@ func toolDetail(name string, args any) string {
 	if !ok {
 		return ""
 	}
-	switch name {
+	switch strings.ToLower(name) {
 	case "bash":
 		if cmd, ok := m["command"].(string); ok {
 			if len(cmd) > 60 {
@@ -384,23 +385,14 @@ func toolDetail(name string, args any) string {
 			}
 			return cmd
 		}
-	case "read":
+	case "read", "edit", "write":
+		if p, ok := m["path"].(string); ok {
+			return p
+		}
 		if p, ok := m["file_path"].(string); ok {
 			return p
 		}
-	case "edit":
-		if p, ok := m["file_path"].(string); ok {
-			return p
-		}
-	case "write":
-		if p, ok := m["file_path"].(string); ok {
-			return p
-		}
-	case "grep":
-		if p, ok := m["pattern"].(string); ok {
-			return p
-		}
-	case "find":
+	case "grep", "find", "glob":
 		if p, ok := m["pattern"].(string); ok {
 			return p
 		}

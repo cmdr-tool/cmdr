@@ -70,11 +70,22 @@
 
 	// --- Streaming tool status ---
 	function toolStatusLabel(tool: string, detail: string): string {
-		switch (tool) {
-			case 'Glob': return detail ? `searching for ${detail}` : 'searching files';
-			case 'Grep': return detail ? `searching for "${detail}"` : 'searching files';
-			case 'Read': return detail ? `reading ${detail}` : 'reading file';
-			default: return tool.toLowerCase();
+		switch (tool.toLowerCase()) {
+			case 'glob':
+			case 'find':
+				return detail ? `searching for ${detail}` : 'searching files';
+			case 'grep':
+				return detail ? `searching for "${detail}"` : 'searching files';
+			case 'read':
+				return detail ? `reading ${detail}` : 'reading file';
+			case 'edit':
+				return detail ? `editing ${detail}` : 'editing file';
+			case 'write':
+				return detail ? `writing ${detail}` : 'writing file';
+			case 'bash':
+				return detail ? `running ${detail}` : 'running command';
+			default:
+				return tool.toLowerCase();
 		}
 	}
 

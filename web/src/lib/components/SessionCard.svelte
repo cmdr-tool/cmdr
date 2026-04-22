@@ -61,6 +61,10 @@
 		return `${sessionName}:${winIdx}.${paneIdx}`;
 	}
 
+	function displayAgentName(agentName: string): string {
+		return agentName.toLowerCase();
+	}
+
 	// Map agent sessions by their tmux pane target
 	let agentByTarget = $derived(
 		new Map($agentSessionsStore.filter((c) => c.tmuxTarget).map((c) => [c.tmuxTarget, c]))
@@ -223,7 +227,7 @@
 	{/if}
 
 	{#each [...unmatchedByAgent().entries()] as [agentName, instances]}
-		<h3 class="text-xs font-semibold text-bourbon-500 mt-6 mb-2">Additional {agentName} Instances</h3>
+		<h3 class="text-xs font-semibold text-bourbon-500 mt-6 mb-2">Additional {displayAgentName(agentName)} instances</h3>
 		<div class="flex flex-col gap-1.5">
 			{#each instances as instance}
 				<div class="flex items-center gap-3 bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5 min-w-0">

@@ -45,7 +45,7 @@ func List() (*Snapshot, error) {
 		}
 		pid, err1 := strconv.Atoi(fields[0])
 		ppid, err2 := strconv.Atoi(fields[1])
-		startedAt, err3 := time.Parse("Mon Jan 2 15:04:05 2006", strings.Join(fields[3:8], " "))
+		startedAt, err3 := time.ParseInLocation("Mon Jan 2 15:04:05 2006", strings.Join(fields[3:8], " "), time.Local)
 		if err1 != nil || err2 != nil || err3 != nil {
 			continue
 		}
@@ -97,13 +97,15 @@ func (s *Snapshot) ParentMap() map[int]int {
 
 // Cwd returns the current working directory for pid, if available.
 func Cwd(pid int) string {
-	out, err := exec.Command("lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.HasPrefix(line, "n") {
-			return strings.TrimPrefix(line, "n")
+	for _, bin := range []string{"/usr/sbin/lsof", "lsof"} {
+		out, err := exec.Command(bin, "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(line, "n") {
+				return strings.TrimPrefix(line, "n")
+			}
 		}
 	}
 	return ""
