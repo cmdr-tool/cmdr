@@ -140,10 +140,10 @@
 									unknown: 'text-cmd-400 bg-cmd-700/30 animate-pulse'
 								}[agentInst.status]}
 								{@const statusLabel = {
-									working: `${agentInst.agent} · working`,
-									waiting: `${agentInst.agent} · waiting`,
-									idle: `${agentInst.agent} · idle${agentInst.uptime ? ` · ${agentInst.uptime}` : ''}`,
-									unknown: `${agentInst.agent} · ?${agentInst.uptime ? ` · ${agentInst.uptime}` : ''}`
+									working: `working`,
+									waiting: `waiting`,
+									idle: `idle${agentInst.uptime ? ` · ${agentInst.uptime}` : ''}`,
+									unknown: `?${agentInst.uptime ? ` · ${agentInst.uptime}` : ''}`
 								}[agentInst.status]}
 								<span class="flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full {statusStyle}">
 									<Sparkles size={10} />
