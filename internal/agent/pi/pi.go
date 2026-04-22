@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
+	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cmdr-tool/cmdr/internal/agent"
+	"github.com/cmdr-tool/cmdr/internal/proc"
 )
 
 func init() {
@@ -208,31 +210,36 @@ func (a *Adapter) ResumeCommand(sessionID string) (string, error) {
 
 func (a *Adapter) ProcessName() string { return "pi" }
 
-// DetectInstances finds running pi processes by scanning the process table.
-// Pi doesn't write PID-based session files, so we discover instances from `ps`.
-func (a *Adapter) DetectInstances() ([]agent.Instance, error) {
-	out, err := exec.Command("/usr/bin/pgrep", "-x", "pi").Output()
-	if err != nil || len(out) == 0 {
-		return []agent.Instance{}, nil
+// DetectInstances finds interactive pi processes from a shared process snapshot.
+// Pi often forks a child pi process, so we keep only root pi processes with a TTY.
+func (a *Adapter) DetectInstances(snapshot *proc.Snapshot) ([]agent.Instance, error) {
+	if snapshot == nil {
+		var err error
+		snapshot, err = proc.List()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var instances []agent.Instance
-	seen := make(map[int]bool)
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
+	for _, p := range snapshot.Processes() {
+		if !isPiProcess(p) || !isInteractiveTTY(p.TTY) || !isAlive(p.PID) {
 			continue
 		}
-		pid, err := strconv.Atoi(strings.TrimSpace(line))
-		if err != nil || !isAlive(pid) || seen[pid] {
-			continue
+		if parent, ok := snapshot.Process(p.PPID); ok && isPiProcess(parent) {
+			continue // nested pi child of the same interactive run
 		}
-		seen[pid] = true
-		// CWD will be populated from the tmux pane during pane matching.
-		// We only need the PID here for process tree walking.
+
+		cwd := proc.Cwd(p.PID)
+		startedAt := time.Now().Add(-p.Elapsed).UnixMilli()
 		instances = append(instances, agent.Instance{
-			Agent:  "pi",
-			PID:    pid,
-			Status: "unknown",
+			Agent:     "pi",
+			PID:       p.PID,
+			CWD:       cwd,
+			Project:   filepath.Base(cwd),
+			StartedAt: startedAt,
+			Uptime:    proc.FormatUptime(p.Elapsed),
+			Status:    "unknown",
 		})
 	}
 
@@ -245,19 +252,27 @@ func (a *Adapter) DetectInstances() ([]agent.Instance, error) {
 // PaneStatus determines pi's status from captured terminal pane lines.
 func (a *Adapter) PaneStatus(lines []string) string {
 	tail := lines
-	if len(tail) > 5 {
-		tail = tail[len(tail)-5:]
+	if len(tail) > 20 {
+		tail = tail[len(tail)-20:]
 	}
 
 	for _, line := range tail {
-		if strings.Contains(line, "escape interrupt") {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if lower == "" {
+			continue
+		}
+		if strings.Contains(lower, "working...") || strings.Contains(lower, "working…") || strings.Contains(lower, "running...") || strings.Contains(lower, "running…") || strings.Contains(lower, "escape interrupt") {
 			return "working"
 		}
 	}
 
-	// Pi's idle prompt shows the path and model info at the bottom
+	if hasPiFooter(tail) {
+		return "idle"
+	}
+
 	for _, line := range tail {
-		if strings.Contains(line, "gpt-") || strings.Contains(line, "claude-") || strings.Contains(line, "gemini") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "ctrl+o to expand") || strings.Contains(lower, "ctrl+o") {
 			return "idle"
 		}
 	}
@@ -273,6 +288,52 @@ func isAlive(pid int) bool {
 	return proc.Signal(syscall.Signal(0)) == nil
 }
 
+func isPiProcess(p proc.Process) bool {
+	if p.Comm == "pi" {
+		return true
+	}
+	return proc.BaseCommand(p.Args) == "pi"
+}
+
+func isInteractiveTTY(tty string) bool {
+	tty = strings.TrimSpace(tty)
+	return tty != "" && tty != "??"
+}
+
+func hasPiFooter(lines []string) bool {
+	for i := 0; i < len(lines)-1; i++ {
+		pwdLine := strings.TrimSpace(lines[i])
+		statsLine := strings.TrimSpace(lines[i+1])
+		if pwdLine == "" || statsLine == "" {
+			continue
+		}
+		if looksLikePiPwdLine(pwdLine) && looksLikePiStatsLine(statsLine) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikePiPwdLine(line string) bool {
+	if strings.HasPrefix(line, "/") || strings.HasPrefix(line, "~") {
+		return true
+	}
+	return false
+}
+
+func looksLikePiStatsLine(line string) bool {
+	lower := strings.ToLower(line)
+	if !strings.Contains(line, "/") {
+		return false
+	}
+	if !(strings.Contains(lower, "gpt") || strings.Contains(lower, "claude") || strings.Contains(lower, "gemini") || strings.Contains(lower, "codex") || strings.Contains(lower, "no-model")) {
+		return false
+	}
+	if !strings.Contains(line, "•") && !strings.Contains(lower, "thinking off") {
+		return false
+	}
+	return strings.Contains(line, "↑") || strings.Contains(line, "↓") || strings.Contains(line, "$") || strings.Contains(lower, "(sub)")
+}
 
 // toolDetail extracts a human-readable detail string from tool arguments.
 func toolDetail(name string, args any) string {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cmdr-tool/cmdr/internal/agent"
+	"github.com/cmdr-tool/cmdr/internal/proc"
 	"github.com/cmdr-tool/cmdr/internal/prompts"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
 	"github.com/cmdr-tool/cmdr/internal/terminal"
@@ -163,13 +164,18 @@ func publishStatus(bus *EventBus, s *scheduler.Scheduler) {
 // enrichAndPublishAgents detects all running agent instances across registered
 // adapters, matches them to tmux panes, scrapes status, and publishes via SSE.
 func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []agent.Instance {
-	ppidMap := getParentPIDs()
+	snapshot, err := proc.List()
+	if err != nil {
+		log.Printf("cmdr: poller: process snapshot error: %v", err)
+	}
+	ppidMap := parentPIDMap(snapshot)
 
 	var allInstances []agent.Instance
+	paneOverrides := make(map[string]string) // tmuxTarget → agent name
 
 	allAgents := agent.All()
 	for _, a := range allAgents {
-		instances, err := a.DetectInstances()
+		instances, err := a.DetectInstances(snapshot)
 		if err != nil {
 			log.Printf("cmdr: poller: %s detect error: %v", a.Name(), err)
 			continue
@@ -203,6 +209,9 @@ func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []ag
 					instances[i].Project = filepath.Base(cp.cwd)
 				}
 
+				// Override pane command with agent name (e.g. "volta-shim" → "pi")
+				paneOverrides[cp.target] = a.Name()
+
 				// Capture pane output and determine status
 				lines := capturePaneLines(cp.target)
 				instances[i].Status = a.PaneStatus(lines)
@@ -215,6 +224,8 @@ func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []ag
 	if allInstances == nil {
 		allInstances = []agent.Instance{}
 	}
+
+	overridePaneCommands(termSessions, paneOverrides)
 
 	bus.Publish(Event{Type: "agent:sessions", Data: allInstances})
 	return allInstances
@@ -243,31 +254,21 @@ func collectAgentPanes(sessions []terminal.Session, processName string, agentPID
 	}
 
 	var panes []agentPane
-	for _, s := range sessions {
-		for _, w := range s.Windows {
-			for _, p := range w.Panes {
-				if p.Command == processName || paneAncestor(p.PID) {
-					target := fmt.Sprintf("%s:%d.%d", s.Name, w.Index, p.Index)
-					panes = append(panes, agentPane{target: target, shellPID: p.PID, cwd: p.CWD})
-				}
-			}
+	forEachPane(sessions, func(target string, p *terminal.Pane) {
+		if p.Command == processName || paneAncestor(p.PID) {
+			panes = append(panes, agentPane{target: target, shellPID: p.PID, cwd: p.CWD})
 		}
-	}
+	})
 	return panes
 }
 
 // capturePaneLines captures terminal output from a tmux pane and returns it as lines.
-func capturePaneLines(tmuxTarget string) []string {
-	socketPath := tmuxSocketPath()
-	out, err := exec.Command("tmux", "-S", socketPath, "capture-pane", "-t", tmuxTarget, "-p").Output()
-	if err != nil {
+func capturePaneLines(target string) []string {
+	out, err := term.CapturePane(target, 100)
+	if err != nil || out == "" {
 		return nil
 	}
-	return strings.Split(strings.TrimRight(string(out), "\n"), "\n")
-}
-
-func tmuxSocketPath() string {
-	return fmt.Sprintf("/private/tmp/tmux-%d/default", os.Getuid())
+	return strings.Split(strings.TrimRight(out, "\n"), "\n")
 }
 
 // findAncestorPane walks up the process tree from pid to find a matching pane shell.
@@ -602,24 +603,29 @@ func publishCommitWatermark(bus *EventBus, db *sql.DB) {
 	bus.Publish(Event{Type: "commits:watermark", Data: map[string]any{"latestId": latestID}})
 }
 
-// getParentPIDs returns a map of PID → PPID for all processes.
-// Single `ps` call, efficient for matching Claude PIDs to pane shell PIDs.
-func getParentPIDs() map[int]int {
-	out, err := exec.Command("ps", "-eo", "pid,ppid").Output()
-	if err != nil {
+func overridePaneCommands(sessions []terminal.Session, overrides map[string]string) {
+	forEachPane(sessions, func(target string, pane *terminal.Pane) {
+		if agentName, ok := overrides[target]; ok {
+			pane.Command = agentName
+		}
+	})
+}
+
+func forEachPane(sessions []terminal.Session, fn func(target string, pane *terminal.Pane)) {
+	for si := range sessions {
+		for wi := range sessions[si].Windows {
+			for pi := range sessions[si].Windows[wi].Panes {
+				pane := &sessions[si].Windows[wi].Panes[pi]
+				target := fmt.Sprintf("%s:%d.%d", sessions[si].Name, sessions[si].Windows[wi].Index, pane.Index)
+				fn(target, pane)
+			}
+		}
+	}
+}
+
+func parentPIDMap(snapshot *proc.Snapshot) map[int]int {
+	if snapshot == nil {
 		return nil
 	}
-	m := make(map[int]int)
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 {
-			continue
-		}
-		pid, err1 := strconv.Atoi(fields[0])
-		ppid, err2 := strconv.Atoi(fields[1])
-		if err1 == nil && err2 == nil {
-			m[pid] = ppid
-		}
-	}
-	return m
+	return snapshot.ParentMap()
 }

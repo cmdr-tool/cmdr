@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cmdr-tool/cmdr/internal/agent"
+	"github.com/cmdr-tool/cmdr/internal/proc"
 )
 
 func init() {
@@ -171,7 +172,7 @@ func (a *Adapter) ResumeCommand(sessionID string) (string, error) {
 func (a *Adapter) ProcessName() string { return "claude" }
 
 // DetectInstances reads ~/.claude/sessions/*.json for active Claude sessions.
-func (a *Adapter) DetectInstances() ([]agent.Instance, error) {
+func (a *Adapter) DetectInstances(_ *proc.Snapshot) ([]agent.Instance, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -309,26 +310,7 @@ func isAlive(pid int) bool {
 }
 
 func formatUptime(d time.Duration) string {
-	if d < time.Minute {
-		return "<1m"
-	}
-	if d < time.Hour {
-		return strings.TrimSuffix(d.Truncate(time.Minute).String(), "0s")
-	}
-	h := int(d.Hours())
-	m := int(d.Minutes()) % 60
-	if h >= 24 {
-		days := h / 24
-		h = h % 24
-		if h == 0 {
-			return fmt.Sprintf("%dd", days)
-		}
-		return fmt.Sprintf("%dd %dh", days, h)
-	}
-	if m == 0 {
-		return fmt.Sprintf("%dh", h)
-	}
-	return fmt.Sprintf("%dh %dm", h, m)
+	return proc.FormatUptime(d)
 }
 
 // toolDetail extracts a human-readable detail string from a tool_use input.

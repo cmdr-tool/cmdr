@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 	"sync"
+
+	"github.com/cmdr-tool/cmdr/internal/proc"
 )
 
 // Agent abstracts an AI coding agent (Claude, Codex, pi.dev, etc.).
@@ -35,8 +37,9 @@ type Agent interface {
 	ProcessName() string
 
 	// DetectInstances returns currently running instances of this agent.
-	// Used by the poller for process-to-pane matching and the "unmatched instances" UI.
-	DetectInstances() ([]Instance, error)
+	// The shared process snapshot is captured once by the daemon and passed to
+	// adapters so detection stays cheap and consistent under launchd.
+	DetectInstances(snapshot *proc.Snapshot) ([]Instance, error)
 
 	// PaneStatus determines the agent's status from captured terminal pane output.
 	// Returns "working", "waiting", "idle", or "unknown".
@@ -82,14 +85,14 @@ type StreamResult struct {
 
 // Instance represents a running agent process detected by the adapter.
 type Instance struct {
-	Agent     string `json:"agent"`               // adapter name
-	PID       int    `json:"pid"`
-	SessionID string `json:"sessionId,omitempty"`
-	CWD       string `json:"cwd"`
-	Project   string `json:"project"`
-	StartedAt int64  `json:"startedAt,omitempty"`
-	Uptime    string `json:"uptime,omitempty"`
-	Status    string `json:"status"`              // "working", "waiting", "idle", "unknown"
+	Agent      string `json:"agent"` // adapter name
+	PID        int    `json:"pid"`
+	SessionID  string `json:"sessionId,omitempty"`
+	CWD        string `json:"cwd"`
+	Project    string `json:"project"`
+	StartedAt  int64  `json:"startedAt,omitempty"`
+	Uptime     string `json:"uptime,omitempty"`
+	Status     string `json:"status"` // "working", "waiting", "idle", "unknown"
 	TmuxTarget string `json:"tmuxTarget,omitempty"`
 }
 
