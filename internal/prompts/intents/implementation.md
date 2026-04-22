@@ -15,6 +15,7 @@ If a finding or section was removed from the plan, the user decided it's not app
 
 ## When done
 
-Commit with a clear message referencing what was implemented and why, then push the branch and create a PR.
+1. **Commit** with a semantic commit message — use the appropriate prefix (`feat:`, `fix:`, `refactor:`, etc.) based on the nature of the change.
+2. **Push** and **create a PR** with a semantic title matching the commit. Keep the body concise: what was implemented and reference the plan/ADR.
 
 If you encounter genuine ambiguity that the plan doesn't resolve, ask rather than guessing.

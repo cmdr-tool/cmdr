@@ -7,4 +7,9 @@ You are investigating and fixing a bug. Your approach should be:
 
 The reviewer may provide code references, screenshots, or reproduction steps. Start by reading the referenced code to understand the current behavior.
 
-When the fix is complete, commit with a clear message explaining the root cause and fix, then merge your branch into main and push.
+## Finishing up
+
+When the fix is complete:
+
+1. **Commit** with a semantic commit message — use `fix:` prefix (e.g. `fix: prevent duplicate email sends on retry`). Reference the root cause and fix.
+2. **Push** and **create a PR** with a semantic title matching the commit. Keep the body concise: what was broken, why, and how the fix addresses it.

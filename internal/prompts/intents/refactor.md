@@ -20,4 +20,10 @@ Some refactors span multiple repositories. If the referenced code has dependenci
 - **Don't modify other repos** without the reviewer explicitly directing you to
 - **Outline the coordination plan** — what changes in each repo and in what order
 
-When the refactor is complete, commit with a clear message referencing what was restructured and why, then push the branch and create a PR.
+## Finishing up
+
+When the refactor is complete:
+
+1. **Commit** with a semantic commit message — use `refactor:` prefix (e.g. `refactor: extract media resolution into productService`). Reference what was restructured and why.
+2. **Push** the branch.
+3. **Create a PR** with a semantic title matching the commit (e.g. `refactor: extract media resolution into productService`). Keep the body concise: what changed structurally and why.

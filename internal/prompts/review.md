@@ -69,8 +69,6 @@ For each finding, use:
 **Issue:** One-sentence description of what's wrong
 **Severity:** must-fix | should-fix | optional
 
-> Code in question:
-
 \`\`\`language
 // the relevant code snippet from the diff or current file
 // include enough surrounding context to understand the problem
