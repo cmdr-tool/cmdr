@@ -63,7 +63,7 @@
 	}
 
 	function displayAgentName(agentName: string): string {
-		return agentName.toLowerCase();
+		return agentName.charAt(0).toUpperCase() + agentName.slice(1);
 	}
 
 	// Map agent sessions by their tmux pane target
