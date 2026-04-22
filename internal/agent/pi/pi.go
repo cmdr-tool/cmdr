@@ -263,7 +263,7 @@ func (a *Adapter) PaneStatus(lines []string) string {
 		if lower == "" {
 			continue
 		}
-		if strings.Contains(lower, "working...") || strings.Contains(lower, "working…") || strings.Contains(lower, "running...") || strings.Contains(lower, "running…") || strings.Contains(lower, "escape interrupt") {
+		if strings.Contains(lower, "working...") || strings.Contains(lower, "working…") || strings.Contains(lower, "running...") || strings.Contains(lower, "running…") || strings.Contains(lower, "compacting context...") || strings.Contains(lower, "compacting context…") || strings.Contains(lower, "escape interrupt") {
 			if hasFooter {
 				piStatusTracker.markWorking(footerKey)
 			}
