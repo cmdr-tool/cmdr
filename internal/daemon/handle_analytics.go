@@ -12,15 +12,20 @@ type activityBucket struct {
 	Bucket        int `json:"bucket"`
 	Samples       int `json:"samples"`       // total 5s samples in this window
 	Nvim          int `json:"nvim"`           // samples where active tool was nvim
-	Claude        int `json:"claude"`         // samples where active tool was claude
+	Agent         int `json:"agent"`          // samples where active tool was any agent (claude+pi)
 	Other         int `json:"other"`          // samples where active tool was other
 	Inactive      int `json:"inactive"`       // samples where inactive (no attached session)
 	Away          int `json:"away"`           // samples where user was away from keyboard
-	ClaudeTotal   int `json:"claudeTotal"`    // avg total agent instances
+	ClaudeTotal   int `json:"claudeTotal"`    // avg total claude instances
 	ClaudeWorking int `json:"claudeWorking"`  // avg working
 	ClaudeWaiting int `json:"claudeWaiting"`  // avg waiting
 	ClaudeIdle    int `json:"claudeIdle"`     // avg idle
 	ClaudeUnknown int `json:"claudeUnknown"`  // avg unknown
+	PiTotal       int `json:"piTotal"`        // avg total pi instances
+	PiWorking     int `json:"piWorking"`      // avg working
+	PiWaiting     int `json:"piWaiting"`      // avg waiting
+	PiIdle        int `json:"piIdle"`         // avg idle
+	PiUnknown     int `json:"piUnknown"`      // avg unknown
 }
 
 type activityDay struct {
@@ -37,9 +42,10 @@ type activityResponse struct {
 }
 
 type rawSample struct {
-	bucket                                int
-	tool                                  string
-	total, working, waiting, idle, unknown int
+	bucket                                          int
+	tool                                            string
+	cTotal, cWorking, cWaiting, cIdle, cUnknown     int
+	pTotal, pWorking, pWaiting, pIdle, pUnknown     int
 }
 
 func handleActivityAnalytics(db *sql.DB) http.HandlerFunc {
@@ -82,7 +88,9 @@ func handleActivityAnalytics(db *sql.DB) http.HandlerFunc {
 
 func querySlot(db *sql.DB, slot, mergeCount int) []activityBucket {
 	rows, err := db.Query(`
-		SELECT bucket, active_tool, claude_total, claude_working, claude_waiting, claude_idle, claude_unknown
+		SELECT bucket, active_tool,
+			claude_total, claude_working, claude_waiting, claude_idle, claude_unknown,
+			pi_total, pi_working, pi_waiting, pi_idle, pi_unknown
 		FROM activity_buckets
 		WHERE slot = ? AND recorded_at IS NOT NULL
 		ORDER BY bucket
@@ -95,7 +103,10 @@ func querySlot(db *sql.DB, slot, mergeCount int) []activityBucket {
 	groups := make(map[int][]rawSample)
 	for rows.Next() {
 		var r rawSample
-		if err := rows.Scan(&r.bucket, &r.tool, &r.total, &r.working, &r.waiting, &r.idle, &r.unknown); err != nil {
+		if err := rows.Scan(&r.bucket, &r.tool,
+			&r.cTotal, &r.cWorking, &r.cWaiting, &r.cIdle, &r.cUnknown,
+			&r.pTotal, &r.pWorking, &r.pWaiting, &r.pIdle, &r.pUnknown,
+		); err != nil {
 			continue
 		}
 		groups[r.bucket/mergeCount] = append(groups[r.bucket/mergeCount], r)
@@ -128,13 +139,14 @@ func mergeSamples(idx int, raws []rawSample) activityBucket {
 	}
 
 	b := activityBucket{Bucket: idx, Samples: n}
-	var sumTotal, sumWorking, sumWaiting, sumIdle, sumUnknown int
+	var cSumTotal, cSumWorking, cSumWaiting, cSumIdle, cSumUnknown int
+	var pSumTotal, pSumWorking, pSumWaiting, pSumIdle, pSumUnknown int
 	for _, r := range raws {
 		switch r.tool {
 		case "nvim", "vim":
 			b.Nvim++
-		case "claude":
-			b.Claude++
+		case "claude", "pi":
+			b.Agent++
 		case "other":
 			b.Other++
 		case "away":
@@ -142,17 +154,28 @@ func mergeSamples(idx int, raws []rawSample) activityBucket {
 		default:
 			b.Inactive++
 		}
-		sumTotal += r.total
-		sumWorking += r.working
-		sumWaiting += r.waiting
-		sumIdle += r.idle
-		sumUnknown += r.unknown
+		cSumTotal += r.cTotal
+		cSumWorking += r.cWorking
+		cSumWaiting += r.cWaiting
+		cSumIdle += r.cIdle
+		cSumUnknown += r.cUnknown
+		pSumTotal += r.pTotal
+		pSumWorking += r.pWorking
+		pSumWaiting += r.pWaiting
+		pSumIdle += r.pIdle
+		pSumUnknown += r.pUnknown
 	}
 
-	b.ClaudeTotal = int(math.Round(float64(sumTotal) / float64(n)))
-	b.ClaudeWorking = int(math.Round(float64(sumWorking) / float64(n)))
-	b.ClaudeWaiting = int(math.Round(float64(sumWaiting) / float64(n)))
-	b.ClaudeIdle = int(math.Round(float64(sumIdle) / float64(n)))
-	b.ClaudeUnknown = int(math.Round(float64(sumUnknown) / float64(n)))
+	fn := float64(n)
+	b.ClaudeTotal = int(math.Round(float64(cSumTotal) / fn))
+	b.ClaudeWorking = int(math.Round(float64(cSumWorking) / fn))
+	b.ClaudeWaiting = int(math.Round(float64(cSumWaiting) / fn))
+	b.ClaudeIdle = int(math.Round(float64(cSumIdle) / fn))
+	b.ClaudeUnknown = int(math.Round(float64(cSumUnknown) / fn))
+	b.PiTotal = int(math.Round(float64(pSumTotal) / fn))
+	b.PiWorking = int(math.Round(float64(pSumWorking) / fn))
+	b.PiWaiting = int(math.Round(float64(pSumWaiting) / fn))
+	b.PiIdle = int(math.Round(float64(pSumIdle) / fn))
+	b.PiUnknown = int(math.Round(float64(pSumUnknown) / fn))
 	return b
 }

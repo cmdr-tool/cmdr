@@ -34,12 +34,19 @@ func recordActivity(db *sql.DB, termSessions []terminal.Session, agentInstances 
 	} else {
 		activeTool = determineActiveTool(termSessions)
 	}
-	total, working, waiting, idle, unknown := countAgentStates(agentInstances, "claude")
+	cTotal, cWorking, cWaiting, cIdle, cUnknown := countAgentStates(agentInstances, "claude")
+	pTotal, pWorking, pWaiting, pIdle, pUnknown := countAgentStates(agentInstances, "pi")
 
 	_, err := db.Exec(`INSERT OR REPLACE INTO activity_buckets
-		(slot, bucket, active_tool, claude_total, claude_working, claude_waiting, claude_idle, claude_unknown, recorded_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		slot, bucket, activeTool, total, working, waiting, idle, unknown, now.Format(time.RFC3339),
+		(slot, bucket, active_tool,
+		 claude_total, claude_working, claude_waiting, claude_idle, claude_unknown,
+		 pi_total, pi_working, pi_waiting, pi_idle, pi_unknown,
+		 recorded_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		slot, bucket, activeTool,
+		cTotal, cWorking, cWaiting, cIdle, cUnknown,
+		pTotal, pWorking, pWaiting, pIdle, pUnknown,
+		now.Format(time.RFC3339),
 	)
 	if err != nil {
 		log.Printf("cmdr: analytics: record error: %v", err)
@@ -87,8 +94,11 @@ func backfillSleep(db *sql.DB, sleepStart, wakeTime time.Time) {
 
 	for b := startBucket; b < endBucket; b++ {
 		db.Exec(`INSERT OR IGNORE INTO activity_buckets
-			(slot, bucket, active_tool, claude_total, claude_working, claude_waiting, claude_idle, claude_unknown, recorded_at)
-			VALUES (?, ?, 'away', 0, 0, 0, 0, 0, ?)`,
+			(slot, bucket, active_tool,
+			 claude_total, claude_working, claude_waiting, claude_idle, claude_unknown,
+			 pi_total, pi_working, pi_waiting, pi_idle, pi_unknown,
+			 recorded_at)
+			VALUES (?, ?, 'away', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?)`,
 			slot, b, wakeTime.Format(time.RFC3339),
 		)
 	}

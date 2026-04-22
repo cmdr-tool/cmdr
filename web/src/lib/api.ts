@@ -369,7 +369,7 @@ export interface ActivityBucket {
 	bucket: number;
 	samples: number;
 	nvim: number;
-	claude: number;
+	agent: number;
 	other: number;
 	inactive: number;
 	away: number;
@@ -378,6 +378,11 @@ export interface ActivityBucket {
 	claudeWaiting: number;
 	claudeIdle: number;
 	claudeUnknown: number;
+	piTotal: number;
+	piWorking: number;
+	piWaiting: number;
+	piIdle: number;
+	piUnknown: number;
 }
 
 export interface ActivityDay {
@@ -618,6 +623,14 @@ export async function spawnTask(parentId: number, intent?: string, options?: { c
 		throw err;
 	}
 	return data;
+}
+
+export function reviseTask(taskId: number, annotations: { exact: string; note: string }[]): Promise<{ id: number }> {
+	return request('/agent/tasks/revise', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ taskId, annotations })
+	});
 }
 
 export function cancelTask(id: number): Promise<{ status: string }> {

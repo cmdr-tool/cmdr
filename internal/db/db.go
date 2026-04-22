@@ -98,6 +98,11 @@ func ensureSchema(d *sql.DB) error {
 			claude_waiting   INTEGER NOT NULL DEFAULT 0,
 			claude_idle      INTEGER NOT NULL DEFAULT 0,
 			claude_unknown   INTEGER NOT NULL DEFAULT 0,
+			pi_total         INTEGER NOT NULL DEFAULT 0,
+			pi_working       INTEGER NOT NULL DEFAULT 0,
+			pi_waiting       INTEGER NOT NULL DEFAULT 0,
+			pi_idle          INTEGER NOT NULL DEFAULT 0,
+			pi_unknown       INTEGER NOT NULL DEFAULT 0,
 			recorded_at     DATETIME,
 			PRIMARY KEY (slot, bucket)
 		);
