@@ -55,17 +55,18 @@ func Review(data ReviewData) (string, error) {
 type IntentMeta struct {
 	Mode     string // "interactive" (tmux window) or "headless" (claude -p)
 	Artifact string // expected output: "pr", "adr", "report", or "" (none)
+	Worktree bool   // true = isolate in a git worktree
 	Hidden   bool   // true = not shown in directive intent picker UI
 }
 
 // intentRegistry is the single source of truth for intent behavior.
 var intentRegistry = map[string]IntentMeta{
-	"bug-fix":        {Mode: "interactive", Artifact: "pr"},
-	"refactor":       {Mode: "interactive", Artifact: "pr"},
-	"new-feature":    {Mode: "interactive", Artifact: "adr"},
+	"bug-fix":        {Mode: "interactive", Artifact: "pr", Worktree: true},
+	"refactor":       {Mode: "interactive", Artifact: "pr", Worktree: true},
+	"new-feature":    {Mode: "interactive", Artifact: "adr", Worktree: true},
 	"analysis":       {Mode: "headless", Artifact: "report"},
-	"implementation": {Mode: "interactive", Artifact: "pr", Hidden: true},
-	"delegation":     {Mode: "interactive", Hidden: true},
+	"implementation": {Mode: "interactive", Artifact: "pr", Worktree: true, Hidden: true},
+	"delegation":     {Mode: "interactive", Worktree: true, Hidden: true},
 	"generic":        {Mode: "interactive", Hidden: true},
 }
 

@@ -451,15 +451,17 @@ type TaskLaunchResult struct {
 func launchTask(db *sql.DB, bus *EventBus, cfg TaskLaunchConfig) (TaskLaunchResult, error) {
 	windowName := fmt.Sprintf("%s-%d", cfg.WindowPrefix, cfg.TaskID)
 
-	// Worktree prefix defaults to window prefix when not explicitly set
-	worktreePrefix := cfg.WorktreePrefix
-	if worktreePrefix == "" {
-		worktreePrefix = cfg.WindowPrefix
-	}
-
+	// Only create a worktree if the intent metadata says so
 	var worktreeName string
-	if worktreePrefix != "" {
-		worktreeName = buildWorktreeName(worktreePrefix, cfg.TaskID)
+	meta := prompts.GetIntentMeta(cfg.Intent)
+	if meta.Worktree && agt.Capabilities().Worktrees {
+		prefix := cfg.WorktreePrefix
+		if prefix == "" {
+			prefix = cfg.WindowPrefix
+		}
+		if prefix != "" {
+			worktreeName = buildWorktreeName(prefix, cfg.TaskID)
+		}
 	}
 
 	// Resolve image references to absolute paths Claude can read
