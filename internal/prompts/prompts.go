@@ -125,6 +125,17 @@ func IntentIsHeadless(id string) bool {
 	return GetIntentMeta(id).Mode == "headless"
 }
 
+// TaskIsHeadless returns whether a task runs headlessly based on its type and intent.
+// Some task types (ask, review, revision) are always headless regardless of intent.
+func TaskIsHeadless(taskType, intent string) bool {
+	switch taskType {
+	case "ask", "review", "revision":
+		return true
+	default:
+		return IntentIsHeadless(intent)
+	}
+}
+
 // IntentHasDesignPhase returns whether an intent produces an ADR before implementation.
 func IntentHasDesignPhase(id string) bool {
 	return GetIntentMeta(id).Artifact == "adr"

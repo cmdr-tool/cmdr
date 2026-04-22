@@ -47,6 +47,7 @@
 		switch (type) {
 			case 'review': return 'text-teal-400 bg-teal-700/30';
 			case 'directive': return 'text-blue-400 bg-blue-700/30';
+			case 'revision': return 'text-violet-400 bg-violet-700/30';
 			case 'ask': return 'text-cmd-400 bg-cmd-700/30';
 			default: return 'text-bourbon-400 bg-bourbon-700/30';
 		}
@@ -99,7 +100,7 @@
 				role="button"
 				tabindex="0"
 				class="group relative flex items-start gap-3 rounded-lg px-3 py-2.5 -mx-1 text-left transition-colors hover:bg-bourbon-800/50
-					{task.status === 'draft' || task.status === 'completed' || task.status === 'resolved' || task.type === 'ask' || task.type === 'review' || (task.status === 'running' && task.headless) ? 'cursor-pointer' : ''}"
+					{task.status === 'draft' || task.status === 'completed' || task.status === 'resolved' || task.type === 'ask' || task.type === 'review' || task.type === 'revision' || (task.status === 'running' && task.headless) ? 'cursor-pointer' : ''}"
 				onclick={() => {
 					if (task.status === 'draft') {
 						ondraft(task.id, task.repoPath);

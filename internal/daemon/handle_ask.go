@@ -29,6 +29,7 @@ type HeadlessConfig struct {
 	WorkDir      string
 	SystemPrompt string
 	OutputFormat string // "markdown" (default), "html", or "text"
+	PromptFile   string // if set, pipe prompt from this file via stdin instead of -p arg
 }
 
 // runHeadless runs a headless task using the default agent.
@@ -53,6 +54,7 @@ func runHeadlessStreaming(a agent.Agent, ctx context.Context, db *sql.DB, bus *E
 		Prompt:       cfg.Prompt,
 		WorkDir:      cfg.WorkDir,
 		SystemPrompt: cfg.SystemPrompt,
+		PromptFile:   cfg.PromptFile,
 	}, func(evt agent.StreamEvent) {
 		bus.Publish(Event{Type: "agent:stream", Data: map[string]any{
 			"id": cfg.TaskID, "type": evt.Type, "text": evt.Text, "tool": evt.Tool, "detail": evt.Detail,

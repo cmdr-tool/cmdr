@@ -1,15 +1,10 @@
 <script lang="ts">
-	import { X, Pencil, Wrench, MessageSquarePlus, Trash2, Undo2, FileCheck } from 'lucide-svelte';
+	import { X, Wrench, FileCheck, Trash2, Pencil, MessageSquarePlus, RotateCcw } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
-	import { updateAgentTaskResult, spawnTask } from '$lib/api';
+	import { spawnTask, reviseTask } from '$lib/api';
+	import { loadAnnotations, saveAnnotations, type Annotation } from '$lib/annotations';
 	import LaunchGuard from './LaunchGuard.svelte';
-	import {
-		parseADR,
-		reconstructADR,
-		setSectionNote,
-		type ParsedADR,
-		type ADRSection
-	} from '$lib/adrParser';
+	import AnnotationLayer from './AnnotationLayer.svelte';
 
 	let {
 		result,
@@ -25,19 +20,16 @@
 		onupdate?: (result: string) => void;
 	} = $props();
 
-	let editing = $state(false);
-	let draft = $state('');
-	let saving = $state(false);
 	let commitADR = $state(true);
 	let bodyEl: HTMLDivElement | undefined = $state(undefined);
-	let editHeight: number | null = $state(null);
+	let revising = $state(false);
+	let showNotesList = $state(false);
+	let editingNoteId = $state<string | null>(null);
+	let editingNoteDraft = $state('');
 
-	// Section note editing
-	let noteSectionIdx: number | null = $state(null);
-	let noteDraft = $state('');
-
-	let parsedADR = $derived(parseADR(result));
-	let hasSections = $derived(parsedADR !== null && parsedADR.sections.length > 0);
+	// Annotation state (intentionally captures initial taskId — modal doesn't change tasks)
+	// svelte-ignore state_referenced_locally
+	let annotations = $state<Annotation[]>(loadAnnotations(taskId));
 
 	const proseClasses = `prose prose-invert prose-sm max-w-none
 		prose-headings:text-bourbon-200 prose-headings:font-display prose-headings:tracking-wider
@@ -54,76 +46,43 @@
 		return renderMarkdown(md);
 	}
 
-	let fullHtml = $derived(renderMd(editing ? draft : result));
+	// --- Annotation handlers ---
+	function handleAnnotationsChange(updated: Annotation[]) {
+		annotations = updated;
+		saveAnnotations(taskId, updated);
+	}
 
-	// --- Raw edit ---
-	async function handleSave() {
-		saving = true;
+	// --- Note list actions ---
+	function removeAnnotation(id: string) {
+		const updated = annotations.filter(a => a.id !== id);
+		handleAnnotationsChange(updated);
+		if (updated.length === 0) showNotesList = false;
+	}
+
+	function startEditNote(ann: Annotation) {
+		editingNoteId = ann.id;
+		editingNoteDraft = ann.note;
+	}
+
+	function saveEditNote() {
+		if (!editingNoteId) return;
+		handleAnnotationsChange(annotations.map(a =>
+			a.id === editingNoteId ? { ...a, note: editingNoteDraft.trim() } : a
+		));
+		editingNoteId = null;
+		editingNoteDraft = '';
+	}
+
+	// --- Revise ---
+	async function handleRevise() {
+		if (annotations.length === 0) return;
+		revising = true;
 		try {
-			await updateAgentTaskResult(taskId, draft);
-			onupdate?.(draft);
-			editing = false;
-		} catch { /* silent */ }
-		saving = false;
-	}
-
-	function handleCancel() {
-		draft = result;
-		editing = false;
-	}
-
-	// --- Section note actions ---
-	async function persistResult(newResult: string) {
-		try {
-			await updateAgentTaskResult(taskId, newResult);
-			onupdate?.(newResult);
-		} catch { /* silent */ }
-	}
-
-	function startNote(idx: number) {
-		if (!parsedADR) return;
-		noteSectionIdx = idx;
-		noteDraft = parsedADR.sections[idx].userNote ?? '';
-	}
-
-	function cancelNote() {
-		noteSectionIdx = null;
-		noteDraft = '';
-	}
-
-	function saveNote() {
-		if (!parsedADR || noteSectionIdx === null) return;
-		const note = noteDraft.trim() || null;
-		const updatedSection = setSectionNote(parsedADR.sections[noteSectionIdx], note);
-		const updated: ParsedADR = {
-			...parsedADR,
-			sections: parsedADR.sections.map((s, i) => i === noteSectionIdx ? updatedSection : s)
-		};
-		const newMd = reconstructADR(updated);
-		persistResult(newMd);
-		cancelNote();
-	}
-
-	function removeNote(idx: number) {
-		if (!parsedADR) return;
-		const updatedSection = setSectionNote(parsedADR.sections[idx], null);
-		const updated: ParsedADR = {
-			...parsedADR,
-			sections: parsedADR.sections.map((s, i) => i === idx ? updatedSection : s)
-		};
-		const newMd = reconstructADR(updated);
-		persistResult(newMd);
-	}
-
-
-
-
-	function autofocus(node: HTMLElement) {
-		requestAnimationFrame(() => node.focus());
-	}
-
-	function bodyWithoutNote(body: string): string {
-		return body.replace(/\n*> Reviewer note:\s*\n((?:> .*(?:\n|$))*)/, '').trimEnd();
+			await reviseTask(taskId, annotations.map(a => ({ exact: a.exact, note: a.note })));
+			onclose();
+		} catch {
+			revising = false;
+		}
 	}
 </script>
 
@@ -132,7 +91,7 @@
 <div
 	class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
 	onmousedown={(e) => { if (e.target === e.currentTarget) onclose(); }}
-	onkeydown={(e) => { if (e.key === 'Escape') { if (noteSectionIdx !== null) cancelNote(); else onclose(); }}}
+	onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}
 	role="dialog"
 	tabindex="-1"
 >
@@ -143,27 +102,6 @@
 		<div class="flex items-center justify-between px-6 py-4 border-b border-bourbon-800 shrink-0">
 			<div class="flex items-center gap-3">
 				<h2 class="font-display text-xs font-bold uppercase tracking-widest text-run-500">Design Review</h2>
-				{#if !editing}
-					<button
-						onclick={() => { if (bodyEl) editHeight = bodyEl.offsetHeight; draft = result; editing = true; }}
-						class="flex items-center gap-1 text-[10px] font-mono text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
-					>
-						<Pencil size={10} />
-						edit
-					</button>
-				{:else}
-					<div class="flex items-center gap-2">
-						<button
-							onclick={handleCancel}
-							class="text-[10px] font-mono text-bourbon-600 hover:text-bourbon-400 transition-colors cursor-pointer"
-						>cancel</button>
-						<button
-							onclick={handleSave}
-							disabled={saving}
-							class="text-[10px] font-mono text-run-400 hover:text-run-300 transition-colors cursor-pointer disabled:opacity-50"
-						>{saving ? 'saving...' : 'save'}</button>
-					</div>
-				{/if}
 			</div>
 			<button
 				onclick={onclose}
@@ -173,119 +111,91 @@
 			</button>
 		</div>
 
-		<!-- Body -->
-		{#if editing}
-			<div class="overflow-auto bg-bourbon-950" style:height={editHeight ? `${editHeight}px` : 'calc(85vh - 7rem)'}>
-				<textarea
-					bind:value={draft}
-					class="w-full h-full bg-transparent text-xs font-mono text-bourbon-300 px-6 py-4 resize-none focus:outline-none select-text leading-relaxed"
-				></textarea>
+		<!-- Body: rendered markdown with annotation layer -->
+		<div bind:this={bodyEl} class="overflow-auto flex-1 px-6 py-4 bg-bourbon-950 relative">
+			<div class={proseClasses}>
+				{@html renderMd(result)}
 			</div>
-		{:else if hasSections}
-			<!-- Structured ADR view -->
-			<div bind:this={bodyEl} class="overflow-auto flex-1 bg-bourbon-950">
-				<!-- Title -->
-				{#if parsedADR}
-					<div class="px-6 pt-5 pb-2">
-						<h1 class="font-display text-lg text-bourbon-100 tracking-wide">{parsedADR.title}</h1>
-					</div>
-					{#if parsedADR.preamble.trim()}
-						<div class="px-6 pb-2">
-							<div class={proseClasses}>
-								{@html renderMd(parsedADR.preamble)}
-							</div>
-						</div>
-					{/if}
-				{/if}
-
-				<!-- Sections -->
-				{#if parsedADR}
-					<div class="flex flex-col gap-2 px-4 py-3">
-						{#each parsedADR.sections as section, idx}
-							<div class="group/section rounded-xl overflow-hidden bg-bourbon-900/60 border border-bourbon-800/60">
-								<!-- Section header -->
-								<div class="flex items-center gap-3 px-4 py-2.5">
-									<span class="text-[10px] font-display font-bold uppercase tracking-widest text-run-400">
-										{section.heading}
-									</span>
-									<div class="flex items-center gap-1 ml-auto invisible group-hover/section:visible">
-										<button
-											onclick={() => startNote(idx)}
-											class="p-1 text-bourbon-600 hover:text-run-400 transition-colors cursor-pointer"
-											title="Add note"
-										>
-											<MessageSquarePlus size={14} />
-										</button>
-									</div>
-								</div>
-
-								<!-- Section body -->
-								<div class="px-4 pb-3">
-									<div class={proseClasses}>
-										{@html renderMd(bodyWithoutNote(section.body))}
-									</div>
-								</div>
-
-								<!-- Existing note -->
-								{#if section.userNote && noteSectionIdx !== idx}
-									<div class="mx-4 mb-3 flex items-start gap-2 bg-run-500/8 border border-run-500/20 rounded-lg px-3 py-2">
-										<span class="text-[10px] font-mono text-run-400 shrink-0 mt-0.5">your note:</span>
-										<span class="text-xs text-bourbon-200 flex-1 select-text">{section.userNote}</span>
-										<button
-											onclick={() => startNote(idx)}
-											class="shrink-0 text-bourbon-600 hover:text-run-400 transition-colors cursor-pointer mt-0.5"
-											title="Edit note"
-										>
-											<Pencil size={14} />
-										</button>
-										<button
-											onclick={() => removeNote(idx)}
-											class="shrink-0 text-bourbon-600 hover:text-red-400 transition-colors cursor-pointer mt-0.5"
-											title="Remove note"
-										>
-											<Trash2 size={14} />
-										</button>
-									</div>
-								{/if}
-
-								<!-- Note editor -->
-								{#if noteSectionIdx === idx}
-									<div class="mx-4 mb-3 border border-run-500/30 rounded-lg overflow-hidden">
-										<textarea
-											use:autofocus
-											bind:value={noteDraft}
-											placeholder="Add a note for the implementer... (e.g. 'Use the existing pattern from X' or 'Skip this — we'll handle it separately')"
-											class="w-full bg-run-500/5 text-xs text-bourbon-200 px-3 py-2 resize-none focus:outline-none placeholder:text-bourbon-700 select-text"
-											rows="2"
-											onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveNote(); } if (e.key === 'Escape') cancelNote(); }}
-										></textarea>
-										<div class="flex items-center justify-between px-3 py-1.5">
-											<span class="text-[9px] text-bourbon-700">⌘+Enter to save</span>
-											<div class="flex items-center gap-3">
-												<button onclick={cancelNote} class="text-[10px] text-bourbon-600 hover:text-bourbon-400 cursor-pointer">cancel</button>
-												<button onclick={saveNote} class="text-[10px] text-run-400 hover:text-run-300 cursor-pointer">save</button>
-											</div>
-										</div>
-									</div>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
-		{:else}
-			<!-- Fallback: full rendered markdown -->
-			<div bind:this={bodyEl} class="overflow-auto flex-1 px-6 py-4 bg-bourbon-950">
-				<div class={proseClasses}>
-					{@html fullHtml}
-				</div>
-			</div>
-		{/if}
+			{#if bodyEl}
+				<AnnotationLayer
+					containerEl={bodyEl}
+					{annotations}
+					onchange={handleAnnotationsChange}
+				/>
+			{/if}
+		</div>
 
 		<!-- Footer -->
 		<div class="flex items-center justify-between px-6 py-3 border-t border-bourbon-800 shrink-0">
-			<div class="flex items-center gap-4">
-				<!-- Commit ADR toggle -->
+			{#if annotations.length > 0}
+				<div class="relative">
+					<button
+						onclick={() => { showNotesList = !showNotesList; }}
+						class="flex items-center gap-1 text-[10px] font-mono text-run-400 hover:text-run-300 transition-colors cursor-pointer"
+					>
+						<MessageSquarePlus size={10} />
+						{annotations.length} note{annotations.length !== 1 ? 's' : ''}
+					</button>
+
+					{#if showNotesList}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div class="fixed inset-0 z-10" onclick={() => { showNotesList = false; }} onkeydown={() => {}}></div>
+						<div class="absolute bottom-8 left-0 z-20 bg-bourbon-900 border border-bourbon-800 rounded-lg shadow-xl w-96 max-h-[calc(85vh-8rem)] overflow-auto">
+							{#each annotations as ann}
+								<div class="group/note flex items-start gap-2 px-3 py-2.5 border-b border-bourbon-800/50 last:border-b-0">
+									{#if editingNoteId === ann.id}
+										<div class="flex-1 flex flex-col gap-1.5">
+											<div class="text-[10px] text-bourbon-500 italic line-clamp-1">{ann.exact}</div>
+											<textarea
+												bind:value={editingNoteDraft}
+												class="w-full bg-bourbon-950 text-xs text-bourbon-200 px-2 py-1.5 rounded border border-bourbon-700 resize-none focus:outline-none focus:border-run-500/50"
+												rows="4"
+												onkeydown={(e) => {
+													if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveEditNote(); }
+													if (e.key === 'Escape') { editingNoteId = null; }
+												}}
+											></textarea>
+											<div class="flex items-center justify-end gap-2">
+												<button onclick={() => { editingNoteId = null; }} class="text-[10px] font-mono text-bourbon-600 hover:text-bourbon-400 cursor-pointer">cancel</button>
+												<button onclick={saveEditNote} class="text-[10px] font-mono text-run-400 hover:text-run-300 cursor-pointer">save</button>
+											</div>
+										</div>
+									{:else}
+										<div class="flex-1 min-w-0">
+											<div class="text-[10px] text-bourbon-500 italic truncate">{ann.exact}</div>
+											<div class="text-xs text-bourbon-300 mt-0.5">{ann.note}</div>
+										</div>
+										<div class="flex items-center gap-1 shrink-0 invisible group-hover/note:visible">
+											<button
+												onclick={() => startEditNote(ann)}
+												class="p-0.5 text-bourbon-600 hover:text-run-400 transition-colors cursor-pointer"
+												title="Edit note"
+											>
+												<Pencil size={12} />
+											</button>
+											<button
+												onclick={() => removeAnnotation(ann.id)}
+												class="p-0.5 text-bourbon-600 hover:text-red-400 transition-colors cursor-pointer"
+												title="Remove note"
+											>
+												<Trash2 size={12} />
+											</button>
+										</div>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+				<button
+					onclick={handleRevise}
+					disabled={revising}
+					class="flex items-center gap-1.5 text-[10px] font-mono text-run-400 hover:text-run-300 transition-colors cursor-pointer disabled:opacity-50"
+				>
+					<RotateCcw size={12} class={revising ? 'animate-spin' : ''} />
+					Revise design
+				</button>
+			{:else}
 				<button
 					onclick={() => { commitADR = !commitADR; }}
 					class="flex items-center gap-2 cursor-pointer group"
@@ -301,11 +211,11 @@
 						commit ADR to repo
 					</span>
 				</button>
-			</div>
-			<LaunchGuard {repoPath} action={() => spawnTask(taskId, 'implementation', { commitADR })} onlaunched={onclose}>
-				<Wrench size={12} />
-				Start Implementation
-			</LaunchGuard>
+				<LaunchGuard {repoPath} action={() => spawnTask(taskId, 'implementation', { commitADR })} onlaunched={onclose}>
+					<Wrench size={12} />
+					Start Implementation
+				</LaunchGuard>
+			{/if}
 		</div>
 	</div>
 </div>

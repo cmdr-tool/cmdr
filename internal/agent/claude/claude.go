@@ -56,13 +56,27 @@ func (a *Adapter) RunSimple(ctx context.Context, cfg agent.SimpleConfig) (string
 // RunStreaming executes claude -p with --output-format stream-json,
 // parsing events and calling onEvent for each text/tool block.
 func (a *Adapter) RunStreaming(ctx context.Context, cfg agent.StreamingConfig, onEvent func(agent.StreamEvent)) (*agent.StreamResult, error) {
-	args := []string{"-p", cfg.Prompt, "--output-format", "stream-json", "--verbose"}
+	var args []string
+	if cfg.PromptFile != "" {
+		args = []string{"-p", "-", "--output-format", "stream-json", "--verbose"}
+	} else {
+		args = []string{"-p", cfg.Prompt, "--output-format", "stream-json", "--verbose"}
+	}
 	if cfg.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", cfg.SystemPrompt)
 	}
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = cfg.WorkDir
+
+	if cfg.PromptFile != "" {
+		f, err := os.Open(cfg.PromptFile)
+		if err != nil {
+			return nil, fmt.Errorf("claude: open prompt file: %w", err)
+		}
+		defer f.Close()
+		cmd.Stdin = f
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

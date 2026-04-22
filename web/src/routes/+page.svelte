@@ -123,7 +123,7 @@
 					resultTask = task;
 				} else if ((task.status === 'resolved' || task.status === 'completed') && task.prUrl) {
 					window.open(task.prUrl, '_blank');
-				} else if (task.status === 'resolved' && task.intent === 'new-feature') {
+				} else if (task.status === 'resolved' && (task.intent === 'new-feature' || task.type === 'revision')) {
 					try {
 						const { result } = await getAgentTaskResult(task.id);
 						designTask = task;

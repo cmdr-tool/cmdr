@@ -59,7 +59,7 @@ func handleListAgentTasks(db *sql.DB) http.HandlerFunc {
 				&t.ErrorMsg, &t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.prompt, &t.Intent, &t.ParentID, &t.OutputFormat); err != nil {
 				continue
 			}
-			t.Headless = t.Type == "ask" || t.Type == "review" || prompts.IntentIsHeadless(t.Intent)
+			t.Headless = prompts.TaskIsHeadless(t.Type, t.Intent)
 			taskList = append(taskList, t)
 		}
 		if taskList == nil {
@@ -316,7 +316,7 @@ func handleCancelTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		}
 
 		// Headless tasks (ask, review, headless directives): kill process, mark cancelled
-		if taskType == "ask" || taskType == "review" || prompts.IntentIsHeadless(intent) {
+		if prompts.TaskIsHeadless(taskType, intent) {
 			cancelHeadlessProcess(body.ID)
 			now := time.Now().Format(time.RFC3339)
 			if taskType == "directive" {
@@ -676,6 +676,139 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			"target":  launchRes.Target,
 			"session": launchRes.Session,
 		})
+	}
+}
+
+// --- Revise ---
+
+// handleReviseTask creates a revision of a completed review using inline annotations
+// from the frontend. The revision prompt includes the original result plus the
+// reviewer's notes, and is piped via a temp file to avoid CLI arg length limits.
+func handleReviseTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			TaskID      int `json:"taskId"`
+			Annotations []struct {
+				Exact string `json:"exact"`
+				Note  string `json:"note"`
+			} `json:"annotations"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, jsonErr(err), http.StatusBadRequest)
+			return
+		}
+		if body.TaskID == 0 || len(body.Annotations) == 0 {
+			http.Error(w, `{"error":"taskId and annotations required"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Load parent task
+		var parentResult, repoPath, parentStatus, parentType, parentIntent string
+		err := db.QueryRow(`SELECT result, repo_path, status, type, intent FROM agent_tasks WHERE id = ?`, body.TaskID).
+			Scan(&parentResult, &repoPath, &parentStatus, &parentType, &parentIntent)
+		if err != nil {
+			http.Error(w, `{"error":"parent task not found"}`, http.StatusNotFound)
+			return
+		}
+		if parentStatus != "resolved" && parentStatus != "completed" {
+			http.Error(w, `{"error":"parent task not in a terminal state"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Build revision prompt
+		var sb strings.Builder
+		sb.WriteString("## Original Review\n\n")
+		sb.WriteString(parentResult)
+		sb.WriteString("\n\n## Reviewer Annotations\n\n")
+		sb.WriteString("The reviewer has annotated specific passages with guidance notes.\n\n")
+		for i, ann := range body.Annotations {
+			fmt.Fprintf(&sb, "### Annotation %d\n", i+1)
+			fmt.Fprintf(&sb, "> Selected text: %q\n", ann.Exact)
+			fmt.Fprintf(&sb, "> Note: %q\n\n", ann.Note)
+		}
+		sb.WriteString("## Instructions\n\n")
+		sb.WriteString("Produce a revised version of the review incorporating the reviewer's annotations:\n")
+		sb.WriteString("- Where a note says to skip or remove a finding, omit it entirely\n")
+		sb.WriteString("- Where a note provides guidance or correction, incorporate it into the finding's plan\n")
+		sb.WriteString("- Where a note asks for elaboration, expand the analysis\n")
+		sb.WriteString("- Preserve all unannotated findings exactly as they appear\n")
+		sb.WriteString("- Maintain the same output format and structure\n")
+
+		// Write prompt to temp file (avoids CLI ARG_MAX limits)
+		tmpFile, err := os.CreateTemp("", "cmdr-revise-*.md")
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		if _, err := tmpFile.WriteString(sb.String()); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		tmpFile.Close()
+
+		// Create a new child task — same type/intent as parent so it opens the same way.
+		// The original stays in the inbox for comparison until the user dismisses it.
+		now := time.Now().Format(time.RFC3339)
+		res, err := db.Exec(`INSERT INTO agent_tasks
+			(type, status, repo_path, intent, parent_id, agent, prompt, created_at, started_at)
+			VALUES ('revision', 'running', ?, ?, ?, ?, ?, ?, ?)`,
+			repoPath, parentIntent, body.TaskID, agt.Name(), sb.String(), now, now)
+		if err != nil {
+			os.Remove(tmpFile.Name())
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		childID, _ := res.LastInsertId()
+		id := int(childID)
+
+		bus.Publish(Event{Type: "agent:task", Data: map[string]any{
+			"id": id, "status": "running", "type": "revision", "intent": parentIntent,
+		}})
+
+		// Run headless (temp file cleaned up after process reads it)
+		go func() {
+			defer os.Remove(tmpFile.Name())
+
+			taskAgent, _, outputFmt := resolveAgent(parentIntent)
+			if taskAgent.Name() != agt.Name() {
+				db.Exec(`UPDATE agent_tasks SET agent=? WHERE id=?`, taskAgent.Name(), id)
+			}
+			// Use a revision-specific system prompt — don't use the intent's
+			// default system prompt which has validation for new designs.
+			revisionSystemPrompt := "You are revising an architecture decision record (ADR) based on reviewer annotations. " +
+				"Produce the complete revised ADR as markdown. Do not add preamble or commentary — output only the revised document."
+			runHeadlessWithAgent(taskAgent, db, bus, HeadlessConfig{
+				TaskID:       id,
+				WorkDir:      repoPath,
+				SystemPrompt: revisionSystemPrompt,
+				OutputFormat: outputFmt,
+				PromptFile:   tmpFile.Name(),
+			})
+
+			// If revision succeeded, mark parent as completed (superseded)
+			var childStatus string
+			db.QueryRow(`SELECT status FROM agent_tasks WHERE id=?`, id).Scan(&childStatus)
+			if childStatus == "resolved" {
+				now := time.Now().Format(time.RFC3339)
+				db.Exec(`UPDATE agent_tasks SET status='completed', completed_at=? WHERE id=?`, now, body.TaskID)
+				bus.Publish(Event{Type: "agent:task", Data: map[string]any{
+					"id": body.TaskID, "status": "completed",
+				}})
+				log.Printf("cmdr: parent task %d marked completed (superseded by revision %d)", body.TaskID, id)
+			}
+		}()
+
+		log.Printf("cmdr: revision task %d created from parent %d (%d annotations)", id, body.TaskID, len(body.Annotations))
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": id})
 	}
 }
 

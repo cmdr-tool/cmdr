@@ -333,8 +333,8 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 	for _, t := range tasks {
 		meta := prompts.GetIntentMeta(t.intent)
 
-		// Skip headless intents — managed by runHeadless goroutine
-		if meta.Mode == "headless" {
+		// Skip headless tasks — managed by runHeadless goroutine
+		if prompts.TaskIsHeadless(t.taskType, t.intent) {
 			continue
 		}
 

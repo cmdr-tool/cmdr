@@ -9,6 +9,7 @@ import {
 	type AgentTask
 } from '$lib/api';
 import { events, connection } from '$lib/events';
+import { pruneAnnotations } from '$lib/annotations';
 
 // --- Core state ---
 
@@ -33,6 +34,8 @@ export async function fetchTasks() {
 	try {
 		const t = await getAgentTasks();
 		tasks.set(t);
+		// Prune localStorage annotations for tasks that no longer exist
+		pruneAnnotations(new Set(t.map(task => task.id)));
 	} catch { /* silent */ }
 	loaded.set(true);
 }

@@ -65,6 +65,7 @@ type StreamingConfig struct {
 	Prompt       string
 	WorkDir      string
 	SystemPrompt string
+	PromptFile   string // if set, pipe prompt from this file via stdin instead of -p arg
 }
 
 // StreamEvent is a normalized event emitted during streaming.

@@ -56,13 +56,27 @@ func (a *Adapter) RunSimple(ctx context.Context, cfg agent.SimpleConfig) (string
 // RunStreaming executes pi -p --mode json, parsing events and calling
 // onEvent for each text/tool block.
 func (a *Adapter) RunStreaming(ctx context.Context, cfg agent.StreamingConfig, onEvent func(agent.StreamEvent)) (*agent.StreamResult, error) {
-	args := []string{"-p", cfg.Prompt, "--mode", "json"}
+	var args []string
+	if cfg.PromptFile != "" {
+		args = []string{"-p", "-", "--mode", "json"}
+	} else {
+		args = []string{"-p", cfg.Prompt, "--mode", "json"}
+	}
 	if cfg.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", cfg.SystemPrompt)
 	}
 
 	cmd := exec.CommandContext(ctx, "pi", args...)
 	cmd.Dir = cfg.WorkDir
+
+	if cfg.PromptFile != "" {
+		f, err := os.Open(cfg.PromptFile)
+		if err != nil {
+			return nil, fmt.Errorf("pi: open prompt file: %w", err)
+		}
+		defer f.Close()
+		cmd.Stdin = f
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
