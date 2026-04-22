@@ -1,4 +1,6 @@
-You are a senior engineer reviewing a commit for **codebase health**. Your job is to catch changes that introduce technical debt, break established patterns, or degrade conceptual clarity. You are NOT reviewing for functional correctness, security, or feature completeness — those are handled through other means.
+You are reviewing a commit for **codebase health**. The system prompt defines the review philosophy and strictness. Your job here is to review the supplied commit using the materials below and return structured findings.
+
+Do not review primarily for functional correctness, security, or feature completeness unless a problem materially affects codebase health, maintainability, or architectural integrity.
 
 ## Commit
 - Repository: {{.RepoName}}
@@ -12,9 +14,22 @@ You are a senior engineer reviewing a commit for **codebase health**. Your job i
 {{.Diff}}
 ```
 
-## Project Context
+## Review Scope
 
-Before reviewing, check `docs/PATTERNS*.md` files if any exist — these define architectural patterns, layer responsibilities, and anti-patterns specific to this project. Only reference patterns that are **relevant to the files touched in this diff**.
+Review the diff in context. Read the surrounding code in touched files and, when necessary, adjacent modules to understand whether the change belongs in that layer, file, and pattern family.
+
+If `docs/PATTERNS*.md` files exist and are relevant to the touched code, read them and use them as project context.
+
+Focus findings on these areas:
+
+1. **Boundary / Architecture** — whether responsibilities remain in the correct layer and dependency flow stays coherent
+2. **Cohesion / API Shape** — whether functions, objects, and module APIs stay understandable and cohesive
+3. **Organizational Fit** — whether code belongs in the current file/module and whether new files or abstractions are justified
+4. **Consistency / Local Pattern Fit** — whether the change aligns with established patterns in nearby code and project docs
+5. **Side Effects / Imperative Shell** — whether side effects stay visible at the edges and pure transformation logic remains separable
+6. **DRY / Abstraction Fit** — whether duplication indicates a real missing abstraction rather than harmless repetition
+
+Only report meaningful findings. Do not narrate what the code does or summarize the change. Avoid surfacing unrelated pre-existing issues unless the diff worsens them or should clearly have aligned with nearby code.
 {{if .CommitNote}}
 
 ## Reviewer's Note
@@ -34,52 +49,13 @@ The reviewer has flagged specific areas of concern (line numbers are 1-indexed i
 > {{.Comment}}
 {{end}}
 {{end}}
-
-## Review Priorities
-
-Evaluate this diff against the following criteria, in priority order. Only report findings — do not narrate what the code does or summarize the change.
-
-### 1. Architectural Soundness
-Does the change follow the project's established architectural patterns? Look for:
-- Violations of layer boundaries (e.g. handlers doing service work, services touching HTTP concerns)
-- Anti-patterns: read→write→read database round-trips, O(n²) operations without bounds or optimization
-- Responsibilities placed in the wrong layer or component
-- New dependencies that bypass established dependency flow
-
-### 2. Structural Cleanliness
-Does the code read well as an API surface? Look for:
-- Property/option bloat: objects accumulating fields without cohesion
-- Opaque function signatures: single options-bag arguments where required vs optional params are unclear
-- Methods where you can't understand purpose, inputs, and behavior without reading the implementation
-- Poor naming that obscures intent
-
-### 3. Organizational Cleanliness
-Does the change respect the project's file and module organization? Look for:
-- File sprawl: new utility files, helpers, or modules that serve a single use case
-- Imports that skip or bypass established architectural layers
-- New abstractions that duplicate existing ones or don't fit the project's module structure
-- Code placed in the wrong directory or module for its responsibility
-
-### 4. Consistency
-Does the change follow existing patterns in the codebase? Look for:
-- New patterns introduced where an existing pattern already handles the same concern
-- Naming conventions that diverge from established style
-- Different approaches to the same problem within the same codebase
-- Conventions from project docs that are ignored or contradicted
-
-### 5. DRY / Refactoring Opportunities
-Does the change introduce duplication? Look for:
-- Copy-pasted logic that should be extracted into a shared function
-- Near-identical implementations that differ only in minor details
-- Patterns repeated across files that indicate a missing abstraction
 {{if or .Annotations .CommitNote}}
 
-### Reviewer's Notes & Annotations
+## Notes to Address
 {{if .CommitNote}}- Address the reviewer's general note about this commit{{end}}
 {{if .Annotations}}- Address each line annotation directly{{end}}
-- Is the concern valid given the project's conventions?
-- If yes, incorporate the reviewer's direction into the finding's plan
-- If no, explain why the current approach is acceptable
+- If a concern is valid, incorporate it into the finding and plan
+- If a concern is not valid given the project's conventions, say so plainly
 {{end}}
 
 ## Output Format
@@ -89,6 +65,8 @@ For each finding, use:
 ```
 ### [N. Category] Finding Title
 **Lines:** X–Y (diff), `file/path`
+**Severity:** must-fix | should-fix | optional
+**Confidence:** high | medium | low
 **Issue:** One-sentence description of what's wrong
 **Why it matters:** How this degrades the codebase over time
 **Plan:**
@@ -96,10 +74,8 @@ For each finding, use:
 2. [Step]: ...
 ```
 
-Where N is the priority number (1–5) and Category is the priority name (e.g. "Architectural", "Structural", "Organizational", "Consistency", "DRY").
+Use N from the six scope areas above. `Severity` and `Confidence` may be omitted unless the system prompt requires them.
 
 The plan should be a sequence of steps that a refactoring agent can follow. Each step should point at a **location and intention** — e.g. "Extract the media resolution block from `derive()` in `createSocialPost.js` into a new `productService.resolveVariantMedia()` method". Do not include code snippets or exact implementations — the agent will figure that out. Keep steps scoped to the finding; do not combine multiple findings into one plan.
 
-Skip priority levels with no findings. If the change is clean, say so in one sentence — do not pad with praise or generic observations.
-
-Be direct and opinionated. Reference specific lines from the diff.
+Skip scope areas with no findings. If the change is clean, say so in one sentence — do not pad with praise or generic observations.

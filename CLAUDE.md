@@ -1,10 +1,24 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working with this repository.
 
 ## Project Overview
 
-Cmdr is a personal "commander portal" — a Go backend daemon paired with a SvelteKit frontend SPA. The Go daemon handles task scheduling and execution; the SvelteKit app provides a web UI with router-based navigation. Use `bun` (not npm) for all frontend operations.
+Cmdr is a personal "commander portal" — a Go backend daemon paired with a SvelteKit frontend SPA. The Go daemon handles task scheduling and execution; the SvelteKit app provides a web UI with router-based navigation.
+
+## Key Entrypoints
+
+- **`cmd/cmdr/main.go`** — Main CLI entrypoint. Defines Cobra commands, wires the embedded SPA into the daemon, and is the best starting point for backend flow.
+- **`internal/daemon/daemon.go`** — Daemon bootstrap, adapter resolution, DB/scheduler startup, and `registerAPI()` route registration.
+- **`internal/daemon/handle_*.go`** — HTTP handlers grouped by domain (tasks, sessions, git, review, squads, editor, etc.).
+- **`internal/scheduler/scheduler.go`** — Built-in scheduled task registration in `New()` / `register()`.
+- **`internal/tasks/`** — Task implementations used by the scheduler.
+- **`web/src/lib/api.ts`** — Frontend API client; update this when backend API shapes or endpoints change.
+- **`web/src/routes/+layout.svelte`** — App shell, navigation, startup store initialization, and top-level status display.
+- **`web/src/routes/+layout.ts`** — Disables SSR for the SPA.
+- **`web/src/routes/+page.svelte`** — Dashboard route.
+- **`web/src/routes/settings/+page.svelte`** — Settings UI.
+- **`web/svelte.config.js`** — Static adapter config with SPA fallback (`index.html`).
 
 ## Build & Run Commands
 
@@ -31,6 +45,38 @@ The production daemon (via launchd) serves both the API and the embedded SPA on 
 ### macOS Service (launchd)
 
 The daemon runs as a launchd user agent whose label is chosen at setup time (default `com.cmdr-tool.cmdr`) and stored in `~/.cmdr/cmdr.env`. `make install` runs `scripts/setup.sh` on first run to populate that env file, then renders `com.cmdr.plist.tpl` into `~/Library/LaunchAgents/<label>.plist`. Logs go to `/tmp/cmdr.out.log` and `/tmp/cmdr.err.log`.
+
+## Validation / Definition of Done
+
+Run the smallest relevant validation set for the change you made:
+
+- **Backend-only changes**: `go test ./...`
+- **Frontend-only changes**: `cd web && bun run check`
+- **Frontend build/config changes**: `cd web && bun run build`
+- **Cross-stack or release-sensitive changes**: `make build`
+- **Service/install flow changes**: prefer validating with `make install` only when needed, because it rebuilds, reinstalls, and restarts the launchd agent
+
+If you change API contracts, scheduled task behavior, embedded frontend assets, or app boot flow, prefer `make build` before considering the work done.
+
+## Environment & Tooling Assumptions
+
+- This is a **macOS-first** project.
+- Use **`bun` for all frontend tasks**; do not use `npm`.
+- The backend embeds the built SPA from `web/build`, so frontend builds can affect backend validation.
+- `tmux` is the default multiplexer; `cmux` is supported via `CMDR_MULTIPLEXER`.
+- The Apple summarizer requires macOS 15.1+ and Apple Silicon; Ollama is the fallback pluggable summarizer path.
+- Some git/diff flows use `difft` when available and fall back to `git show`.
+
+## Gotchas / Don’t Forget
+
+- The frontend is a static SPA embedded into the Go binary from `web/build`; after UI or frontend build changes, rebuild before validating production behavior.
+- `make dev` does **not** start a separate backend. It uses Vite HMR and proxies `/api` requests to the already-running production daemon on `:7369`.
+- `make install` is heavier than a normal validation step: it rebuilds artifacts, reinstalls binaries/app assets, rewrites the launchd plist, and restarts the user agent.
+- Launchd config, runtime env, logs, and database state live outside the repo. If behavior looks inconsistent, inspect `~/.cmdr/cmdr.env`, `~/Library/LaunchAgents/`, `/tmp/cmdr.out.log`, `/tmp/cmdr.err.log`, and `~/.cmdr/cmdr.db`.
+- API routes are intentionally registered for different consumers; do not assume every route exists only under `/api`.
+- If you change backend response shapes or endpoint names, update `web/src/lib/api.ts` and any dependent stores/components in the same change.
+- If a frontend change seems correct but the app still behaves strangely in production, suspect stale embedded assets or daemon/service state before assuming the UI code is wrong.
+- Multiplexer/editor behavior may differ between `tmux` and `cmux`; avoid assuming process-detection or pane-reuse capabilities exist in both adapters.
 
 ## Conventions
 
@@ -62,8 +108,7 @@ The daemon runs as a launchd user agent whose label is chosen at setup time (def
 
 - **SvelteKit SPA** (`web/`) using `adapter-static` with `fallback: 'index.html'` for client-side routing. SSR is disabled (`ssr = false` in root layout).
 - **Tailwind CSS v4** for styling — use utility classes only, no custom CSS classes.
-- **`web/src/lib/api.ts`** — Typed API client for daemon communication (`/api/status`, `/api/tasks`, `/api/run`).
-- **`web/src/routes/`** — File-based routing. Dashboard (`/`) and Settings (`/settings`).
+- **File-based routes under `web/src/routes/`** drive the SPA screens; shared API calls live in `web/src/lib/api.ts`.
 
 ### Design System
 
@@ -78,6 +123,34 @@ Key rules:
 
 1. Create a function in `internal/tasks/` that returns `error`
 2. Register it in `internal/scheduler/New()` with a name, description, cron schedule, and the function
+
+### Common Change Workflows
+
+- **When adding or changing an API endpoint**:
+  1. Update route registration in `internal/daemon/daemon.go` (`registerAPI()`)
+  2. Add or modify the handler in the appropriate `internal/daemon/handle_*.go` file
+  3. Update `web/src/lib/api.ts` if the frontend consumes that endpoint
+  4. Update the relevant Svelte route/store/component that uses the data
+
+- **When changing scheduled task behavior**:
+  1. Update the task implementation in `internal/tasks/`
+  2. Update registration or schedule metadata in `internal/scheduler/scheduler.go`
+  3. Validate with `go test ./...` and, if behavior affects runtime wiring, `make build`
+
+- **When changing agent, summarizer, or terminal adapter behavior**:
+  1. Check the shared interface in `internal/agent/`, `internal/summarizer/`, or `internal/terminal/`
+  2. Update the relevant adapter(s)
+  3. If changing shared terminal logic, consider both `tmux` and `cmux` behavior
+
+- **When changing frontend navigation or top-level app behavior**:
+  1. Update route components under `web/src/routes/`
+  2. Update shared navigation/app shell in `web/src/routes/+layout.svelte` if needed
+  3. Keep `web/src/lib/api.ts` types aligned with backend responses
+
+- **When making UI changes**:
+  1. Read `docs/DESIGN.md` first for the Dark Bourbon design system
+  2. Use Tailwind utilities only
+  3. Preserve Orbitron sizing constraints and existing token usage in `web/src/app.css`
 
 ### Agent Overrides
 
@@ -96,24 +169,9 @@ Custom system prompt for this task type...
 
 The body replaces the default system prompt. The existing prompt template (e.g. `review.md` with diff data) is still used as the main prompt. If no override file exists for a task type, the default agent (Claude) is used with the built-in prompt.
 
-### API Endpoints
+### API Surface
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/status` | GET | Daemon status (pid, task count) |
-| `/api/tasks` | GET | List all registered tasks |
-| `/api/run?task=` | GET/POST | Execute a task by name |
-| `/api/tmux/sessions` | GET | List all tmux sessions with windows/panes |
-| `/api/tmux/sessions/create` | POST | Create a new tmux session `{"dir": "/path"}` |
-| `/api/repos` | GET | List monitored local repos |
-| `/api/repos/discover` | GET | Scan `CMDR_CODE_DIR` for git repos not yet monitored |
-| `/api/repos/add` | POST | Add a local repo to monitor `{"path": "/path/to/repo", ...}` |
-| `/api/repos/remove` | POST | Remove a monitored repo `{"id": 1}` |
-| `/api/commits` | GET | List commits (query: `repo`, `unseen`, `limit`) |
-| `/api/commits/files` | GET | List files changed in a commit (query: `repo` path, `sha`) |
-| `/api/commits/diff` | GET | Get diff for a commit via difft/git (query: `repo` path, `sha`) |
-| `/api/commits/seen` | POST | Mark commits as seen `{"ids": [1,2,3]}` |
-| `/api/repos/sync` | POST | Trigger `git fetch` + commit sync for all monitored repos |
-| `/api/repos/pull` | POST | Fast-forward/rebase local branch to origin `{"repoPath": "..."}` |
-| `/api/editor/open` | POST | Open file in nvim via tmux `{"repoPath", "file", "line"}` |
-| `/api/squads/enlist` | POST | Enlist a squad member `{"squad", "from", "to", "summary", "details"}` |
+- **Backend route registration:** `internal/daemon/daemon.go` in `registerAPI()`
+- **Handler implementations:** `internal/daemon/handle_*.go`
+- **Frontend API wrappers and response types:** `web/src/lib/api.ts`
+- When changing routes or API shapes, update backend registration, handler logic, frontend client/types, and calling UI in the same change.
