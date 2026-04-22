@@ -149,6 +149,14 @@ export function killTmuxSession(name: string): Promise<{ killed: string }> {
 	});
 }
 
+export function killAgentInstance(pid: number): Promise<{ killed: number }> {
+	return request('/agent/kill', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ pid })
+	});
+}
+
 export function focusTmuxSession(name: string): Promise<{ focused: string }> {
 	return request('/tmux/sessions/focus', {
 		method: 'POST',

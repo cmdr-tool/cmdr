@@ -5,6 +5,7 @@
 		focusTmuxSession,
 		switchTmuxSession,
 		openFolder,
+		killAgentInstance,
 		type AgentSession
 	} from '$lib/api';
 	import {
@@ -85,6 +86,46 @@
 		return map;
 	});
 
+	// Kill state for additional instances
+	let holdingKillPid: number | null = $state(null);
+	let holdProgressPid: number = $state(0);
+	let holdRafPid: number | null = null;
+	let holdStartPid: number = 0;
+	let killedPids = $state<Set<number>>(new Set());
+
+	function startHoldKillPid(pid: number) {
+		holdingKillPid = pid;
+		holdProgressPid = 0;
+		holdStartPid = 0;
+		function tick(timestamp: number) {
+			if (!holdStartPid) holdStartPid = timestamp;
+			holdProgressPid = Math.min((timestamp - holdStartPid) / HOLD_DURATION, 1);
+			if (holdProgressPid >= 1) { completeKillPid(pid); return; }
+			holdRafPid = requestAnimationFrame(tick);
+		}
+		holdRafPid = requestAnimationFrame(tick);
+	}
+
+	function cancelHoldKillPid() {
+		if (holdRafPid) cancelAnimationFrame(holdRafPid);
+		holdRafPid = null;
+		holdingKillPid = null;
+		holdProgressPid = 0;
+	}
+
+	async function completeKillPid(pid: number) {
+		if (holdRafPid) cancelAnimationFrame(holdRafPid);
+		holdRafPid = null;
+		holdingKillPid = null;
+		holdProgressPid = 0;
+		await killAgentInstance(pid);
+		killedPids = new Set([...killedPids, pid]);
+		setTimeout(() => {
+			killedPids.delete(pid);
+			killedPids = killedPids;
+		}, 3000);
+	}
+
 	// Group unmatched instances by agent name
 	let unmatchedByAgent = $derived(() => {
 		const groups = new Map<string, AgentSession[]>();
@@ -159,6 +200,7 @@
 							{#each session.windows as window}
 								{#each window.panes as pane}
 									{@const paneClause = agentByTarget.get(paneTarget(session.name, window.index, pane.index))}
+									{#if pane.command || pane.cwd || paneClause}
 									<div class="flex items-center gap-3 text-sm min-w-0">
 										<span class="font-mono text-xs shrink-0 {pane.active ? 'text-run-600' : 'text-bourbon-600'}">{pane.command}</span>
 										{#if paneClause}
@@ -176,12 +218,14 @@
 												{st === 'idle' ? `idle${paneClause.uptime ? ` · ${paneClause.uptime}` : ''}` : st === 'unknown' ? `?${paneClause.uptime ? ` · ${paneClause.uptime}` : ''}` : st}
 											</span>
 										{/if}
+										{#if pane.cwd}
 										<button
-										onclick={(e) => { e.stopPropagation(); openFolder(pane.cwd); }}
-										class="text-bourbon-500 font-mono text-xs hover:text-cmd-400 transition-colors cursor-pointer truncate min-w-0"
-									style="direction: rtl; text-align: left;"
-									><bdi>{shortenPath(pane.cwd)}</bdi></button>
+											onclick={(e) => { e.stopPropagation(); openFolder(pane.cwd); }}
+											class="text-bourbon-500 font-mono text-xs hover:text-cmd-400 transition-colors cursor-pointer truncate min-w-0"
+										>{shortenPath(pane.cwd)}</button>
+										{/if}
 									</div>
+									{/if}
 								{/each}
 							{/each}
 						</div>
@@ -230,7 +274,12 @@
 		<h3 class="text-xs font-semibold text-bourbon-500 mt-6 mb-2">Additional {displayAgentName(agentName)} instances</h3>
 		<div class="flex flex-col gap-1.5">
 			{#each instances as instance}
-				<div class="flex items-center gap-3 bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5 min-w-0">
+				{#if killedPids.has(instance.pid)}
+					<div class="flex items-center justify-center border border-red-900/30 rounded-lg px-5 py-3.5 text-red-400 animate-fade-out">
+						<span class="font-display text-xs font-bold uppercase tracking-widest">killed pid {instance.pid}</span>
+					</div>
+				{:else}
+				<div class="group relative flex items-center gap-3 bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5 min-w-0">
 					<span class="text-cmd-400 shrink-0"><Sparkles size={14} /></span>
 					<span class="text-xs font-semibold text-bourbon-100 shrink-0">{instance.project}</span>
 					<span
@@ -241,7 +290,24 @@
 						<span class="text-xs text-bourbon-600 shrink-0">&middot; {instance.uptime}</span>
 					{/if}
 					<span class="text-xs text-bourbon-600 shrink-0">&middot; pid {instance.pid}</span>
+					<div class="ml-auto opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+						<button
+							onmousedown={() => startHoldKillPid(instance.pid)}
+							onmouseup={cancelHoldKillPid}
+							onmouseleave={cancelHoldKillPid}
+							class="btn-chiclet btn-chiclet-danger relative overflow-hidden"
+						>
+							{#if holdingKillPid === instance.pid}
+								<div
+									class="absolute inset-x-0 bottom-0 bg-red-500/40 transition-none"
+									style="height: {holdProgressPid * 100}%"
+								></div>
+							{/if}
+							<X size={14} class="relative z-10" />
+						</button>
+					</div>
 				</div>
+				{/if}
 			{/each}
 		</div>
 	{/each}
