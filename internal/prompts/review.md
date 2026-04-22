@@ -64,18 +64,41 @@ For each finding, use:
 
 ```
 ### [N. Category] Finding Title
-**Lines:** X–Y (diff), `file/path`
-**Severity:** must-fix | should-fix | optional
-**Confidence:** high | medium | low
+`file/path` · lines X–Y
+
 **Issue:** One-sentence description of what's wrong
+**Severity:** must-fix | should-fix | optional
+
+> Code in question:
+
+\`\`\`language
+// the relevant code snippet from the diff or current file
+// include enough surrounding context to understand the problem
+// for changes, show the new code as it appears after the commit
+\`\`\`
+
 **Why it matters:** How this degrades the codebase over time
+
 **Plan:**
-1. [Step]: what to do and where (file:method/function), not how to write the code
+1. [Step]: what to do and where (file:method/function)
 2. [Step]: ...
 ```
 
-Use N from the six scope areas above. `Severity` and `Confidence` may be omitted unless the system prompt requires them.
+### Code snippet guidelines
 
-The plan should be a sequence of steps that a refactoring agent can follow. Each step should point at a **location and intention** — e.g. "Extract the media resolution block from `derive()` in `createSocialPost.js` into a new `productService.resolveVariantMedia()` method". Do not include code snippets or exact implementations — the agent will figure that out. Keep steps scoped to the finding; do not combine multiple findings into one plan.
+Every finding **must** include the relevant code snippet inline. The reader should be able to understand the finding without switching to an editor. Follow these rules:
+
+- Show the **actual code** that the finding refers to — not a paraphrase or pseudocode
+- Include enough **surrounding context** (3–5 lines before/after) to understand the code's role
+- For diff-related findings, show the code **as it appears after the commit** (the new version)
+- If the finding is about a missing pattern or structural issue, show the code that should change
+- Use the correct language identifier for syntax highlighting (e.g. `js`, `go`, `ts`, `svelte`)
+- Keep snippets focused — 5–20 lines is ideal, don't dump entire functions
+
+### Other format notes
+
+Use N from the six scope areas above. `Severity` may be omitted for optional findings. `Confidence` may be added when a finding involves judgment calls.
+
+The plan should be a sequence of steps that a refactoring agent can follow. Each step should point at a **location and intention** — e.g. "Extract the media resolution block from `derive()` in `createSocialPost.js` into a new `productService.resolveVariantMedia()` method". Do not include code snippets or exact implementations in the plan — the agent will figure that out. Keep steps scoped to the finding; do not combine multiple findings into one plan.
 
 Skip scope areas with no findings. If the change is clean, say so in one sentence — do not pad with praise or generic observations.
