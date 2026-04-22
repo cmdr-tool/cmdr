@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -256,25 +257,35 @@ func (a *Adapter) PaneStatus(lines []string) string {
 		tail = tail[len(tail)-20:]
 	}
 
+	footerKey, hasFooter := piFooterKey(tail)
 	for _, line := range tail {
 		lower := strings.ToLower(strings.TrimSpace(line))
 		if lower == "" {
 			continue
 		}
 		if strings.Contains(lower, "working...") || strings.Contains(lower, "working…") || strings.Contains(lower, "running...") || strings.Contains(lower, "running…") || strings.Contains(lower, "escape interrupt") {
+			if hasFooter {
+				piStatusTracker.markWorking(footerKey)
+			}
 			return "working"
 		}
 	}
 
-	if hasPiFooter(tail) {
-		return "idle"
+	for _, line := range tail {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if lower == "" {
+			continue
+		}
+		if strings.Contains(lower, "ctrl+o to expand") || strings.Contains(lower, "ctrl+o") {
+			return "waiting"
+		}
 	}
 
-	for _, line := range tail {
-		lower := strings.ToLower(line)
-		if strings.Contains(lower, "ctrl+o to expand") || strings.Contains(lower, "ctrl+o") {
-			return "idle"
+	if hasFooter {
+		if piStatusTracker.wasRecentlyWorking(footerKey) {
+			return "waiting"
 		}
+		return "waiting"
 	}
 
 	return "unknown"
@@ -300,7 +311,7 @@ func isInteractiveTTY(tty string) bool {
 	return tty != "" && tty != "??"
 }
 
-func hasPiFooter(lines []string) bool {
+func piFooterKey(lines []string) (string, bool) {
 	for i := 0; i < len(lines)-1; i++ {
 		pwdLine := strings.TrimSpace(lines[i])
 		statsLine := strings.TrimSpace(lines[i+1])
@@ -308,10 +319,10 @@ func hasPiFooter(lines []string) bool {
 			continue
 		}
 		if looksLikePiPwdLine(pwdLine) && looksLikePiStatsLine(statsLine) {
-			return true
+			return pwdLine + "\n" + statsLine, true
 		}
 	}
-	return false
+	return "", false
 }
 
 func looksLikePiPwdLine(line string) bool {
@@ -333,6 +344,30 @@ func looksLikePiStatsLine(line string) bool {
 		return false
 	}
 	return strings.Contains(line, "↑") || strings.Contains(line, "↓") || strings.Contains(line, "$") || strings.Contains(lower, "(sub)")
+}
+
+const piWaitingThreshold = 5 * time.Minute
+
+type piTracker struct {
+	mu          sync.Mutex
+	lastWorking map[string]time.Time
+}
+
+var piStatusTracker = piTracker{
+	lastWorking: make(map[string]time.Time),
+}
+
+func (t *piTracker) markWorking(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.lastWorking[key] = time.Now()
+}
+
+func (t *piTracker) wasRecentlyWorking(key string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	last, ok := t.lastWorking[key]
+	return ok && time.Since(last) < piWaitingThreshold
 }
 
 // toolDetail extracts a human-readable detail string from tool arguments.
