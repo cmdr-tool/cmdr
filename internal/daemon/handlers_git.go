@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -265,37 +266,71 @@ func handleListCommits(db *sql.DB) http.HandlerFunc {
 			commits = []commit{}
 		}
 
-		// Mark commits that are already in the local branch
-		markLocalCommits(commits)
+		// Enrich commits with local presence and diff stats
+		enrichCommits(commits)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(commits)
 	}
 }
 
-// markLocalCommits checks which commits exist in the local branch for each repo.
-// Groups commits by repo, runs one `git log` per repo, and marks matches.
-func markLocalCommits(commits []commit) {
-	// Group SHAs by repo path
-	repoSHAs := make(map[string][]int) // repoPath → indices into commits
+var shortStatRe = regexp.MustCompile(`(\d+) file|(\d+) insertion|(\d+) deletion`)
+
+// enrichCommits marks local presence and attaches diff stats (files changed,
+// insertions, deletions). Runs two git log calls per repo: one against HEAD
+// for local detection, one against --all with --shortstat for diff stats.
+func enrichCommits(commits []commit) {
+	repoIndices := make(map[string][]int)
 	for i, c := range commits {
-		repoSHAs[c.RepoPath] = append(repoSHAs[c.RepoPath], i)
+		repoIndices[c.RepoPath] = append(repoIndices[c.RepoPath], i)
 	}
 
-	for repoPath, indices := range repoSHAs {
-		// Get local HEAD commit SHAs (enough to cover what we show)
-		out, err := exec.Command("git", "-C", repoPath, "log", "--format=%H", "-n", "100", "HEAD").Output()
+	for repoPath, indices := range repoIndices {
+		shaToIdx := make(map[string]int)
+		for _, idx := range indices {
+			shaToIdx[commits[idx].SHA] = idx
+		}
+
+		// Local presence: HEAD only
+		if localOut, err := exec.Command("git", "-C", repoPath, "log",
+			"--format=%H", "-n", "100", "HEAD").Output(); err == nil {
+			for _, sha := range strings.Split(strings.TrimSpace(string(localOut)), "\n") {
+				if idx, ok := shaToIdx[sha]; ok {
+					commits[idx].Local = true
+				}
+			}
+		}
+
+		// Diff stats: all refs so remote-only commits get stats too
+		statOut, err := exec.Command("git", "-C", repoPath, "log",
+			"--format=%H", "--shortstat", "-n", "100", "--all").Output()
 		if err != nil {
 			continue
 		}
-		localSet := make(map[string]bool)
-		for _, sha := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if sha != "" {
-				localSet[sha] = true
+
+		var currentSHA string
+		for _, line := range strings.Split(string(statOut), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
 			}
-		}
-		for _, idx := range indices {
-			commits[idx].Local = localSet[commits[idx].SHA]
+			if len(line) == 40 {
+				currentSHA = line
+				continue
+			}
+			if idx, ok := shaToIdx[currentSHA]; ok {
+				for _, m := range shortStatRe.FindAllStringSubmatch(line, -1) {
+					if m[1] != "" {
+						commits[idx].FilesChanged, _ = strconv.Atoi(m[1])
+					}
+					if m[2] != "" {
+						commits[idx].Additions, _ = strconv.Atoi(m[2])
+					}
+					if m[3] != "" {
+						commits[idx].Deletions, _ = strconv.Atoi(m[3])
+					}
+				}
+			}
 		}
 	}
 }
@@ -310,6 +345,9 @@ type commit struct {
 	URL         string `json:"url"`
 	Seen        bool   `json:"seen"`
 	Flagged     bool   `json:"flagged"`
+	FilesChanged int   `json:"filesChanged"`
+	Additions    int   `json:"additions"`
+	Deletions    int   `json:"deletions"`
 	RepoName    string `json:"repoName"`
 	RepoPath    string `json:"repoPath"`
 	ReviewCount int    `json:"reviewCount"`

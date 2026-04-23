@@ -204,6 +204,9 @@ export interface GitCommit {
 	url: string;
 	seen: boolean;
 	flagged: boolean;
+	filesChanged: number;
+	additions: number;
+	deletions: number;
 	reviewCount: number;
 	repoName: string;
 	repoPath: string;

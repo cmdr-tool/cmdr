@@ -138,20 +138,36 @@
 			<div class="border border-bourbon-800 rounded-lg overflow-hidden {commit.seen ? 'bg-bourbon-950/20' : 'bg-bourbon-950/50 border-l-2 border-l-run-500'}">
 				<button
 					onclick={() => toggleFiles(commit)}
-					class="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-bourbon-800/30 transition-colors cursor-pointer"
+					class="w-full flex items-start gap-3 px-4 py-2.5 text-left hover:bg-bourbon-800/30 transition-colors cursor-pointer"
 				>
-					<span class="text-bourbon-600 shrink-0">
+					<span class="text-bourbon-600 shrink-0 mt-0.5">
 						{#if isExpanded}
 							<ChevronDown size={14} />
 						{:else}
 							<ChevronRight size={14} />
 						{/if}
 					</span>
-					<span class="font-mono text-xs text-cmd-400 shrink-0">{shortSha(commit.sha)}</span>
-					{#if commit.flagged}<span class="text-run-400 shrink-0"><Flag size={12} fill="currentColor" /></span>{/if}
-					{#if commit.reviewCount > 0}<span class="text-cmd-400 shrink-0"><MessageSquarePlus size={12} /></span>{/if}
-					<span class="text-sm text-bourbon-200 truncate flex-1">{firstLine(commit.message)}</span>
-					<span class="text-xs text-bourbon-700 shrink-0">{timeAgo(commit.committedAt)}</span>
+					<span class="font-mono text-xs text-cmd-400 shrink-0 mt-0.5">{shortSha(commit.sha)}</span>
+					{#if commit.flagged}<span class="text-run-400 shrink-0 mt-0.5"><Flag size={12} fill="currentColor" /></span>{/if}
+					{#if commit.reviewCount > 0}<span class="text-cmd-400 shrink-0 mt-0.5"><MessageSquarePlus size={12} /></span>{/if}
+					<div class="flex-1 flex flex-col gap-1 min-w-0">
+						<span class="text-sm text-bourbon-200 truncate">{firstLine(commit.message)}</span>
+						{#if !isExpanded}
+							<div class="flex items-center gap-3 text-[10px] font-mono text-bourbon-600">
+								{#if commit.filesChanged > 0}
+									<span>{commit.filesChanged} file{commit.filesChanged !== 1 ? 's' : ''}</span>
+									<span class="text-green-600">+{commit.additions}</span>
+									<span class="text-red-600">-{commit.deletions}</span>
+								{/if}
+							</div>
+						{/if}
+					</div>
+					<div class="flex flex-col items-end gap-1 shrink-0">
+						<span class="text-xs text-bourbon-700">{timeAgo(commit.committedAt)}</span>
+						{#if !isExpanded}
+							<span class="text-[10px] font-mono text-bourbon-600">{commit.author}</span>
+						{/if}
+					</div>
 				</button>
 
 				{#if isExpanded}
