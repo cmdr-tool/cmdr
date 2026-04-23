@@ -342,12 +342,13 @@
 					<div class="flex flex-col gap-2 px-4 py-3">
 						{#each parsedReview.sections as section, idx}
 							{@const isStaged = stagedDeletions.has(idx)}
-							<div class="group/section rounded-xl overflow-hidden transition-all
+							<div class="group/section rounded-xl transition-all
 								{isStaged
 									? 'bg-red-950/20 border border-red-500/20'
 									: 'bg-bourbon-900/60 border border-bourbon-800/60'}">
 								<!-- Section header -->
-								<div class="flex items-center gap-3 px-4 py-2.5">
+								<div class="flex items-center gap-3 px-4 py-2.5 sticky top-0 z-10 rounded-t-xl
+									{isStaged ? 'bg-red-950' : 'bg-bourbon-900'}">
 									<span class="text-[10px] font-display font-bold uppercase tracking-widest
 										{isStaged ? 'text-red-400/50 line-through' : 'text-cmd-400'}">
 										{section.category ? `${section.number}. ${section.category}` : `P${section.number}`}
