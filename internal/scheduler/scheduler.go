@@ -65,6 +65,9 @@ func (s *Scheduler) Start() {
 
 	for i := range s.tasks {
 		task := &s.tasks[i]
+		if task.entryID != 0 {
+			continue // already registered via AddTask
+		}
 		eid, err := s.cron.AddFunc(task.Schedule, func() {
 			log.Printf("cmdr: running task %q", task.Name)
 			if err := task.Fn(); err != nil {
