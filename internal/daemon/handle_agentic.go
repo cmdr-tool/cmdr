@@ -8,11 +8,16 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cmdr-tool/cmdr/internal/agent"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
 )
+
+// agenticLocks prevents concurrent runs of the same agentic task.
+// Keyed by task ID.
+var agenticLocks sync.Map
 
 // --- Agentic task CRUD + execution ---
 
@@ -257,7 +262,17 @@ func agenticTaskName(name string) string {
 }
 
 // runAgenticTask executes a headless agent call and persists the result.
+// It skips execution if the same task is already running.
 func runAgenticTask(db *sql.DB, bus *EventBus, taskID int, name, prompt, workDir string) {
+	// Per-task mutex: skip if already running (cron overlap)
+	val, _ := agenticLocks.LoadOrStore(taskID, &sync.Mutex{})
+	mu := val.(*sync.Mutex)
+	if !mu.TryLock() {
+		log.Printf("cmdr: agentic task %q (%d) skipped — already running", name, taskID)
+		return
+	}
+	defer mu.Unlock()
+
 	if workDir == "" {
 		workDir, _ = os.UserHomeDir()
 	}
