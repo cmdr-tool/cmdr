@@ -202,7 +202,7 @@
 		// Check if task is already completed (e.g., clicking a finished task)
 		try {
 			const data = await getAgentTaskResult(taskId);
-			if (data.status === 'completed' && data.result) {
+			if ((data.status === 'completed' || data.status === 'resolved') && data.result) {
 				streamedText = data.result;
 				status = 'completed';
 				return;
