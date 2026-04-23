@@ -2,6 +2,7 @@
 	import { X, Wrench, FileCheck, Trash2, Pencil, MessageSquarePlus, RotateCcw } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { spawnTask, reviseTask } from '$lib/api';
+	import { playSound, SFX } from '$lib/sounds';
 	import { loadAnnotations, saveAnnotations, type Annotation } from '$lib/annotations';
 	import LaunchGuard from './LaunchGuard.svelte';
 	import AnnotationLayer from './AnnotationLayer.svelte';
@@ -79,6 +80,7 @@
 		revising = true;
 		try {
 			await reviseTask(taskId, annotations.map(a => ({ exact: a.exact, note: a.note })));
+			playSound(SFX.dispatch, 0.5);
 			onclose();
 		} catch {
 			revising = false;
