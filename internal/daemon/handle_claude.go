@@ -3,6 +3,10 @@ package daemon
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 )
 
 func handleAgentSessions() http.HandlerFunc {
@@ -15,5 +19,40 @@ func handleAgentSessions() http.HandlerFunc {
 		all := collectAgentInstances(sessions)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(all)
+	}
+}
+
+func handleAgentKill() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			PID int `json:"pid"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.PID == 0 {
+			http.Error(w, `{"error":"missing pid"}`, http.StatusBadRequest)
+			return
+		}
+		// Verify the target is actually an agent process before killing it.
+		out, err := exec.Command("ps", "-p", strconv.Itoa(body.PID), "-o", "comm=").Output()
+		if err != nil {
+			http.Error(w, `{"error":"process not found"}`, http.StatusNotFound)
+			return
+		}
+		comm := strings.TrimSpace(string(out))
+		if comm != "claude" && comm != "pi" {
+			http.Error(w, `{"error":"not an agent process"}`, http.StatusForbidden)
+			return
+		}
+		// os.FindProcess always succeeds on Unix; error only surfaces at Signal.
+		proc, _ := os.FindProcess(body.PID)
+		if err = proc.Signal(os.Interrupt); err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"killed": body.PID})
 	}
 }
