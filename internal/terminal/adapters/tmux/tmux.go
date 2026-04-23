@@ -232,3 +232,21 @@ func parsePaneOutput(output string) []terminal.Session {
 	}
 	return sessions
 }
+
+func (a *Adapter) CandidatePanes(sessions []terminal.Session) []terminal.CandidatePane {
+	var panes []terminal.CandidatePane
+	terminal.ForEachPane(sessions, func(target string, p *terminal.Pane) {
+		panes = append(panes, terminal.CandidatePane{
+			Target:  target,
+			Session: strings.SplitN(target, ":", 2)[0],
+			PID:     p.PID,
+			CWD:     p.CWD,
+			Command: p.Command,
+		})
+	})
+	return panes
+}
+
+func (a *Adapter) MatchInstances(procs []terminal.AgentProcess, panes []terminal.CandidatePane, ppidMap map[int]int) []terminal.InstanceMatch {
+	return terminal.MatchByPIDAncestry(procs, panes, ppidMap)
+}

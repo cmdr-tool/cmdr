@@ -173,6 +173,7 @@ func collectAgentInstances(termSessions []terminal.Session) []agent.Instance {
 
 	var allInstances []agent.Instance
 	paneOverrides := make(map[string]string) // tmuxTarget → agent name
+	candidatePanes := term.CandidatePanes(termSessions)
 
 	allAgents := agent.All()
 	for _, a := range allAgents {
@@ -185,27 +186,28 @@ func collectAgentInstances(termSessions []terminal.Session) []agent.Instance {
 			continue
 		}
 
-		agentPIDs := make(map[int]bool, len(instances))
-		for _, inst := range instances {
-			agentPIDs[inst.PID] = true
-		}
-
-		panes := collectAgentPanes(termSessions, a.ProcessName(), agentPIDs, ppidMap)
-		shellPIDs := make(map[int]*agentPane)
-		for i := range panes {
-			shellPIDs[panes[i].shellPID] = &panes[i]
-		}
-
-		for i := range instances {
-			if cp := findAncestorPane(instances[i].PID, ppidMap, shellPIDs); cp != nil {
-				instances[i].TmuxTarget = cp.target
-				if instances[i].CWD == "" {
-					instances[i].CWD = cp.cwd
-					instances[i].Project = filepath.Base(cp.cwd)
-				}
-				paneOverrides[cp.target] = a.Name()
-				instances[i].Status = a.PaneStatus(capturePaneLines(cp.target))
+		// Build AgentProcess list for the adapter
+		procs := make([]terminal.AgentProcess, len(instances))
+		for i, inst := range instances {
+			procs[i] = terminal.AgentProcess{
+				Index:       i,
+				PID:         inst.PID,
+				CWD:         inst.CWD,
+				Project:     inst.Project,
+				ProcessName: a.ProcessName(),
 			}
+		}
+
+		// Adapter resolves matches using its own strategy
+		matches := term.MatchInstances(procs, candidatePanes, ppidMap)
+		for _, m := range matches {
+			instances[m.ProcessIndex].TmuxTarget = m.Target
+			if instances[m.ProcessIndex].CWD == "" {
+				instances[m.ProcessIndex].CWD = m.CWD
+				instances[m.ProcessIndex].Project = filepath.Base(m.CWD)
+			}
+			paneOverrides[m.Target] = a.Name()
+			instances[m.ProcessIndex].Status = a.PaneStatus(capturePaneLines(m.Target))
 		}
 
 		allInstances = append(allInstances, instances...)
@@ -226,36 +228,6 @@ func enrichAndPublishAgents(bus *EventBus, termSessions []terminal.Session) []ag
 	return allInstances
 }
 
-type agentPane struct {
-	target   string // e.g. "cmdr:1.3"
-	shellPID int    // PID of the shell process in the pane
-	cwd      string // pane's working directory
-}
-
-// collectAgentPanes returns panes running a specific agent, matched by
-// command name or PID ancestry.
-func collectAgentPanes(sessions []terminal.Session, processName string, agentPIDs map[int]bool, ppidMap map[int]int) []agentPane {
-	paneAncestor := func(panePID int) bool {
-		for aPID := range agentPIDs {
-			visited := make(map[int]bool)
-			for cur := aPID; cur > 1 && !visited[cur]; cur = ppidMap[cur] {
-				visited[cur] = true
-				if cur == panePID {
-					return true
-				}
-			}
-		}
-		return false
-	}
-
-	var panes []agentPane
-	forEachPane(sessions, func(target string, p *terminal.Pane) {
-		if p.Command == processName || paneAncestor(p.PID) {
-			panes = append(panes, agentPane{target: target, shellPID: p.PID, cwd: p.CWD})
-		}
-	})
-	return panes
-}
 
 // capturePaneLines captures terminal output from a tmux pane and returns it as lines.
 func capturePaneLines(target string) []string {
@@ -266,17 +238,6 @@ func capturePaneLines(target string) []string {
 	return strings.Split(strings.TrimRight(out, "\n"), "\n")
 }
 
-// findAncestorPane walks up the process tree from pid to find a matching pane shell.
-func findAncestorPane(pid int, ppidMap map[int]int, shellPIDs map[int]*agentPane) *agentPane {
-	visited := make(map[int]bool)
-	for cur := pid; cur > 1 && !visited[cur]; cur = ppidMap[cur] {
-		visited[cur] = true
-		if cp, ok := shellPIDs[cur]; ok {
-			return cp
-		}
-	}
-	return nil
-}
 
 // --- Unified task lifecycle polling ---
 //
@@ -599,23 +560,11 @@ func publishCommitWatermark(bus *EventBus, db *sql.DB) {
 }
 
 func overridePaneCommands(sessions []terminal.Session, overrides map[string]string) {
-	forEachPane(sessions, func(target string, pane *terminal.Pane) {
+	terminal.ForEachPane(sessions, func(target string, pane *terminal.Pane) {
 		if agentName, ok := overrides[target]; ok {
 			pane.Command = agentName
 		}
 	})
-}
-
-func forEachPane(sessions []terminal.Session, fn func(target string, pane *terminal.Pane)) {
-	for si := range sessions {
-		for wi := range sessions[si].Windows {
-			for pi := range sessions[si].Windows[wi].Panes {
-				pane := &sessions[si].Windows[wi].Panes[pi]
-				target := fmt.Sprintf("%s:%d.%d", sessions[si].Name, sessions[si].Windows[wi].Index, pane.Index)
-				fn(target, pane)
-			}
-		}
-	}
 }
 
 func parentPIDMap(snapshot *proc.Snapshot) map[int]int {

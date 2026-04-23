@@ -337,3 +337,73 @@ func (a *Adapter) resolveWorkspace(name string) string {
 	}
 	return ""
 }
+
+func (a *Adapter) CandidatePanes(sessions []terminal.Session) []terminal.CandidatePane {
+	var panes []terminal.CandidatePane
+	terminal.ForEachPane(sessions, func(target string, p *terminal.Pane) {
+		panes = append(panes, terminal.CandidatePane{
+			Target:  target,
+			Session: strings.SplitN(target, ":", 2)[0],
+			PID:     p.PID,
+			CWD:     p.CWD,
+			Command: p.Command,
+		})
+	})
+	return panes
+}
+
+func (a *Adapter) MatchInstances(procs []terminal.AgentProcess, panes []terminal.CandidatePane, _ map[int]int) []terminal.InstanceMatch {
+	var matches []terminal.InstanceMatch
+	matched := make(map[int]bool) // track matched process indices
+
+	// Pass 1: match by CWD (parsed from surface titles)
+	for _, proc := range procs {
+		if proc.CWD == "" || matched[proc.Index] {
+			continue
+		}
+		for _, pane := range panes {
+			if pane.CWD != "" && pane.CWD == proc.CWD {
+				matches = append(matches, terminal.InstanceMatch{
+					ProcessIndex: proc.Index,
+					Target:       pane.Target,
+					CWD:          pane.CWD,
+				})
+				matched[proc.Index] = true
+				break
+			}
+		}
+	}
+
+	// Pass 2: match by session/workspace name against project name
+	for _, proc := range procs {
+		if matched[proc.Index] {
+			continue
+		}
+		for _, sess := range sessionsFromPanes(panes) {
+			if sess == proc.Project {
+				matches = append(matches, terminal.InstanceMatch{
+					ProcessIndex: proc.Index,
+					Target:       sess, // workspace name for CapturePane active-surface fallback
+					CWD:          proc.CWD,
+				})
+				matched[proc.Index] = true
+				break
+			}
+		}
+	}
+
+	return matches
+}
+
+// sessionsFromPanes extracts unique session names from candidate panes.
+func sessionsFromPanes(panes []terminal.CandidatePane) []string {
+	seen := make(map[string]bool)
+	var names []string
+	for _, p := range panes {
+		if !seen[p.Session] {
+			seen[p.Session] = true
+			names = append(names, p.Session)
+		}
+	}
+	return names
+}
