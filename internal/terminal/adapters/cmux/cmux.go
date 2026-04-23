@@ -3,8 +3,10 @@
 // Communication is via the cmux CLI binary, which handles socket auth internally.
 //
 // Known limitations vs the tmux adapter:
-//   - Pane.PID and Pane.Command are always zero/empty — Claude session
-//     enrichment (PID matching) gracefully degrades.
+//   - Pane.PID is always zero — Claude session enrichment via PID ancestry
+//     is not available; name-based fallback matching is used instead.
+//   - Pane.Command and Pane.CWD are parsed from surface titles heuristically
+//     and may be empty when titles don't follow expected formats.
 //   - analytics.determineActiveTool returns "inactive" under cmux.
 //   - No remain-on-exit equivalent — if Claude exits with an error the
 //     surface closes immediately (degraded error visibility).
@@ -17,6 +19,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +37,7 @@ func init() {
 type Adapter struct {
 	mu         sync.RWMutex
 	workspaces map[string]string // workspace title → workspace ref
+	activeSurf map[string]string // workspace title → focused surface ref
 }
 
 // --- CLI client ---
@@ -109,8 +113,9 @@ func (a *Adapter) ListSessions() ([]terminal.Session, error) {
 		return []terminal.Session{}, nil
 	}
 
-	// Rebuild workspace map while iterating
+	// Rebuild workspace and active-surface maps while iterating
 	wsMap := make(map[string]string)
+	surfMap := make(map[string]string)
 
 	var sessions []terminal.Session
 	for _, win := range tree.Windows {
@@ -128,12 +133,16 @@ func (a *Adapter) ListSessions() ([]terminal.Session, error) {
 					Active: pane.Focused,
 				}
 				for si, surf := range pane.Surfaces {
+					cmd, cwd := parseSurfaceTitle(surf.Title)
+					if surf.Focused {
+						surfMap[ws.Title] = surf.Ref
+					}
 					w.Panes = append(w.Panes, terminal.Pane{
 						Index:   si,
-						PID:     0,  // not available in cmux
+						PID:     0, // not available in cmux
 						Active:  surf.Focused,
-						CWD:     "",  // not available in cmux
-						Command: "", // not available in cmux
+						CWD:     cwd,
+						Command: cmd,
 					})
 				}
 				s.Windows = append(s.Windows, w)
@@ -144,9 +153,64 @@ func (a *Adapter) ListSessions() ([]terminal.Session, error) {
 
 	a.mu.Lock()
 	a.workspaces = wsMap
+	a.activeSurf = surfMap
 	a.mu.Unlock()
 
 	return sessions, nil
+}
+
+// parseSurfaceTitle extracts a command name and CWD from a terminal surface title.
+// Handles common shell title formats like "zsh — ~/code/project" or "nvim - file.go".
+// cmux abbreviates the home directory as "…" (U+2026) in surface titles, e.g. "…/code/project".
+// The "../" prefix is also handled for robustness (some shells use it similarly).
+func parseSurfaceTitle(title string) (command, cwd string) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "", ""
+	}
+	for _, sep := range []string{" — ", " – ", " - "} {
+		if idx := strings.LastIndex(title, sep); idx >= 0 {
+			left := strings.TrimSpace(title[:idx])
+			right := strings.TrimSpace(title[idx+len(sep):])
+			if isPathLike(right) {
+				return left, expandHome(right)
+			}
+		}
+	}
+	// Title is a bare path (no command prefix).
+	if isPathLike(title) {
+		return "", expandHome(title)
+	}
+	return title, ""
+}
+
+// isPathLike reports whether s looks like a filesystem path.
+// Recognises ~/, /, cmux's ../ abbreviation, and cmux's …/ (U+2026) abbreviation.
+func isPathLike(s string) bool {
+	return strings.HasPrefix(s, "~") ||
+		strings.HasPrefix(s, "/") ||
+		strings.HasPrefix(s, "../") ||
+		strings.HasPrefix(s, "…/") // U+2026 used by cmux as home-dir prefix
+}
+
+// expandHome expands ~, ../, and cmux's …/ home-dir abbreviations to absolute paths.
+func expandHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	switch {
+	case path == "~" || path == ".." || path == "…":
+		return home
+	case strings.HasPrefix(path, "~/"):
+		return filepath.Join(home, path[2:])
+	case strings.HasPrefix(path, "../"):
+		return filepath.Join(home, path[3:])
+	case strings.HasPrefix(path, "…/"):
+		return filepath.Join(home, strings.TrimPrefix(path, "…/"))
+	default:
+		return path
+	}
 }
 
 func (a *Adapter) CreateSession(dir string) (string, error) {
@@ -191,6 +255,7 @@ func (a *Adapter) KillSession(name string) error {
 	}
 	a.mu.Lock()
 	delete(a.workspaces, name)
+	delete(a.activeSurf, name)
 	a.mu.Unlock()
 	return nil
 }
@@ -256,8 +321,19 @@ func (a *Adapter) SendKeys(target, keys string, literal bool) error {
 
 func (a *Adapter) CapturePane(target string, lines int) (string, error) {
 	out, err := run("read-screen", "--surface", target, "--lines", strconv.Itoa(lines))
+	if err == nil {
+		return out, nil
+	}
+	// target may be a workspace name (from name-based session matching) — try active surface
+	a.mu.RLock()
+	surfRef := a.activeSurf[target]
+	a.mu.RUnlock()
+	if surfRef == "" {
+		return "", nil
+	}
+	out, err = run("read-screen", "--surface", surfRef, "--lines", strconv.Itoa(lines))
 	if err != nil {
-		return "", nil // degrade gracefully
+		return "", nil
 	}
 	return out, nil
 }
