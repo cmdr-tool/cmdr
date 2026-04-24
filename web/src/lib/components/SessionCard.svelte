@@ -72,22 +72,27 @@
 
 	$effect(() => {
 		const currentPanes = new Set<string>();
+		const added: string[] = [];
 		for (const session of $sessionsStore) {
 			for (const window of session.windows) {
 				for (const pane of window.panes) {
 					const key = paneTarget(session.name, window.index, pane.index);
 					currentPanes.add(key);
 					if (knownPanes.size > 0 && !knownPanes.has(key)) {
-						newPanes.add(key);
-						setTimeout(() => {
-							newPanes.delete(key);
-							newPanes = new Set(newPanes);
-						}, 2500);
+						added.push(key);
 					}
 				}
 			}
 		}
 		knownPanes = currentPanes;
+		if (added.length > 0) {
+			newPanes = new Set([...newPanes, ...added]);
+			for (const key of added) {
+				setTimeout(() => {
+					newPanes = new Set([...newPanes].filter(k => k !== key));
+				}, 2500);
+			}
+		}
 	});
 
 	// Map agent sessions by their tmux pane target
@@ -224,12 +229,12 @@
 							{#each session.windows as window}
 								{#each window.panes as pane}
 									{@const target = paneTarget(session.name, window.index, pane.index)}
-									{@const paneClause = agentByTarget.get(target)}
-									{#if pane.command || pane.cwd || paneClause}
+									{@const paneAgent = agentByTarget.get(target)}
+									{#if pane.command || pane.cwd || paneAgent}
 									<div class="flex items-center gap-3 text-sm min-w-0">
 										<span class="font-mono text-xs shrink-0 {pane.active ? 'text-run-600' : 'text-bourbon-600'} {newPanes.has(target) ? 'pane-new' : ''}">{pane.command}</span>
-										{#if paneClause}
-											{@const st = paneClause.status}
+										{#if paneAgent}
+											{@const st = paneAgent.status}
 											<span class="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap shrink-0
 												{st === 'working' ? 'text-green-400 bg-green-900/30' :
 												 st === 'waiting' ? 'text-run-400 bg-run-700/30 animate-pulse' :
@@ -240,7 +245,7 @@
 													 st === 'waiting' ? 'bg-run-500' :
 													 st === 'idle' ? 'bg-bourbon-600' :
 													 'bg-cmd-500'}"></span>
-												{st === 'idle' ? `idle${paneClause.uptime ? ` · ${paneClause.uptime}` : ''}` : st === 'unknown' ? `?${paneClause.uptime ? ` · ${paneClause.uptime}` : ''}` : st}
+												{st === 'idle' ? `idle${paneAgent.uptime ? ` · ${paneAgent.uptime}` : ''}` : st === 'unknown' ? `?${paneAgent.uptime ? ` · ${paneAgent.uptime}` : ''}` : st}
 											</span>
 										{/if}
 										{#if pane.cwd}
