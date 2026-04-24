@@ -178,7 +178,7 @@
 
 					<!-- Overlay actions -->
 					{#if task.status === 'running' && task.headless}
-						<div class="absolute right-0 inset-y-0 flex items-center gap-1.5 pr-3 pl-20 invisible group-hover:visible bg-linear-to-r from-transparent to-30% to-bourbon-800 rounded-r-lg pb-0.5">
+						<div class="absolute right-0 inset-y-0 flex items-center gap-1.5 pr-3 pl-20 invisible group-hover:visible bg-linear-to-r from-transparent to-30% to-bourbon-800 rounded-r-lg">
 							<span
 								role="button"
 								tabindex="0"
@@ -191,7 +191,7 @@
 							</span>
 						</div>
 					{:else if task.status !== 'running' && task.status !== 'pending'}
-						<div class="absolute right-0 inset-y-0 flex items-center gap-1.5 pr-3 pl-20 invisible group-hover:visible bg-linear-to-r from-transparent to-30% to-bourbon-800 rounded-r-lg pb-0.5">
+						<div class="absolute right-0 inset-y-0 flex items-center gap-1.5 pr-3 pl-20 invisible group-hover:visible bg-linear-to-r from-transparent to-30% to-bourbon-800 rounded-r-lg">
 							{#if task.status === 'failed' && task.type === 'directive'}
 								<span
 									role="button"

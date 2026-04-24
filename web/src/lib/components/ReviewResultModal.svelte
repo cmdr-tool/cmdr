@@ -342,22 +342,19 @@
 					<div class="flex flex-col gap-2 px-4 py-3">
 						{#each parsedReview.sections as section, idx}
 							{@const isStaged = stagedDeletions.has(idx)}
-							<div class="group/section rounded-xl transition-all
+							<div class="group/section relative rounded-xl transition-all
 								{isStaged
 									? 'bg-red-950/20 border border-red-500/20'
 									: 'bg-bourbon-900/60 border border-bourbon-800/60'}">
-								<!-- Section header -->
-								<div class="flex items-center gap-3 px-4 py-2.5 sticky top-0 z-10 rounded-t-xl
-									{isStaged ? 'bg-red-950' : 'bg-bourbon-900'}">
-									<span class="text-[10px] font-display font-bold uppercase tracking-widest
-										{isStaged ? 'text-red-400/50 line-through' : 'text-cmd-400'}">
-										{section.category ? `${section.number}. ${section.category}` : `P${section.number}`}
-									</span>
-									<span class="text-xs truncate flex-1
-										{isStaged ? 'text-bourbon-500 line-through' : 'text-bourbon-200'}">
-										{section.title}
-									</span>
-									{#if isStaged}
+								{#if isStaged}
+									<!-- Staged for deletion: simple header, no sticky -->
+									<div class="flex items-center gap-3 px-4 py-2.5 rounded-t-xl bg-red-950">
+										<span class="text-[10px] font-display font-bold uppercase tracking-widest text-red-400/50 line-through">
+											{section.category ? `${section.number}. ${section.category}` : `P${section.number}`}
+										</span>
+										<span class="text-xs truncate flex-1 text-bourbon-500 line-through">
+											{section.title}
+										</span>
 										<button
 											onclick={() => unstageDelete(idx)}
 											class="flex items-center gap-1 p-1 text-bourbon-500 hover:text-bourbon-200 transition-colors cursor-pointer"
@@ -366,7 +363,18 @@
 											<Undo2 size={14} />
 											<span class="text-[10px] font-mono">undo</span>
 										</button>
-									{:else}
+									</div>
+								{:else}
+									<!-- Rounded corner underlay: scrolls with card -->
+									<div class="absolute top-0 left-0 right-0 h-2.5 rounded-t-xl pointer-events-none bg-bourbon-900"></div>
+									<!-- Sticky header: offset from top to clear rounded corners -->
+									<div class="flex items-center gap-3 px-4 py-2 mt-1 sticky top-0 z-10 bg-bourbon-900 border-b border-bourbon-800/60">
+										<span class="text-[10px] font-display font-bold uppercase tracking-widest text-cmd-400">
+											{section.category ? `${section.number}. ${section.category}` : `P${section.number}`}
+										</span>
+										<span class="text-xs truncate flex-1 text-bourbon-200">
+											{section.title}
+										</span>
 										<div class="flex items-center gap-1 shrink-0 invisible group-hover/section:visible">
 											<button
 												onclick={() => startNote(idx)}
@@ -383,11 +391,11 @@
 												<Trash2 size={14} />
 											</button>
 										</div>
-									{/if}
-								</div>
+									</div>
+								{/if}
 
 								{#if !isStaged}
-									<div class="px-4 pb-3">
+									<div class="px-4 pt-3 pb-3">
 										<div class={proseClasses}>
 											{@html renderMd(bodyWithoutNote(section.body))}
 										</div>

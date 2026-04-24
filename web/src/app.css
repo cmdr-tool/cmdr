@@ -56,16 +56,57 @@
 }
 
 /* Prism syntax highlighting — dark bourbon theme */
-.token.comment, .token.prolog, .token.doctype, .token.cdata { color: #655440; font-style: italic; }
-.token.punctuation { color: #897562; }
-.token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: #fac775; }
-.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin { color: #4ade80; }
-.token.operator, .token.entity, .token.url { color: #a89580; }
-.token.atrule, .token.attr-value, .token.keyword { color: #7f77dd; }
-.token.function, .token.class-name { color: #60a5fa; }
-.token.regex, .token.important, .token.variable { color: #ef9f27; }
-.token.important, .token.bold { font-weight: bold; }
-.token.italic { font-style: italic; }
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #655440;
+  font-style: italic;
+}
+.token.punctuation {
+  color: #897562;
+}
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol {
+  color: #fac775;
+}
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin {
+  color: #4ade80;
+}
+.token.operator,
+.token.entity,
+.token.url {
+  color: #a89580;
+}
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: #7f77dd;
+}
+.token.function,
+.token.class-name {
+  color: #60a5fa;
+}
+.token.regex,
+.token.important,
+.token.variable {
+  color: #ef9f27;
+}
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+.token.italic {
+  font-style: italic;
+}
 
 /* Difft syntax-aware diff colors */
 .diff-add {
@@ -142,7 +183,7 @@
   /* Chiclet buttons: size variants with default color, compose with -danger/-alt for color */
   .btn-chiclet,
   .btn-chiclet-sm {
-    @apply shrink-0 flex items-center justify-center
+    @apply shrink-0 flex items-center justify-center pt-px
 			rounded-md border-t
 			hover:brightness-110
 			active:translate-y-0.5 active:shadow-none
@@ -175,7 +216,7 @@
     border-color: transparent;
   }
   .border-shine::before {
-    content: '';
+    content: "";
     position: absolute;
     inset: -1px;
     border-radius: inherit;
@@ -187,8 +228,12 @@
       transparent 20%,
       transparent 100%
     );
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     animation: shine-rotate 3s linear infinite;
@@ -196,7 +241,9 @@
   }
 
   @keyframes shine-rotate {
-    to { --shine-angle: 360deg; }
+    to {
+      --shine-angle: 360deg;
+    }
   }
 
   .insight-callout {
