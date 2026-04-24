@@ -55,15 +55,6 @@
   }
 }
 
-/* Pane highlight for newly spawned processes */
-.pane-new {
-  animation: pane-highlight 2.5s ease-out forwards;
-}
-@keyframes pane-highlight {
-  0% { color: var(--color-cmd-400); }
-  100% { color: inherit; }
-}
-
 /* Prism syntax highlighting — dark bourbon theme */
 .token.comment,
 .token.prolog,

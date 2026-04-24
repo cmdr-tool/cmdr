@@ -66,35 +66,6 @@
 		return agentName.toLowerCase();
 	}
 
-	// Track newly appeared panes for highlight animation
-	let knownPanes = new Set<string>();
-	let newPanes = $state(new Set<string>());
-
-	$effect(() => {
-		const currentPanes = new Set<string>();
-		const added: string[] = [];
-		for (const session of $sessionsStore) {
-			for (const window of session.windows) {
-				for (const pane of window.panes) {
-					const key = paneTarget(session.name, window.index, pane.index);
-					currentPanes.add(key);
-					if (knownPanes.size > 0 && !knownPanes.has(key)) {
-						added.push(key);
-					}
-				}
-			}
-		}
-		knownPanes = currentPanes;
-		if (added.length > 0) {
-			newPanes = new Set([...newPanes, ...added]);
-			for (const key of added) {
-				setTimeout(() => {
-					newPanes = new Set([...newPanes].filter(k => k !== key));
-				}, 2500);
-			}
-		}
-	});
-
 	// Map agent sessions by their tmux pane target
 	let agentByTarget = $derived(
 		new Map($agentSessionsStore.filter((c) => c.tmuxTarget).map((c) => [c.tmuxTarget, c]))
@@ -228,11 +199,10 @@
 						<div class="flex flex-col gap-1 ml-4">
 							{#each session.windows as window}
 								{#each window.panes as pane}
-									{@const target = paneTarget(session.name, window.index, pane.index)}
-									{@const paneAgent = agentByTarget.get(target)}
+									{@const paneAgent = agentByTarget.get(paneTarget(session.name, window.index, pane.index))}
 									{#if pane.command || pane.cwd || paneAgent}
 									<div class="flex items-center gap-3 text-sm min-w-0">
-										<span class="font-mono text-xs shrink-0 {pane.active ? 'text-run-600' : 'text-bourbon-600'} {newPanes.has(target) ? 'pane-new' : ''}">{pane.command}</span>
+										<span class="font-mono text-xs shrink-0 {pane.active ? 'text-run-600' : 'text-bourbon-600'}">{pane.command}</span>
 										{#if paneAgent}
 											{@const st = paneAgent.status}
 											<span class="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap shrink-0
