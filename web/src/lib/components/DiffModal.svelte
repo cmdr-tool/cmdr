@@ -254,6 +254,7 @@
 				comment: commitNote.trim()
 			});
 			commitNoteSaved = commitNote.trim();
+			commitNoteOpen = false;
 		} catch { /* silent */ }
 		savingNote = false;
 	}
