@@ -25,7 +25,7 @@ import (
 func handleListAgentTasks(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		query := `SELECT id, type, status, repo_path, commit_sha, COALESCE(title, ''), COALESCE(pr_url, ''), error_msg, created_at, started_at, completed_at, COALESCE(prompt, ''), COALESCE(intent, ''), parent_id, COALESCE(output_format, 'markdown')
-			FROM agent_tasks ORDER BY created_at DESC LIMIT 50`
+			FROM agent_tasks WHERE status != 'dismissed' ORDER BY created_at DESC LIMIT 50`
 		rows, err := db.Query(query)
 		if err != nil {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
@@ -202,18 +202,19 @@ func handleDismissAgentTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			}
 		}
 
-		// DELETE first so the response reflects the new state immediately.
+		// Soft-delete: mark as dismissed (pruned after 24h).
+		now := time.Now().Format(time.RFC3339)
 		var res sql.Result
 		var err error
 		if body.All == "completed" {
 			// Terminal = failed or completed. Resolved tasks need user action.
 			res, err = db.Exec(`
-				DELETE FROM agent_tasks
+				UPDATE agent_tasks SET status='dismissed', completed_at=?
 				WHERE type != 'delegation'
 				  AND status IN ('failed', 'completed')
-			`)
+			`, now)
 		} else if body.ID > 0 {
-			res, err = db.Exec(`DELETE FROM agent_tasks WHERE id = ?`, body.ID)
+			res, err = db.Exec(`UPDATE agent_tasks SET status='dismissed', completed_at=? WHERE id=?`, now, body.ID)
 		} else {
 			http.Error(w, `{"error":"missing id or all"}`, http.StatusBadRequest)
 			return

@@ -50,6 +50,13 @@ func Prune(db *sql.DB) func() error {
 			log.Printf("cmdr: prune: deleted %d stuck headless tasks", rc)
 		}
 
+		// Dismissed tasks older than 24h
+		res, _ = db.Exec(`DELETE FROM agent_tasks WHERE status = 'dismissed'
+			AND completed_at < datetime('now', '-24 hours')`)
+		if rc, _ := res.RowsAffected(); rc > 0 {
+			log.Printf("cmdr: prune: deleted %d dismissed tasks", rc)
+		}
+
 		// Delegation tasks for squads with no activity in 24h (delegations row cascades).
 		res, _ = db.Exec(`DELETE FROM agent_tasks WHERE type = 'delegation'
 			AND status IN ('completed', 'done', 'failed')
