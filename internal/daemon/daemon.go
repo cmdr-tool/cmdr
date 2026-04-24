@@ -148,8 +148,8 @@ func Run() error {
 
 	bus := NewEventBus()
 
-	// Mark any ask tasks orphaned by a previous daemon instance
-	cleanupOrphanedHeadlessTasks(database)
+	// Retry or mark headless tasks orphaned by a previous daemon instance
+	cleanupOrphanedHeadlessTasks(database, bus)
 
 	s := scheduler.New(database, scheduler.Hooks{
 		OnCommitsSync: func() {

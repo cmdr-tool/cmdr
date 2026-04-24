@@ -154,14 +154,33 @@ func cancelHeadlessProcess(taskID int) bool {
 	return false
 }
 
-// cleanupOrphanedHeadlessTasks marks any headless tasks left running from a
-// previous daemon instance as failed, since the goroutine reading their output is gone.
-func cleanupOrphanedHeadlessTasks(db *sql.DB) {
+// cleanupOrphanedHeadlessTasks handles headless tasks left running from a
+// previous daemon instance. Review tasks are auto-retried; ask tasks are
+// marked failed; headless directives are reset to draft.
+func cleanupOrphanedHeadlessTasks(db *sql.DB, bus *EventBus) {
 	now := time.Now().Format(time.RFC3339)
 
-	// Ask and review tasks → failed
+	// Review tasks → auto-retry
+	retryRows, _ := db.Query(`SELECT id, repo_path, commit_sha, prompt FROM agent_tasks
+		WHERE type = 'review' AND status = 'running'`)
+	var retried int
+	if retryRows != nil {
+		for retryRows.Next() {
+			var id int
+			var repoPath, sha, prompt string
+			if retryRows.Scan(&id, &repoPath, &sha, &prompt) != nil {
+				continue
+			}
+			db.Exec(`UPDATE agent_tasks SET status='pending', error_msg='', started_at=NULL, completed_at=NULL, result='' WHERE id=?`, id)
+			go runClaudeReview(db, bus, id, repoPath, sha, prompt)
+			retried++
+		}
+		retryRows.Close()
+	}
+
+	// Ask tasks → failed
 	res, _ := db.Exec(`UPDATE agent_tasks SET status='failed', error_msg='daemon restarted', completed_at=?
-		WHERE type IN ('ask', 'review') AND status = 'running'`, now)
+		WHERE type = 'ask' AND status = 'running'`, now)
 	n, _ := res.RowsAffected()
 
 	// Headless directive intents (e.g. analysis) → draft
@@ -169,6 +188,9 @@ func cleanupOrphanedHeadlessTasks(db *sql.DB) {
 		WHERE type = 'directive' AND status = 'running' AND intent = 'analysis'`)
 	n2, _ := res2.RowsAffected()
 
+	if retried > 0 {
+		log.Printf("cmdr: retrying %d orphaned review tasks", retried)
+	}
 	if total := n + n2; total > 0 {
 		log.Printf("cmdr: marked %d orphaned headless tasks as failed/draft", total)
 	}
