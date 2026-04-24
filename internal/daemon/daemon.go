@@ -333,6 +333,7 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 
 	// Agent tasks
 	mux.HandleFunc("/api/agent/sessions", handleAgentSessions())
+	mux.HandleFunc("/api/agent/kill", handleAgentKill())
 	mux.HandleFunc("/api/agent/tasks", handleListAgentTasks(database))
 	mux.HandleFunc("/api/agent/tasks/result", handleGetAgentTaskResult(database))
 	mux.HandleFunc("/api/agent/tasks/update", handleUpdateAgentTaskResult(database, bus))
