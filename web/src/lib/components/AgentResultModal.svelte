@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { X, CircleQuestionMark, Terminal, Trash2, List } from 'lucide-svelte';
-	import { renderMarkdown } from '$lib/markdown';
+	import { renderMarkdown, ensurePrismLoaded } from '$lib/markdown';
 	import { getAgentTaskResult, continueAsk } from '$lib/api';
 	import { dismiss as dismissTask } from '$lib/taskStore';
 	import { events } from '$lib/events';
@@ -32,6 +32,7 @@
 	let errorMsg = $state('');
 	let showToc = $state(false);
 	let bodyEl: HTMLDivElement | undefined = $state();
+	let markdownVersion = $state(0);
 	let unsub: (() => void) | null = null;
 
 	const proseClasses = `prose prose-invert prose-sm max-w-none
@@ -49,6 +50,7 @@
 	const insightRe = /`[★✦][\s]*Insight[\s]*─+`\n([\s\S]*?)\n`─+`/g;
 
 	function renderMd(md: string): string {
+		markdownVersion;
 		const processed = md.replace(insightRe, (_match, content: string) => {
 			const inner = renderMarkdown(content.trim());
 			return `<div class="insight-callout">`
@@ -199,6 +201,8 @@
 	}
 
 	onMount(async () => {
+		void ensurePrismLoaded().then(() => { markdownVersion += 1; });
+
 		// Check if task is already completed (e.g., clicking a finished task)
 		try {
 			const data = await getAgentTaskResult(taskId);

@@ -1,9 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { FileCode } from 'lucide-svelte';
 	import { getCodeSnippet, type CodeSnippet } from '$lib/api';
 	import type { CodeRefBlock } from '$lib/blocks';
-	import Prism from 'prismjs';
-	import '$lib/markdown'; // ensures language grammars are loaded
+	import { ensurePrismLoaded, highlightCode } from '$lib/markdown';
 
 	let {
 		block,
@@ -21,6 +21,11 @@
 	let input: HTMLInputElement | undefined = $state(undefined);
 	let snippet = $state<CodeSnippet | null>(null);
 	let snippetError = $state(false);
+	let prismVersion = $state(0);
+
+	onMount(() => {
+		void ensurePrismLoaded().then(() => { prismVersion += 1; });
+	});
 
 	$effect(() => {
 		localRef = block.ref;
@@ -106,12 +111,11 @@
 		css: 'css', html: 'html', svelte: 'html', swift: 'javascript',
 	};
 
-	function highlightCode(code: string, file: string): string {
+	function highlightSnippet(code: string, file: string): string {
+		prismVersion;
 		const ext = file.split('.').pop()?.toLowerCase() ?? '';
 		const lang = extLangMap[ext] ?? 'plaintext';
-		const grammar = Prism.languages[lang];
-		if (!grammar) return code.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-		return Prism.highlight(code, grammar, lang);
+		return highlightCode(code, lang);
 	}
 </script>
 
@@ -140,7 +144,7 @@
 	<!-- Preview pane -->
 	{#if snippet && snippet.lines.length > 0}
 		<div class="max-h-48 overflow-y-auto bg-bourbon-900/50 border-t border-bourbon-800">
-			<pre class="text-[11px] font-mono leading-relaxed"><code>{#each snippet.lines as line, i}<span class="inline-block w-10 text-right pr-3 text-bourbon-700 select-none">{snippet.start + i}</span><span class="text-bourbon-300">{@html highlightCode(line, snippet.file)}</span>
+			<pre class="text-[11px] font-mono leading-relaxed"><code>{#each snippet.lines as line, i}<span class="inline-block w-10 text-right pr-3 text-bourbon-700 select-none">{snippet.start + i}</span><span class="text-bourbon-300">{@html highlightSnippet(line, snippet.file)}</span>
 {/each}</code></pre>
 		</div>
 	{/if}

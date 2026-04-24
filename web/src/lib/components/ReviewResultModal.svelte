@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { X, Wrench, ExternalLink, Pencil, Trash2, MessageSquarePlus, Undo2, FileSearch } from 'lucide-svelte';
-	import { renderMarkdown } from '$lib/markdown';
+	import { renderMarkdown, ensurePrismLoaded } from '$lib/markdown';
 	import { spawnTask, updateAgentTaskResult, getAgentTaskResult } from '$lib/api';
 	import { dismiss as dismissTask } from '$lib/taskStore';
 	import { events } from '$lib/events';
@@ -42,6 +42,7 @@
 	let draft = $state('');
 	let saving = $state(false);
 	let bodyEl: HTMLDivElement | undefined = $state(undefined);
+	let markdownVersion = $state(0);
 	let editHeight: number | null = $state(null);
 	let noteSectionIdx: number | null = $state(null);
 	let noteDraft = $state('');
@@ -63,6 +64,7 @@
 		prose-blockquote:border-l-run-500 prose-blockquote:text-bourbon-400`;
 
 	function renderMd(md: string): string {
+		markdownVersion;
 		return renderMarkdown(md);
 	}
 
@@ -91,6 +93,7 @@
 
 	// --- Data lifecycle ---
 	onMount(async () => {
+		void ensurePrismLoaded().then(() => { markdownVersion += 1; });
 		try {
 			const data = await getAgentTaskResult(taskId);
 			if ((data.status === 'resolved' || data.status === 'completed') && data.result) {

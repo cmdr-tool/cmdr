@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { X, ArrowRight, GitBranch, Loader2, CircleCheck, CircleX } from 'lucide-svelte';
 	import { getDelegations, type Delegation } from '$lib/api';
-	import { renderMarkdown } from '$lib/markdown';
+	import { renderMarkdown, ensurePrismLoaded } from '$lib/markdown';
 	import { events } from '$lib/events';
 	import { timeAgo } from '$lib/timeStore';
 
@@ -16,6 +16,7 @@
 
 	let delegations: Delegation[] = $state([]);
 	let loading = $state(true);
+	let markdownVersion = $state(0);
 
 	let activeDelegations = $derived(
 		delegations.filter(d => d.status === 'running' || d.status === 'pending')
@@ -32,12 +33,18 @@
 	}
 
 	onMount(() => {
+		void ensurePrismLoaded().then(() => { markdownVersion += 1; });
 		fetchDelegations();
 		const unsub = events.on('delegation:update', (evt) => {
 			if (evt.squad === squad) fetchDelegations();
 		});
 		return unsub;
 	});
+
+	function renderMd(md: string): string {
+		markdownVersion;
+		return renderMarkdown(md);
+	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
@@ -184,7 +191,7 @@
 												prose-pre:bg-bourbon-900 prose-pre:border prose-pre:border-bourbon-800
 												prose-li:text-bourbon-400 prose-li:my-0.5
 												prose-ul:my-1 prose-ol:my-1">
-												{@html renderMarkdown(d.result)}
+												{@html renderMd(d.result)}
 											</div>
 										</div>
 									</div>

@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { X, Wrench, FileCheck, Trash2, Pencil, MessageSquarePlus, RotateCcw } from 'lucide-svelte';
-	import { renderMarkdown } from '$lib/markdown';
+	import { renderMarkdown, ensurePrismLoaded } from '$lib/markdown';
 	import { renderMermaidBlocks } from '$lib/mermaid';
 	import { spawnTask, reviseTask } from '$lib/api';
 	import { playSound, SFX } from '$lib/sounds';
@@ -24,6 +25,7 @@
 
 	let commitADR = $state(true);
 	let bodyEl: HTMLDivElement | undefined = $state(undefined);
+	let markdownVersion = $state(0);
 	let revising = $state(false);
 	let showNotesList = $state(false);
 	let editingNoteId = $state<string | null>(null);
@@ -45,12 +47,19 @@
 		prose-blockquote:border-l-cmd-500 prose-blockquote:text-bourbon-400`;
 
 	function renderMd(md: string): string {
+		markdownVersion;
 		return renderMarkdown(md);
 	}
 
+	onMount(() => {
+		void ensurePrismLoaded().then(() => { markdownVersion += 1; });
+	});
+
 	// Render mermaid diagrams after content mounts
 	$effect(() => {
-		if (bodyEl) renderMermaidBlocks(bodyEl);
+		markdownVersion;
+		result;
+		if (bodyEl) void renderMermaidBlocks(bodyEl);
 	});
 
 	// --- Annotation handlers ---
