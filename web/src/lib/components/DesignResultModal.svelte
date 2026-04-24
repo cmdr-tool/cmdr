@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { X, Wrench, FileCheck, Trash2, Pencil, MessageSquarePlus, RotateCcw } from 'lucide-svelte';
 	import { renderMarkdown } from '$lib/markdown';
+	import { renderMermaidBlocks } from '$lib/mermaid';
 	import { spawnTask, reviseTask } from '$lib/api';
 	import { playSound, SFX } from '$lib/sounds';
 	import { loadAnnotations, saveAnnotations, type Annotation } from '$lib/annotations';
@@ -46,6 +47,11 @@
 	function renderMd(md: string): string {
 		return renderMarkdown(md);
 	}
+
+	// Render mermaid diagrams after content mounts
+	$effect(() => {
+		if (bodyEl) renderMermaidBlocks(bodyEl);
+	});
 
 	// --- Annotation handlers ---
 	function handleAnnotationsChange(updated: Annotation[]) {

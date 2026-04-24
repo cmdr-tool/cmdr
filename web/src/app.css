@@ -256,4 +256,17 @@
   .insight-body {
     @apply px-4 py-3 bg-cmd-700/10;
   }
+
+  /* Mermaid diagram blocks */
+  .mermaid-block {
+    @apply bg-bourbon-900 border border-bourbon-800 rounded-lg p-4 my-4 overflow-x-auto text-center;
+  }
+  .mermaid-block:not(.mermaid-rendered) {
+    @apply text-left text-xs text-bourbon-500 font-mono whitespace-pre;
+  }
+  .mermaid-rendered svg {
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+  }
 }

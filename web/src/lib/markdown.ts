@@ -18,6 +18,11 @@ marked.setOptions({
 			return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
 		},
 		code({ text, lang }: { text: string; lang?: string }) {
+			// Mermaid blocks: emit a placeholder div for client-side rendering
+			if (lang === 'mermaid') {
+				const escaped = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+				return `<div class="mermaid-block" data-mermaid="${encodeURIComponent(text)}">${escaped}</div>`;
+			}
 			const language = lang && Prism.languages[lang] ? lang : 'plaintext';
 			const grammar = Prism.languages[language];
 			const highlighted = grammar
@@ -34,3 +39,4 @@ marked.setOptions({
 export function renderMarkdown(md: string): string {
 	return marked(md, { breaks: true }) as string;
 }
+
