@@ -310,7 +310,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 			target, windowAlive = terminal.FindWindowTarget(termSessions, windowName)
 		}
 
-		// ADR-producing tasks: capture ADR from worktree as completion signal
+		// Design-producing tasks: capture design doc from worktree as completion signal
 		if meta.Artifact == "adr" {
 			var existingResult string
 			db.QueryRow(`SELECT COALESCE(result, '') FROM agent_tasks WHERE id=?`, t.id).Scan(&existingResult)
@@ -324,7 +324,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 						"id": t.id, "status": "resolved", "title": title,
 					}})
 					enhanceTitle(db, bus, t.id, truncate(adr, 1000))
-					log.Printf("cmdr: task %d resolved (ADR captured, awaiting review)", t.id)
+					log.Printf("cmdr: task %d resolved (design doc captured, awaiting review)", t.id)
 					continue
 				}
 			} else {
@@ -498,8 +498,8 @@ func scrapePaneForPR(target string) string {
 	return ""
 }
 
-// scrapeADRFromWorktree finds an ADR-*.md file in the worktree's docs/ directory
-// that was modified after the task started. Ignores inherited ADRs from before the task.
+// scrapeADRFromWorktree finds a DESIGN-*.md file in the worktree's docs/ directory
+// that was modified after the task started. Ignores inherited files from before the task.
 func scrapeADRFromWorktree(repoPath, worktreeName, startedAt string) string {
 	docsDir := filepath.Join(worktreeDir(repoPath, worktreeName), "docs")
 	entries, err := os.ReadDir(docsDir)
@@ -515,7 +515,7 @@ func scrapeADRFromWorktree(repoPath, worktreeName, startedAt string) string {
 	var latestName string
 	var latestMod time.Time
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(strings.ToUpper(e.Name()), "ADR-") || !strings.HasSuffix(e.Name(), ".md") {
+		if e.IsDir() || !strings.HasPrefix(strings.ToUpper(e.Name()), "DESIGN-") || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
 		info, err := e.Info()

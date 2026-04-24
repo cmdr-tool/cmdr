@@ -210,7 +210,7 @@
 					<span class="text-[10px] font-mono transition-colors
 						{commitADR ? 'text-bourbon-400' : 'text-bourbon-600'}">
 						<FileCheck size={10} class="inline -mt-0.5" />
-						commit ADR to repo
+						commit as ADR
 					</span>
 				</button>
 				<LaunchGuard {repoPath} action={() => spawnTask(taskId, 'implementation', { commitADR })} onlaunched={onclose}>

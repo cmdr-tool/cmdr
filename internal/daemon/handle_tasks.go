@@ -576,21 +576,21 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 		var childPrompt string
 		switch {
 		case parentIntent == "new-feature":
-			// ADR → implementation
+			// Design document → implementation
 			if body.CommitADR {
 				childPrompt = fmt.Sprintf(
-					"## Approved ADR\n\n"+
-						"The following ADR has been approved. Commit it to `docs/` (follow the existing `ADR-NNNN-name.md` naming convention) as your first action before implementing.\n\n"+
+					"## Approved Design\n\n"+
+						"The following design has been approved. Commit it to `docs/` as a numbered ADR (follow the existing `ADR-NNNN-name.md` naming convention) as your first action before implementing.\n\n"+
 						"```markdown\n%s\n```\n\n"+
-						"## Instructions\n\nImplement the feature described in this ADR.",
+						"## Instructions\n\nImplement the changes described in this design.",
 					parentResult,
 				)
 			} else {
 				childPrompt = fmt.Sprintf(
-					"## Approved ADR\n\n"+
-						"The following ADR has been approved for implementation. Do NOT commit the ADR itself to the repo — it is for context only.\n\n"+
+					"## Approved Design\n\n"+
+						"The following design has been approved for implementation. Do NOT commit the design document itself to the repo — it is for context only.\n\n"+
 						"%s\n\n"+
-						"## Instructions\n\nImplement the feature described in this ADR.",
+						"## Instructions\n\nImplement the changes described in this design.",
 					parentResult,
 				)
 			}
@@ -782,8 +782,8 @@ func handleReviseTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			}
 			// Use a revision-specific system prompt — don't use the intent's
 			// default system prompt which has validation for new designs.
-			revisionSystemPrompt := "You are revising an architecture decision record (ADR) based on reviewer annotations. " +
-				"Produce the complete revised ADR as markdown. Do not add preamble or commentary — output only the revised document."
+			revisionSystemPrompt := "You are revising a design document based on reviewer annotations. " +
+				"Produce the complete revised document as markdown. Do not add preamble or commentary — output only the revised document."
 			runHeadlessWithAgent(taskAgent, db, bus, HeadlessConfig{
 				TaskID:       id,
 				WorkDir:      repoPath,
