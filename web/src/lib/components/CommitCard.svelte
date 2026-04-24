@@ -151,7 +151,10 @@
 					{#if commit.flagged}<span class="text-run-400 shrink-0 mt-0.5"><Flag size={12} fill="currentColor" /></span>{/if}
 					{#if commit.reviewCount > 0}<span class="text-cmd-400 shrink-0 mt-0.5"><MessageSquarePlus size={12} /></span>{/if}
 					<div class="flex-1 flex flex-col gap-1 min-w-0">
-						<span class="text-sm text-bourbon-200 truncate">{firstLine(commit.message)}</span>
+						<div class="flex items-baseline gap-2 min-w-0">
+							<span class="text-sm text-bourbon-200 truncate min-w-0 flex-1">{firstLine(commit.message)}</span>
+							<span class="text-xs text-bourbon-700 shrink-0">{timeAgo(commit.committedAt)}</span>
+						</div>
 						{#if !isExpanded}
 							<div class="flex items-center gap-3 text-[10px] font-mono text-bourbon-600">
 								{#if commit.filesChanged > 0}
@@ -159,13 +162,8 @@
 									<span class="text-green-600">+{commit.additions}</span>
 									<span class="text-red-600">-{commit.deletions}</span>
 								{/if}
+								<span class="ml-auto">{commit.author}</span>
 							</div>
-						{/if}
-					</div>
-					<div class="flex flex-col items-end gap-1 shrink-0">
-						<span class="text-xs text-bourbon-700">{timeAgo(commit.committedAt)}</span>
-						{#if !isExpanded}
-							<span class="text-[10px] font-mono text-bourbon-600">{commit.author}</span>
 						{/if}
 					</div>
 				</button>
