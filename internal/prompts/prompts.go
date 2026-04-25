@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
-	"io/fs"
+	"sort"
 	"strings"
 	"text/template"
 )
@@ -87,16 +87,7 @@ type Intent struct {
 // ListIntents returns all user-facing intent presets.
 func ListIntents() []Intent {
 	var intents []Intent
-	entries, err := fs.ReadDir(intentFS, "intents")
-	if err != nil {
-		return intents
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		id := strings.TrimSuffix(e.Name(), ".md")
-		meta := GetIntentMeta(id)
+	for id, meta := range intentRegistry {
 		if meta.Hidden {
 			continue
 		}
@@ -111,6 +102,9 @@ func ListIntents() []Intent {
 			ProducesPR: meta.Artifact == "pr",
 		})
 	}
+	sort.Slice(intents, func(i, j int) bool {
+		return intents[i].Name < intents[j].Name
+	})
 	return intents
 }
 
