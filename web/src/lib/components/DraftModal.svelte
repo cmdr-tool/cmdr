@@ -199,6 +199,12 @@
 
 		<!-- Intent selector -->
 		{#if intents.length > 0}
+			{@const intentLabels: Record<string, string> = {
+				'bug-fix': 'Fix a Bug',
+				'new-feature': 'Design & Build',
+				'refactor': 'Restructure Code',
+				'analysis': 'Analyze Code',
+			}}
 			<div class="px-6 py-2 border-b border-bourbon-800/50 shrink-0 flex items-center gap-3">
 				<span class="text-[10px] font-display font-bold uppercase tracking-widest text-bourbon-500 w-16 shrink-0">Intent</span>
 				<div class="flex flex-wrap gap-1.5">
@@ -210,7 +216,7 @@
 									? 'bg-cmd-500/20 text-cmd-400 border border-cmd-500/40'
 									: 'text-bourbon-600 border border-bourbon-800 hover:text-bourbon-400 hover:border-bourbon-700'}"
 						>
-							{intent.name}
+							{intentLabels[intent.id] ?? intent.name}
 						</button>
 					{/each}
 				</div>

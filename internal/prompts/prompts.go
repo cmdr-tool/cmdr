@@ -3,6 +3,7 @@ package prompts
 import (
 	"bytes"
 	"embed"
+	"fmt"
 	"io/fs"
 	"strings"
 	"text/template"
@@ -62,7 +63,7 @@ type IntentMeta struct {
 // intentRegistry is the single source of truth for intent behavior.
 var intentRegistry = map[string]IntentMeta{
 	"bug-fix":        {Mode: "interactive", Artifact: "pr", Worktree: true},
-	"refactor":       {Mode: "interactive", Artifact: "pr", Worktree: true},
+	"refactor":       {Mode: "interactive", Artifact: "adr", Worktree: true},
 	"new-feature":    {Mode: "interactive", Artifact: "adr", Worktree: true},
 	"analysis":       {Mode: "headless", Artifact: "report"},
 	"implementation": {Mode: "interactive", Artifact: "pr", Worktree: true, Hidden: true},
@@ -154,15 +155,14 @@ func GetIntentPrompt(id string) (string, error) {
 
 // GetDesignPrompt returns the design-phase system prompt for an intent.
 // Returns empty string if the intent has no design phase.
-// TODO: Remove once new-feature.md IS the design prompt (Phase 5 cleanup).
+// Each ADR-producing intent must have a design-<id>.md prompt file.
 func GetDesignPrompt(id string) (string, error) {
 	if GetIntentMeta(id).Artifact != "adr" {
 		return "", nil
 	}
-	// For now, still load design.md for ADR-producing intents
-	data, err := promptFS.ReadFile("design.md")
+	data, err := promptFS.ReadFile("design-" + id + ".md")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("missing design prompt for intent %q: expected design-%s.md", id, id)
 	}
 	return string(data), nil
 }

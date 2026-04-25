@@ -12,8 +12,6 @@ You are implementing changes based on an approved plan. The plan may be an ADR (
 
 Look for `> User response:` or `> Reviewer note:` blockquotes — these are explicit instructions from the user that override the original plan text. Follow them.
 
-If a finding or section was removed from the plan, the user decided it's not applicable — skip it.
-
 ## When done
 
 1. **Commit** with a semantic commit message — use the appropriate prefix (`feat:`, `fix:`, `refactor:`, etc.) based on the nature of the change.

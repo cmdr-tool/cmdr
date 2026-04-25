@@ -567,20 +567,22 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			return
 		}
 
-		// Default intent for spawned tasks
+		// All spawned tasks use the universal "implementation" intent.
+		// Differentiation happens in the child prompt, not the system prompt.
 		intent := body.Intent
 		if intent == "" {
 			intent = "implementation"
 		}
 
-		// Build child prompt based on parent context
+		// Build child prompt based on parent context.
+		// Each case brackets the parent's result with type-specific framing.
 		var childPrompt string
 		switch {
 		case parentIntent == "new-feature":
-			// Design document → implementation
+			// Feature design (ADR) → implementation
 			if body.CommitADR {
 				childPrompt = fmt.Sprintf(
-					"## Approved Design\n\n"+
+					"## Approved Feature Design\n\n"+
 						"The following design has been approved. Commit it to `docs/` as a numbered ADR (follow the existing `ADR-NNNN-name.md` naming convention) as your first action before implementing.\n\n"+
 						"```markdown\n%s\n```\n\n"+
 						"## Instructions\n\nImplement the changes described in this design.",
@@ -588,13 +590,26 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 				)
 			} else {
 				childPrompt = fmt.Sprintf(
-					"## Approved Design\n\n"+
+					"## Approved Feature Design\n\n"+
 						"The following design has been approved for implementation. Do NOT commit the design document itself to the repo — it is for context only.\n\n"+
 						"%s\n\n"+
 						"## Instructions\n\nImplement the changes described in this design.",
 					parentResult,
 				)
 			}
+
+		case parentIntent == "refactor":
+			// Restructuring plan → implementation
+			childPrompt = fmt.Sprintf(
+				"## Approved Restructuring Plan\n\n"+
+					"The following restructuring plan has been approved. This is a refactor — preserve observable behavior throughout. "+
+					"No new features, no bug fixes unless the plan explicitly calls for them.\n\n"+
+					"%s\n\n"+
+					"## Instructions\n\nExecute the restructuring described in this plan. "+
+					"Work incrementally — each step should leave the codebase in a working state. "+
+					"Commit with a `refactor:` prefix.",
+				parentResult,
+			)
 
 		case parentType == "review":
 			// Review findings → implementation
@@ -608,7 +623,6 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 					"- Each finding has a priority, location, issue description, and a step-by-step plan\n"+
 					"- If a finding contains a `> User response:` blockquote, treat it as explicit guidance — follow it\n"+
 					"- If a finding has multiple valid approaches and no user response, pick the cleanest one\n"+
-					"- If a finding was removed from the review, the reviewer decided it's not applicable — skip it\n"+
 					"- Only ask me if there is genuine ambiguity that requires a judgment call\n\n"+
 					"## Review Findings\n\n%s",
 				shortSha, parentResult,
