@@ -175,6 +175,7 @@
 		result={designResult}
 		taskId={designTask?.id ?? 0}
 		repoPath={designTask?.repoPath ?? ''}
+		intent={designTask?.intent ?? ''}
 		onclose={() => { designResult = null; designTask = null; }}
 		onupdate={(r) => { designResult = r; }}
 	/>

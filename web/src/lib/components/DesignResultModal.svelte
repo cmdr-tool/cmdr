@@ -13,12 +13,14 @@
 		result,
 		taskId,
 		repoPath = '',
+		intent = '',
 		onclose,
 		onupdate
 	}: {
 		result: string;
 		taskId: number;
 		repoPath?: string;
+		intent?: string;
 		onclose: () => void;
 		onupdate?: (result: string) => void;
 	} = $props();
@@ -213,22 +215,26 @@
 					Revise design
 				</button>
 			{:else}
-				<button
-					onclick={() => { commitADR = !commitADR; }}
-					class="flex items-center gap-2 cursor-pointer group"
-				>
-					<div class="w-7 h-4 rounded-full transition-colors relative
-						{commitADR ? 'bg-cmd-500' : 'bg-bourbon-700'}">
-						<div class="absolute top-0.5 w-3 h-3 rounded-full bg-bourbon-100 shadow transition-all
-							{commitADR ? 'left-3.5' : 'left-0.5'}"></div>
-					</div>
-					<span class="text-[10px] font-mono transition-colors
-						{commitADR ? 'text-bourbon-400' : 'text-bourbon-600'}">
-						<FileCheck size={10} class="inline -mt-0.5" />
-						commit as ADR
-					</span>
-				</button>
-				<LaunchGuard {repoPath} action={() => spawnTask(taskId, 'implementation', { commitADR })} onlaunched={onclose}>
+				{#if intent === 'new-feature'}
+					<button
+						onclick={() => { commitADR = !commitADR; }}
+						class="flex items-center gap-2 cursor-pointer group"
+					>
+						<div class="w-7 h-4 rounded-full transition-colors relative
+							{commitADR ? 'bg-cmd-500' : 'bg-bourbon-700'}">
+							<div class="absolute top-0.5 w-3 h-3 rounded-full bg-bourbon-100 shadow transition-all
+								{commitADR ? 'left-3.5' : 'left-0.5'}"></div>
+						</div>
+						<span class="text-[10px] font-mono transition-colors
+							{commitADR ? 'text-bourbon-400' : 'text-bourbon-600'}">
+							<FileCheck size={10} class="inline -mt-0.5" />
+							commit as ADR
+						</span>
+					</button>
+				{:else}
+					<div></div>
+				{/if}
+				<LaunchGuard {repoPath} action={() => spawnTask(taskId, 'implementation', { commitADR: intent === 'new-feature' && commitADR })} onlaunched={onclose}>
 					<Wrench size={12} />
 					Start Implementation
 				</LaunchGuard>
