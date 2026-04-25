@@ -49,6 +49,7 @@ actively check enlistment status, use:
 	root.AddCommand(listCmd())
 	root.AddCommand(contextCmd())
 	root.AddCommand(initCmd())
+	root.AddCommand(squadCmd())
 	root.AddCommand(enlistCmd())
 	root.AddCommand(missionsCmd())
 	root.AddCommand(taskCmd())
@@ -249,6 +250,62 @@ func printSquadContext(database *sql.DB, repoPath string) error {
 	return outputHook("SessionStart", ctx)
 }
 
+func squadCmd() *cobra.Command {
+	var repoPath string
+	cmd := &cobra.Command{
+		Use:   "squad",
+		Short: "Show squad membership for the current repo",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if repoPath == "" {
+				var err error
+				repoPath, err = os.Getwd()
+				if err != nil {
+					return err
+				}
+			}
+			if resolved, err := filepath.EvalSymlinks(repoPath); err == nil {
+				repoPath = resolved
+			}
+			repoPath = filepath.Clean(repoPath)
+
+			database, err := db.Open()
+			if err != nil {
+				return err
+			}
+			defer database.Close()
+
+			squadName, alias := lookupSquad(database, repoPath)
+			if squadName == "" {
+				fmt.Println("This repo is not part of any squad.")
+				return nil
+			}
+
+			fmt.Printf("Squad:    %s\n", squadName)
+			fmt.Printf("You are:  %s\n", alias)
+
+			rows, err := database.Query(
+				`SELECT squad_alias, path FROM repos WHERE squad = ? AND path != ? ORDER BY squad_alias`,
+				squadName, repoPath,
+			)
+			if err != nil {
+				return nil
+			}
+			defer rows.Close()
+
+			fmt.Println("Members:")
+			fmt.Printf("  %s (this repo)\n", alias)
+			for rows.Next() {
+				var mAlias, mPath string
+				rows.Scan(&mAlias, &mPath)
+				fmt.Printf("  %s → %s\n", mAlias, mPath)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repoPath, "repo", "", "Repository path (defaults to cwd)")
+	return cmd
+}
+
 func initCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
@@ -288,27 +345,13 @@ name: enlist
 description: Enlist a squad member to help with cross-repo work.
 ---
 
-Enlist a squad member to help with cross-repo work.
+Enlist a squad member to help with cross-repo work. Use when your task requires changes in a sibling repository.
 
-You are part of a squad — a group of repos managed by cmdr that can collaborate on cross-repo work.
+## Find your squad
 
-## When to use
+Your squad info was provided at session start. If you need it again: `+"``"+`%s squad`+"``"+`
 
-ONLY when your current task genuinely requires changes in another repository that is part of your squad. For example:
-- You need a new API endpoint in a sibling service
-- You need a shared type exported from a common library
-- You need a config change in an infrastructure repo
-
-## IMPORTANT: Do NOT use for testing
-
-- Never call this command with test or placeholder data
-- Never call this to "try it out" or verify it works
-- Every call creates a real task and launches a real session in the target repo
-- Only call when you have a concrete, well-specified need for cross-repo work
-
-## How to enlist
-
-Run the cmdr CLI to dispatch work to a squad member:
+## Dispatch
 
 `+"```bash"+`
 %s enlist --squad {squad-name} --from {your-alias} --to {target-alias} \
@@ -316,12 +359,12 @@ Run the cmdr CLI to dispatch work to a squad member:
   --details "Full specification — be precise about interfaces, types, behavior"
 `+"```"+`
 
-The --summary should be a concise one-liner. The --details should be a thorough specification with enough context for someone unfamiliar with your repo to implement the change — include expected interfaces, types, endpoints, and behavior.
-
-Cmdr will validate the squad, create a branch, and launch a session in the target repo.
+The --details should have enough context for someone unfamiliar with your repo to implement the change — include expected interfaces, types, endpoints, and behavior.
 
 After dispatching, continue working on parts of your task that don't depend on the enlisted work. You will be automatically notified when the enlistment is complete.
-`, bin)
+
+To manually check status: `+"``"+`%s debrief --squad {squad-name}`+"``"+`
+`, bin, bin, bin)
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 

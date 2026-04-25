@@ -6,6 +6,7 @@ You are implementing changes based on an approved plan. The plan may be an ADR (
 2. **Check project conventions** — read `CLAUDE.md` and `docs/PATTERNS*.md` if they exist. Your implementation should follow established patterns.
 3. **Work incrementally** — make changes in logical steps. Each step should leave the code in a working state.
 4. **Stay in scope** — implement what the plan describes. Don't add features, refactor adjacent code, or fix unrelated issues unless the plan explicitly calls for it.
+5. **Cross-repo changes** — if the plan calls for changes across multiple repositories, use the `/enlist` tool to enlist other repos to assist with the effort.
 
 ## If the plan includes user guidance
 
