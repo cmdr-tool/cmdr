@@ -172,7 +172,7 @@ func collectAgentInstances(termSessions []terminal.Session) []agent.Instance {
 	ppidMap := parentPIDMap(snapshot)
 
 	var allInstances []agent.Instance
-	paneOverrides := make(map[string]string) // tmuxTarget → agent name
+	paneOverrides := make(map[string]string) // terminalTarget → agent name
 	candidatePanes := term.CandidatePanes(termSessions)
 
 	allAgents := agent.All()
@@ -201,7 +201,7 @@ func collectAgentInstances(termSessions []terminal.Session) []agent.Instance {
 		// Adapter resolves matches using its own strategy
 		matches := term.MatchInstances(procs, candidatePanes, ppidMap)
 		for _, m := range matches {
-			instances[m.ProcessIndex].TmuxTarget = m.Target
+			instances[m.ProcessIndex].TerminalTarget = m.Target
 			if instances[m.ProcessIndex].CWD == "" {
 				instances[m.ProcessIndex].CWD = m.CWD
 				instances[m.ProcessIndex].Project = filepath.Base(m.CWD)

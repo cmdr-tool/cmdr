@@ -94,7 +94,7 @@ type Instance struct {
 	StartedAt  int64  `json:"startedAt,omitempty"`
 	Uptime     string `json:"uptime,omitempty"`
 	Status     string `json:"status"` // "working", "waiting", "idle", "unknown"
-	TmuxTarget string `json:"tmuxTarget,omitempty"`
+	TerminalTarget string `json:"terminalTarget,omitempty"`
 }
 
 // InteractiveConfig configures an interactive terminal session launch.

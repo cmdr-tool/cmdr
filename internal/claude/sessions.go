@@ -19,7 +19,7 @@ type Session struct {
 	StartedAt      int64  `json:"startedAt"`
 	Uptime         string `json:"uptime"`
 	Status     string `json:"status"` // "working", "waiting", "idle", "unknown"
-	TmuxTarget string `json:"tmuxTarget,omitempty"`
+	TerminalTarget string `json:"terminalTarget,omitempty"`
 }
 
 func sessionsDir() string {

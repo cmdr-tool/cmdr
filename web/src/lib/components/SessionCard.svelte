@@ -66,18 +66,18 @@
 		return agentName.toLowerCase();
 	}
 
-	// Map agent sessions by their tmux pane target
+	// Map agent sessions by their terminal pane target
 	let agentByTarget = $derived(
-		new Map($agentSessionsStore.filter((c) => c.tmuxTarget).map((c) => [c.tmuxTarget, c]))
+		new Map($agentSessionsStore.filter((c) => c.terminalTarget).map((c) => [c.terminalTarget, c]))
 	);
 
-	// Best agent status per tmux session (for session-level badge)
+	// Best agent status per terminal session (for session-level badge)
 	const statusRank: Record<string, number> = { working: 3, waiting: 2, idle: 1, unknown: 0 };
 	let agentBySession = $derived(() => {
 		const map = new Map<string, AgentSession>();
 		for (const c of $agentSessionsStore) {
-			if (!c.tmuxTarget) continue;
-			const sessName = c.tmuxTarget.split(':')[0];
+			if (!c.terminalTarget) continue;
+			const sessName = c.terminalTarget.split(':')[0];
 			const existing = map.get(sessName);
 			if (!existing || (statusRank[c.status] ?? 0) > (statusRank[existing.status] ?? 0)) {
 				map.set(sessName, c);
@@ -113,24 +113,27 @@
 		holdProgressPid = 0;
 	}
 
+	let fadingPids = $state(new Set<number>());
+
 	async function completeKillPid(pid: number) {
 		if (holdRafPid) cancelAnimationFrame(holdRafPid);
 		holdRafPid = null;
 		holdingKillPid = null;
 		holdProgressPid = 0;
 		await killAgentInstance(pid);
-		killedPids = new Set([...killedPids, pid]);
+		fadingPids = new Set([...fadingPids, pid]);
 		setTimeout(() => {
-			killedPids.delete(pid);
-			killedPids = killedPids;
+			fadingPids.delete(pid);
+			fadingPids = fadingPids;
+			killedPids = new Set([...killedPids, pid]);
 		}, 3000);
 	}
 
-	// Group unmatched instances by agent name
+	// Group unmatched instances by agent name, excluding killed PIDs
 	let unmatchedByAgent = $derived(() => {
 		const groups = new Map<string, AgentSession[]>();
 		for (const inst of $agentSessionsStore) {
-			if (inst.tmuxTarget) continue;
+			if (inst.terminalTarget || killedPids.has(inst.pid)) continue;
 			const list = groups.get(inst.agent) ?? [];
 			list.push(inst);
 			groups.set(inst.agent, list);
@@ -275,9 +278,9 @@
 		<h3 class="text-xs font-semibold text-bourbon-500 mt-6 mb-2">Additional {displayAgentName(agentName)} instances</h3>
 		<div class="flex flex-col gap-1.5">
 			{#each instances as instance}
-				{#if killedPids.has(instance.pid)}
-					<div class="flex items-center justify-center border border-red-900/30 rounded-lg px-5 py-3.5 text-red-400 animate-fade-out">
-						<span class="font-display text-xs font-bold uppercase tracking-widest">killed pid {instance.pid}</span>
+				{#if fadingPids.has(instance.pid)}
+					<div class="flex items-center justify-center border border-red-900/30 rounded-lg px-5 py-3.5 text-red-400/60 animate-fade-out">
+						<span class="font-display text-[10px] font-bold uppercase tracking-widest">killed pid {instance.pid}</span>
 					</div>
 				{:else}
 				<div class="group relative flex items-center gap-3 bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5 min-w-0">

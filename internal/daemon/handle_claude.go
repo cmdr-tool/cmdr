@@ -2,11 +2,14 @@ package daemon
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 func handleAgentSessions() http.HandlerFunc {
@@ -52,6 +55,16 @@ func handleAgentKill() http.HandlerFunc {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
 		}
+
+		// Escalate to SIGKILL if the process doesn't exit after SIGINT.
+		go func() {
+			time.Sleep(3 * time.Second)
+			if err := proc.Signal(syscall.Signal(0)); err == nil {
+				log.Printf("cmdr: pid %d still alive after SIGINT, sending SIGKILL", body.PID)
+				proc.Signal(syscall.SIGKILL)
+			}
+		}()
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{"killed": body.PID})
 	}

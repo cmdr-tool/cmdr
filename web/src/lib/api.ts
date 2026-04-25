@@ -126,7 +126,7 @@ export interface AgentSession {
 	startedAt?: number;
 	uptime?: string;
 	status: 'working' | 'waiting' | 'idle' | 'unknown';
-	tmuxTarget?: string;
+	terminalTarget?: string;
 }
 
 export function getAgentSessions(): Promise<AgentSession[]> {
