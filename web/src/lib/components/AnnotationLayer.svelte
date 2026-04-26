@@ -247,12 +247,21 @@
 		}
 	});
 
+	function handleClickOutside(e: PointerEvent) {
+		if (!popover || !popoverEl) return;
+		const target = e.target as Node;
+		if (popoverEl.contains(target) || portalEl?.contains(target)) return;
+		closePopover();
+	}
+
 	onMount(() => {
 		containerEl.addEventListener('pointerup', handlePointerUp);
+		document.addEventListener('pointerdown', handleClickOutside, true);
 	});
 
 	onDestroy(() => {
 		containerEl.removeEventListener('pointerup', handlePointerUp);
+		document.removeEventListener('pointerdown', handleClickOutside, true);
 		clearHighlights();
 	});
 </script>
