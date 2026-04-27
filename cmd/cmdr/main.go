@@ -382,6 +382,22 @@ Enlist a squad member to help with cross-repo work. Use when your task requires 
 
 Your squad info was provided at session start. If you need it again: `+"``"+`%s squad`+"``"+`
 
+## Before dispatching: check for an active PR
+
+If your work is going into a PR rather than directly to main, the enlisted work must mirror that — land as a PR in the enlisted repo that references yours. Otherwise the enlisted change ships to main immediately while your PR is still pending review, leaving the two repos in a desynced, broken state.
+
+Check whether the current branch has an open PR:
+
+`+"```bash"+`
+gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --json url --jq '.[0].url'
+`+"```"+`
+
+If a URL is returned (or you intend to open one), include in your `+"``"+`--details`+"``"+` payload:
+- Your PR URL (or branch name if not yet pushed)
+- An explicit delivery instruction: "Deliver as a PR in your repo. In the PR description include `+"``"+`Companion PR: <your-pr-url>`+"``"+` so the changes can be tracked and merged together."
+
+If no PR is involved (you're committing directly to main), no extra delivery instruction is needed — the delegatee will follow their default flow.
+
 ## Dispatch
 
 `+"```bash"+`
