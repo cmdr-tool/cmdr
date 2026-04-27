@@ -59,6 +59,13 @@
 		}
 	});
 
+	// Code blocks and mermaid diagrams are presentational — skip annotation handling for them.
+	function isPresentational(node: Node | null): boolean {
+		if (!node) return false;
+		const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+		return !!el?.closest('pre, .mermaid-block');
+	}
+
 	// --- Highlight management ---
 
 	function clearHighlights() {
@@ -83,6 +90,7 @@
 		for (const ann of annotations) {
 			const range = findAnchorRange(ann, containerEl);
 			if (!range) continue;
+			if (isPresentational(range.startContainer) || isPresentational(range.endContainer)) continue;
 			highlightRange(range, ann.id);
 		}
 	}
@@ -147,12 +155,17 @@
 
 			if (hasSelection) {
 				// --- Text selection: open create popover ---
+				const range = selection.getRangeAt(0);
+				if (isPresentational(range.startContainer) || isPresentational(range.endContainer)) {
+					if (!popover) clearPendingHighlight();
+					return;
+				}
+
 				const anchor = anchorFromSelection(selection, containerEl);
 				if (!anchor) return;
 
 				if (popover) closePopover();
 
-				const range = selection.getRangeAt(0);
 				referenceRect = range.getBoundingClientRect();
 				pendingAnchor = anchor;
 
