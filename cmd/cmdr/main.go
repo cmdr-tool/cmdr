@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -165,35 +166,65 @@ func contextCmd() *cobra.Command {
 	return cmd
 }
 
-// lookupSquad finds the squad and alias for a repo path, falling back to
-// resolving symlinks on stored paths if the exact match fails. Repos can be
-// stored under their pre-symlink path (e.g. ~/Code/...) while the caller
-// passes a fully-resolved path (e.g. /Volumes/...).
+// lookupSquad finds the squad and alias for a repo path. Handles symlinks
+// via os.SameFile and worktrees by resolving to the main repo root.
 func lookupSquad(database *sql.DB, repoPath string) (squad, alias string) {
-	err := database.QueryRow(
-		`SELECT squad, squad_alias FROM repos WHERE path = ?`, repoPath,
-	).Scan(&squad, &alias)
-	if err == nil && squad != "" {
-		return squad, alias
+	// Try the path as-is, then resolve worktree to parent repo
+	candidates := []string{repoPath}
+	if root := resolveWorktreeRoot(repoPath); root != "" && root != repoPath {
+		candidates = append(candidates, root)
+	}
+
+	for _, candidate := range candidates {
+		err := database.QueryRow(
+			`SELECT squad, squad_alias FROM repos WHERE path = ?`, candidate,
+		).Scan(&squad, &alias)
+		if err == nil && squad != "" {
+			return squad, alias
+		}
 	}
 
 	// Fall back to os.SameFile which handles symlinks, mount points, etc.
-	repoInfo, repoErr := os.Stat(repoPath)
-	rows, _ := database.Query(`SELECT path, squad, squad_alias FROM repos WHERE squad != ''`)
-	if rows == nil {
-		return "", ""
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var p, s, a string
-		rows.Scan(&p, &s, &a)
-		if repoErr == nil {
-			if info, err := os.Stat(p); err == nil && os.SameFile(repoInfo, info) {
+	for _, candidate := range candidates {
+		candInfo, candErr := os.Stat(candidate)
+		if candErr != nil {
+			continue
+		}
+		rows, _ := database.Query(`SELECT path, squad, squad_alias FROM repos WHERE squad != ''`)
+		if rows == nil {
+			continue
+		}
+		for rows.Next() {
+			var p, s, a string
+			rows.Scan(&p, &s, &a)
+			if info, err := os.Stat(p); err == nil && os.SameFile(candInfo, info) {
+				rows.Close()
 				return s, a
 			}
 		}
+		rows.Close()
 	}
 	return "", ""
+}
+
+// resolveWorktreeRoot returns the main repo root if path is inside a git worktree.
+// Returns empty string if not a worktree or on error.
+func resolveWorktreeRoot(path string) string {
+	out, err := exec.Command("git", "-C", path, "rev-parse", "--git-common-dir").Output()
+	if err != nil {
+		return ""
+	}
+	commonDir := strings.TrimSpace(string(out))
+	if commonDir == ".git" || commonDir == "" {
+		return "" // already in the main repo
+	}
+	// commonDir is the absolute path to the main repo's .git directory
+	// (or relative from the worktree's .git file)
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(path, commonDir)
+	}
+	// Strip the trailing .git to get the repo root
+	return filepath.Clean(filepath.Dir(commonDir))
 }
 
 func printSquadContext(database *sql.DB, repoPath string) error {
