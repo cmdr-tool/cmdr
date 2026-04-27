@@ -177,6 +177,8 @@ func lookupSquad(database *sql.DB, repoPath string) (squad, alias string) {
 		return squad, alias
 	}
 
+	// Fall back to os.SameFile which handles symlinks, mount points, etc.
+	repoInfo, repoErr := os.Stat(repoPath)
 	rows, _ := database.Query(`SELECT path, squad, squad_alias FROM repos WHERE squad != ''`)
 	if rows == nil {
 		return "", ""
@@ -185,12 +187,10 @@ func lookupSquad(database *sql.DB, repoPath string) (squad, alias string) {
 	for rows.Next() {
 		var p, s, a string
 		rows.Scan(&p, &s, &a)
-		resolved, resolveErr := filepath.EvalSymlinks(p)
-		if resolveErr == nil {
-			resolved = filepath.Clean(resolved)
-		}
-		if resolved == repoPath || filepath.Clean(p) == repoPath {
-			return s, a
+		if repoErr == nil {
+			if info, err := os.Stat(p); err == nil && os.SameFile(repoInfo, info) {
+				return s, a
+			}
 		}
 	}
 	return "", ""
