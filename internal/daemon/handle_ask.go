@@ -273,9 +273,9 @@ func handleContinueSession(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		var taskType, sessionID, repoPath string
-		err := db.QueryRow(`SELECT type, COALESCE(agent_session_id, ''), COALESCE(repo_path, '') FROM agent_tasks WHERE id = ?`, body.ID).
-			Scan(&taskType, &sessionID, &repoPath)
+		var taskType, intent, sessionID, repoPath string
+		err := db.QueryRow(`SELECT type, COALESCE(intent, ''), COALESCE(agent_session_id, ''), COALESCE(repo_path, '') FROM agent_tasks WHERE id = ?`, body.ID).
+			Scan(&taskType, &intent, &sessionID, &repoPath)
 		if err != nil {
 			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
 			return
@@ -298,7 +298,7 @@ func handleContinueSession(db *sql.DB) http.HandlerFunc {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
 		}
-		windowName := fmt.Sprintf("ask-%d", body.ID)
+		windowName := taskWindowName(taskType, intent, body.ID)
 
 		// Directives resume in the repo session; asks use a dedicated session
 		var target string
