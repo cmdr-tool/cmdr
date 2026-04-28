@@ -382,36 +382,35 @@ Enlist a squad member to help with cross-repo work. Use when your task requires 
 
 Your squad info was provided at session start. If you need it again: `+"``"+`%s squad`+"``"+`
 
-## Before dispatching: check for an active PR
+## Always deliver as a PR
 
-If your work is going into a PR rather than directly to main, the enlisted work must mirror that — land as a PR in the enlisted repo that references yours. Otherwise the enlisted change ships to main immediately while your PR is still pending review, leaving the two repos in a desynced, broken state.
+Enlisted work must always land as a PR in the enlisted repo, never as a direct commit to main. You may not have opened your own PR yet when enlisting — what matters is the destination state, not the current state. Always-PR keeps cross-repo coordination safe regardless of when each side merges.
 
-Check whether the current branch has an open PR:
+Always include in your `+"``"+`--details`+"``"+` an explicit delivery instruction with a back-reference:
 
-`+"```bash"+`
-gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --json url --jq '.[0].url'
-`+"```"+`
+> Deliver as a PR in your repo. In the PR description include `+"``"+`Companion PR: <branch-or-url>`+"``"+` so the changes can be tracked and merged together.
 
-If a URL is returned (or you intend to open one), include in your `+"``"+`--details`+"``"+` payload:
-- Your PR URL (or branch name if not yet pushed)
-- An explicit delivery instruction: "Deliver as a PR in your repo. In the PR description include `+"``"+`Companion PR: <your-pr-url>`+"``"+` so the changes can be tracked and merged together."
-
-If no PR is involved (you're committing directly to main), no extra delivery instruction is needed — the delegatee will follow their default flow.
+For `+"``"+`<branch-or-url>`+"``"+`: use your PR URL if you've opened one; otherwise use your branch name (`+"``"+`git rev-parse --abbrev-ref HEAD`+"``"+`). You can update the cross-reference in the delegatee's PR later if your PR opens after theirs.
 
 ## Dispatch
 
 `+"```bash"+`
 %s enlist --squad {squad-name} --from {your-alias} --to {target-alias} \
   --summary "Brief description of what you need" \
-  --details "Full specification — be precise about interfaces, types, behavior"
+  --details "Full specification — be precise about interfaces, types, behavior. End with: 'Deliver as a PR. Reference <branch-or-url>.'"
 `+"```"+`
 
 The --details should have enough context for someone unfamiliar with your repo to implement the change — include expected interfaces, types, endpoints, and behavior.
 
-After dispatching, continue working on parts of your task that don't depend on the enlisted work. You will be automatically notified when the enlistment is complete.
+## After dispatching
 
-To manually check status: `+"``"+`%s debrief --squad {squad-name}`+"``"+`
-`, bin, bin, bin)
+Continue with parts of your task that don't depend on the enlisted work. Auto-notification on completion is best-effort and not reliable — check status explicitly:
+
+`+"```bash"+`
+%s debrief --squad {squad-name}    # all enlistments by this squad member
+%s task {taskId}                   # status + debrief for one task
+`+"```"+`
+`, bin, bin, bin, bin)
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
