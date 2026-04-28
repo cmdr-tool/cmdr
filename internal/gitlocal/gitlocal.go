@@ -359,6 +359,27 @@ func remoteOriginURL(repoPath string) string {
 	return url
 }
 
+// RepoSlug returns the "owner/name" portion of the repo's GitHub origin URL,
+// or "" if the remote isn't a recognizable GitHub URL.
+func RepoSlug(repoPath string) string {
+	raw := remoteOriginURL(repoPath)
+	if raw == "" {
+		return ""
+	}
+	// SSH form (git@github.com:owner/repo.git) → https form
+	if strings.HasPrefix(raw, "git@") {
+		raw = strings.TrimPrefix(raw, "git@")
+		raw = strings.Replace(raw, ":", "/", 1)
+		raw = "https://" + raw
+	}
+	raw = strings.TrimSuffix(raw, ".git")
+	const prefix = "https://github.com/"
+	if !strings.HasPrefix(raw, prefix) {
+		return ""
+	}
+	return strings.TrimPrefix(raw, prefix)
+}
+
 // commitURL derives a web URL for a commit from the remote URL.
 func commitURL(remoteURL, sha string) string {
 	// Handle SSH: git@github.com:owner/repo.git

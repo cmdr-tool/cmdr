@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cmdr-tool/cmdr/internal/agent"
+	"github.com/cmdr-tool/cmdr/internal/gitlocal"
 	"github.com/cmdr-tool/cmdr/internal/proc"
 	"github.com/cmdr-tool/cmdr/internal/prompts"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
@@ -373,7 +374,7 @@ func checkRunningTasks(db *sql.DB, bus *EventBus, termSessions []terminal.Sessio
 
 		// PR-producing tasks: scrape pane for PR URL → resolved (awaiting merge)
 		if meta.Artifact == "pr" && windowAlive && target != "" {
-			if prUrl := scrapePaneForPR(target); prUrl != "" {
+			if prUrl := scrapePaneForPR(target, t.repoPath); prUrl != "" {
 				now := time.Now().Format(time.RFC3339)
 				db.Exec(`UPDATE agent_tasks SET status='resolved', pr_url=?, completed_at=? WHERE id=?`, prUrl, now, t.id)
 				bus.Publish(Event{Type: "agent:task", Data: map[string]any{
@@ -485,15 +486,31 @@ func isPROpen(repoPath, prUrl string) bool {
 
 // --- Pane scraping helpers ---
 
-// scrapePaneForPR captures a pane's content and looks for a GitHub PR URL.
-func scrapePaneForPR(target string) string {
+// scrapePaneForPR captures a pane's content and looks for a GitHub PR URL
+// belonging to the task's own repo. Companion PRs created in other repos
+// (e.g. via /enlist) are ignored so the task's pr_url tracks the right PR.
+// If the repo's GitHub slug can't be determined, falls back to the first
+// matching URL to preserve behavior for non-GitHub or unconfigured repos.
+func scrapePaneForPR(target, repoPath string) string {
 	content, err := term.CapturePane(target, 100)
 	if err != nil {
 		return ""
 	}
 	re := regexp.MustCompile(`https://github\.com/[^\s]+/pull/\d+`)
-	if match := re.FindString(content); match != "" {
-		return match
+	matches := re.FindAllString(content, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+
+	slug := gitlocal.RepoSlug(repoPath)
+	if slug == "" {
+		return matches[0]
+	}
+	needle := "https://github.com/" + slug + "/pull/"
+	for _, m := range matches {
+		if strings.HasPrefix(m, needle) {
+			return m
+		}
 	}
 	return ""
 }
