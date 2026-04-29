@@ -73,6 +73,21 @@ func detectFiles(repoPath string) ([]string, error) {
 	return out, err
 }
 
+// Phase names a stage of the build pipeline as observed by an
+// OnProgress callback. The enum is shared with the daemon's SSE
+// events so frontend and backend stay in sync.
+type Phase string
+
+const (
+	PhaseStarted    Phase = "started"
+	PhaseExtracting Phase = "extracting"
+	PhaseBuilding   Phase = "building"
+	PhaseClustering Phase = "clustering"
+	PhaseWriting    Phase = "writing"
+	PhaseComplete   Phase = "complete"
+	PhaseFailed     Phase = "failed"
+)
+
 // BuildOptions controls how a graph is assembled. Snapshot-level
 // metadata (CommitSHA, BuiltAt) is supplied here; the pipeline
 // itself doesn't talk to git.
@@ -81,6 +96,10 @@ type BuildOptions struct {
 	CommitSHA string
 	Slug      string
 	Store     *Store // optional: enables the per-file content-hash cache
+
+	// OnProgress, if set, is called at each pipeline phase. Used by
+	// the daemon to publish SSE events; nil in tests.
+	OnProgress func(phase Phase, percent int)
 }
 
 // Build runs the full pipeline against repoPath: detect → extract →
@@ -89,10 +108,16 @@ func Build(opts BuildOptions) (*Snapshot, error) {
 	if opts.RepoPath == "" {
 		return nil, fmt.Errorf("graph: build: repo path required")
 	}
+	progress := opts.OnProgress
+	if progress == nil {
+		progress = func(Phase, int) {}
+	}
+
 	files, err := detectFiles(opts.RepoPath)
 	if err != nil {
 		return nil, fmt.Errorf("graph: detect: %w", err)
 	}
+	progress(PhaseExtracting, 20)
 
 	languages := map[string]struct{}{}
 	var allNodes []Node
@@ -138,6 +163,7 @@ func Build(opts BuildOptions) (*Snapshot, error) {
 		allEdges = append(allEdges, fx.Edges...)
 	}
 
+	progress(PhaseBuilding, 50)
 	allNodes, allEdges = mergeAndPrune(allNodes, allEdges)
 
 	snap := &Snapshot{
@@ -150,6 +176,7 @@ func Build(opts BuildOptions) (*Snapshot, error) {
 		Nodes: allNodes,
 		Edges: allEdges,
 	}
+	progress(PhaseClustering, 80)
 	Analyze(snap)
 	return snap, nil
 }

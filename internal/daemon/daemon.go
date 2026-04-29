@@ -20,6 +20,7 @@ import (
 	_ "github.com/cmdr-tool/cmdr/internal/agent/claude"
 	_ "github.com/cmdr-tool/cmdr/internal/agent/pi"
 	"github.com/cmdr-tool/cmdr/internal/db"
+	"github.com/cmdr-tool/cmdr/internal/graph"
 	"github.com/cmdr-tool/cmdr/internal/scheduler"
 	"github.com/cmdr-tool/cmdr/internal/summarizer"
 	_ "github.com/cmdr-tool/cmdr/internal/summarizer/apple"
@@ -31,11 +32,12 @@ import (
 
 // term, emu, sum, and agt are the active adapters, resolved once at daemon startup.
 var (
-	term terminal.Multiplexer
-	emu  terminal.Emulator
-	sum  summarizer.Summarizer
-	agt  agent.Agent
-	caps Capabilities
+	term       terminal.Multiplexer
+	emu        terminal.Emulator
+	sum        summarizer.Summarizer
+	agt        agent.Agent
+	caps       Capabilities
+	graphStore *graph.Store
 )
 
 // Capabilities describes optional features available in the current environment.
@@ -145,6 +147,11 @@ func Run() error {
 		return fmt.Errorf("opening database: %w", err)
 	}
 	defer database.Close()
+
+	graphStore, err = graph.NewStore()
+	if err != nil {
+		return fmt.Errorf("graph store: %w", err)
+	}
 
 	bus := NewEventBus()
 
@@ -368,6 +375,10 @@ func registerAPI(mux *http.ServeMux, s *scheduler.Scheduler, bus *EventBus, data
 	// Brew
 	mux.HandleFunc("/api/brew/outdated", handleBrewOutdated())
 	mux.HandleFunc("/api/brew/upgrade", handleBrewUpgrade(bus))
+
+	// Knowledge graphs
+	mux.HandleFunc("/api/graphs", handleListGraphs(database))
+	mux.HandleFunc("/api/graphs/", handleGraphsSubpath(database, bus, graphStore))
 
 	// Notifications (CLI → daemon SSE bridge)
 	mux.HandleFunc("/api/notify", handleNotify(bus))

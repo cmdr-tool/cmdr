@@ -700,3 +700,110 @@ export async function uploadImage(blob: Blob): Promise<{ path: string; url: stri
 	if (!res.ok) throw new Error('Upload failed');
 	return res.json();
 }
+
+// --- Knowledge Graph ---
+
+export interface GraphRepoRow {
+	repoId: number;
+	repoName: string;
+	repoPath: string;
+	slug: string;
+	snapshotCount: number;
+	latestSha: string | null;
+	latestBuiltAt: string | null;
+	latestStatus: 'building' | 'ready' | 'failed' | null;
+	latestNodeCount: number | null;
+}
+
+export type GraphPhase =
+	| 'started'
+	| 'extracting'
+	| 'building'
+	| 'clustering'
+	| 'writing'
+	| 'complete'
+	| 'failed';
+
+export interface GraphBuildEvent {
+	snapshot_id: number;
+	slug: string;
+	sha: string;
+	phase: GraphPhase;
+	percent: number;
+	error?: string;
+	stats?: {
+		node_count: number;
+		edge_count: number;
+		community_count: number;
+		duration_ms: number;
+	};
+}
+
+export interface GraphNode {
+	id: string;
+	label: string;
+	kind: string;
+	language: string;
+	source_file: string;
+	source_location?: string;
+	community: number;
+	degree: number;
+	attrs?: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+	source: string;
+	target: string;
+	relation: string;
+	confidence: string;
+	attrs?: Record<string, unknown>;
+}
+
+export interface GraphCommunity {
+	label: string;
+	node_ids: string[];
+	cohesion: number;
+}
+
+export interface GraphSnapshot {
+	schema_version: number;
+	snapshot: {
+		repo_path: string;
+		commit_sha: string;
+		built_at: string;
+		languages: string[];
+	};
+	stats: {
+		node_count: number;
+		edge_count: number;
+		by_kind: Record<string, number>;
+		by_relation: Record<string, number>;
+		community_count: number;
+	};
+	communities: Record<string, GraphCommunity>;
+	nodes: GraphNode[];
+	edges: GraphEdge[];
+}
+
+export function listGraphs(): Promise<GraphRepoRow[]> {
+	return request('/graphs');
+}
+
+export function getGraph(slug: string, sha: string): Promise<GraphSnapshot> {
+	return request(`/graphs/${encodeURIComponent(slug)}/${encodeURIComponent(sha)}`);
+}
+
+export async function getGraphReport(slug: string, sha: string): Promise<string> {
+	const res = await fetch(`${BASE}/graphs/${encodeURIComponent(slug)}/${encodeURIComponent(sha)}/report`);
+	if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+	return res.text();
+}
+
+export async function buildGraph(slug: string): Promise<{ snapshot_id: number; status: 'building' | 'ready' }> {
+	const res = await fetch(`${BASE}/graphs/${encodeURIComponent(slug)}/build`, { method: 'POST' });
+	const data = await res.json();
+	if (!res.ok) {
+		throw new Error(data.error || `${res.status} ${res.statusText}`);
+	}
+	return data;
+}

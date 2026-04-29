@@ -1,0 +1,349 @@
+package daemon
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/cmdr-tool/cmdr/internal/graph"
+)
+
+// graphRepoRow is the per-repo summary returned from GET /api/graphs.
+// Latest-snapshot fields are pointers so an unbuilt repo serializes as
+// nulls rather than zero-valued strings/ints.
+type graphRepoRow struct {
+	RepoID          int     `json:"repoId"`
+	RepoName        string  `json:"repoName"`
+	RepoPath        string  `json:"repoPath"`
+	Slug            string  `json:"slug"`
+	SnapshotCount   int     `json:"snapshotCount"`
+	LatestSHA       *string `json:"latestSha"`
+	LatestBuiltAt   *string `json:"latestBuiltAt"`
+	LatestStatus    *string `json:"latestStatus"`
+	LatestNodeCount *int    `json:"latestNodeCount"`
+}
+
+// handleListGraphs returns one row per monitored repo with rollup info
+// from graph_snapshots. Repos with zero snapshots still appear, so the
+// frontend can show a "Build graph" CTA on them.
+func handleListGraphs(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := database.Query(`
+			SELECT r.id, r.name, r.path,
+			       (SELECT COUNT(*) FROM graph_snapshots g WHERE g.repo_path = r.path) AS snap_count,
+			       (SELECT commit_sha FROM graph_snapshots g WHERE g.repo_path = r.path ORDER BY built_at DESC LIMIT 1),
+			       (SELECT built_at   FROM graph_snapshots g WHERE g.repo_path = r.path ORDER BY built_at DESC LIMIT 1),
+			       (SELECT status     FROM graph_snapshots g WHERE g.repo_path = r.path ORDER BY built_at DESC LIMIT 1),
+			       (SELECT node_count FROM graph_snapshots g WHERE g.repo_path = r.path ORDER BY built_at DESC LIMIT 1)
+			FROM repos r
+			WHERE r.monitor = 1
+			ORDER BY r.name
+		`)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		out := []graphRepoRow{}
+		for rows.Next() {
+			var row graphRepoRow
+			var sha, builtAt, status sql.NullString
+			var nodeCount sql.NullInt64
+			if err := rows.Scan(&row.RepoID, &row.RepoName, &row.RepoPath, &row.SnapshotCount, &sha, &builtAt, &status, &nodeCount); err != nil {
+				continue
+			}
+			row.Slug = graph.Slug(row.RepoPath)
+			if sha.Valid {
+				row.LatestSHA = &sha.String
+			}
+			if builtAt.Valid {
+				row.LatestBuiltAt = &builtAt.String
+			}
+			if status.Valid {
+				row.LatestStatus = &status.String
+			}
+			if nodeCount.Valid {
+				n := int(nodeCount.Int64)
+				row.LatestNodeCount = &n
+			}
+			out = append(out, row)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
+	}
+}
+
+// handleGraphsSubpath dispatches the parameterized routes under
+// /api/graphs/. Three shapes are accepted:
+//
+//	GET  /api/graphs/{slug}/{sha}          → graph.json
+//	GET  /api/graphs/{slug}/{sha}/report   → report.md
+//	POST /api/graphs/{slug}/build          → kick off a build
+func handleGraphsSubpath(database *sql.DB, bus *EventBus, store *graph.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/api/graphs/")
+		rest = strings.TrimSuffix(rest, "/")
+		parts := strings.Split(rest, "/")
+
+		switch {
+		case len(parts) == 2 && parts[1] == "build":
+			handleBuildGraph(database, bus, store, parts[0])(w, r)
+		case len(parts) == 2:
+			handleGetGraph(store, parts[0], parts[1])(w, r)
+		case len(parts) == 3 && parts[2] == "report":
+			handleGetGraphReport(store, parts[0], parts[1])(w, r)
+		default:
+			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		}
+	}
+}
+
+// handleGetGraph streams the graph.json file for {slug}/{sha} verbatim.
+func handleGetGraph(store *graph.Store, slug, sha string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := filepath.Join(store.SnapshotDir(slug, sha), "graph.json")
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			http.Error(w, `{"error":"snapshot not found"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}
+}
+
+// handleGetGraphReport returns the markdown report.md for a snapshot.
+func handleGetGraphReport(store *graph.Store, slug, sha string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := filepath.Join(store.SnapshotDir(slug, sha), "report.md")
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			http.Error(w, `{"error":"report not found"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Write(data)
+	}
+}
+
+// handleBuildGraph validates the slug, requires a clean working tree,
+// no-ops when the HEAD sha already has a snapshot, otherwise inserts a
+// 'building' row and spawns the pipeline goroutine.
+func handleBuildGraph(database *sql.DB, bus *EventBus, store *graph.Store, slug string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		repoPath, err := repoPathBySlug(database, slug)
+		if err != nil {
+			http.Error(w, `{"error":"repo not monitored"}`, http.StatusNotFound)
+			return
+		}
+
+		if dirtyWorkingTree(repoPath) {
+			http.Error(w, `{"error":"working tree is dirty; commit or stash before building"}`, http.StatusConflict)
+			return
+		}
+
+		sha, err := headSHA(repoPath)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+
+		// Already-built SHA is a no-op: return the existing row id.
+		var existingID int64
+		err = database.QueryRow(
+			`SELECT id FROM graph_snapshots WHERE repo_slug = ? AND commit_sha = ?`,
+			slug, sha,
+		).Scan(&existingID)
+		if err == nil && store.HasSnapshot(slug, sha) {
+			respondBuildAccepted(w, existingID, "ready")
+			return
+		}
+
+		// Ensure the per-repo store directory exists before the goroutine
+		// touches the cache subdirectory.
+		if _, err := store.RepoDir(slug, repoPath); err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+
+		now := time.Now().UTC()
+		var snapshotID int64
+		if existingID != 0 {
+			// Stale row (file is gone): reset it for the fresh build.
+			if _, err := database.Exec(
+				`UPDATE graph_snapshots SET status='building', built_at=?, error='' WHERE id=?`,
+				now, existingID,
+			); err != nil {
+				http.Error(w, jsonErr(err), http.StatusInternalServerError)
+				return
+			}
+			snapshotID = existingID
+		} else {
+			res, err := database.Exec(
+				`INSERT INTO graph_snapshots (repo_path, repo_slug, commit_sha, built_at, status) VALUES (?, ?, ?, ?, 'building')`,
+				repoPath, slug, sha, now,
+			)
+			if err != nil {
+				http.Error(w, jsonErr(err), http.StatusInternalServerError)
+				return
+			}
+			snapshotID, _ = res.LastInsertId()
+		}
+
+		go runGraphBuild(database, bus, store, snapshotID, slug, sha, repoPath)
+
+		respondBuildAccepted(w, snapshotID, "building")
+	}
+}
+
+func respondBuildAccepted(w http.ResponseWriter, snapshotID int64, status string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]any{
+		"snapshot_id": snapshotID,
+		"status":      status,
+	})
+}
+
+// runGraphBuild executes the pipeline, publishes graphs:build events at
+// each phase, and updates the graph_snapshots row with terminal state.
+func runGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, snapshotID int64, slug, sha, repoPath string) {
+	publish := func(phase graph.Phase, percent int, extra map[string]any) {
+		data := map[string]any{
+			"snapshot_id": snapshotID,
+			"slug":        slug,
+			"sha":         sha,
+			"phase":       string(phase),
+			"percent":     percent,
+		}
+		for k, v := range extra {
+			data[k] = v
+		}
+		bus.Publish(Event{Type: "graphs:build", Data: data})
+	}
+
+	publish(graph.PhaseStarted, 0, nil)
+	started := time.Now().UTC()
+
+	snap, err := graph.Build(graph.BuildOptions{
+		RepoPath:  repoPath,
+		CommitSHA: sha,
+		Slug:      slug,
+		Store:     store,
+		OnProgress: func(p graph.Phase, pct int) {
+			publish(p, pct, nil)
+		},
+	})
+	if err != nil {
+		failGraphBuild(database, snapshotID, err)
+		publish(graph.PhaseFailed, 0, map[string]any{"error": err.Error()})
+		return
+	}
+
+	snap.Snapshot.BuiltAt = started
+	publish(graph.PhaseWriting, 90, nil)
+
+	if err := store.WriteSnapshot(slug, sha, snap); err != nil {
+		failGraphBuild(database, snapshotID, err)
+		publish(graph.PhaseFailed, 0, map[string]any{"error": err.Error()})
+		return
+	}
+	if err := store.WriteReport(slug, sha, graph.RenderReport(snap)); err != nil {
+		// Soft fail: snapshot itself is durable; report is secondary.
+		log.Printf("cmdr: graph: write report failed for %s/%s: %v", slug, sha, err)
+	}
+
+	duration := time.Since(started)
+	if _, err := database.Exec(
+		`UPDATE graph_snapshots
+		   SET status='ready', node_count=?, edge_count=?, community_count=?, duration_ms=?, error=''
+		 WHERE id=?`,
+		snap.Stats.NodeCount, snap.Stats.EdgeCount, snap.Stats.CommunityCount, duration.Milliseconds(), snapshotID,
+	); err != nil {
+		log.Printf("cmdr: graph: update row failed for snapshot %d: %v", snapshotID, err)
+	}
+
+	log.Printf("cmdr: graph: built %s@%s — nodes=%d edges=%d communities=%d in %s",
+		slug, sha[:min(7, len(sha))], snap.Stats.NodeCount, snap.Stats.EdgeCount, snap.Stats.CommunityCount, duration)
+
+	publish(graph.PhaseComplete, 100, map[string]any{
+		"stats": map[string]any{
+			"node_count":      snap.Stats.NodeCount,
+			"edge_count":      snap.Stats.EdgeCount,
+			"community_count": snap.Stats.CommunityCount,
+			"duration_ms":     duration.Milliseconds(),
+		},
+	})
+}
+
+func failGraphBuild(database *sql.DB, snapshotID int64, cause error) {
+	if _, err := database.Exec(
+		`UPDATE graph_snapshots SET status='failed', error=? WHERE id=?`,
+		cause.Error(), snapshotID,
+	); err != nil {
+		log.Printf("cmdr: graph: failed to mark snapshot %d as failed: %v", snapshotID, err)
+	}
+}
+
+// repoPathBySlug walks monitored repos and returns the one whose
+// derived slug matches. Slugs are derived from the absolute path so
+// they're stable without storing them on the repos row.
+func repoPathBySlug(database *sql.DB, slug string) (string, error) {
+	rows, err := database.Query(`SELECT path FROM repos WHERE monitor = 1`)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			continue
+		}
+		if graph.Slug(p) == slug {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("graph: slug %q not found", slug)
+}
+
+// dirtyWorkingTree reports whether `git status --porcelain` returns any
+// output, meaning there are uncommitted changes.
+func dirtyWorkingTree(repoPath string) bool {
+	out, err := exec.Command("git", "-C", repoPath, "status", "--porcelain").Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(out))) > 0
+}
+
+// headSHA returns the full HEAD commit sha for the given repo.
+func headSHA(repoPath string) (string, error) {
+	out, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
