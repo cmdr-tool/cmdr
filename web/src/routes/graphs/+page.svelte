@@ -124,7 +124,7 @@
 								<div class="flex flex-col gap-1 min-w-0">
 									<span class="text-bourbon-200 truncate">{row.repoName}</span>
 									{#if row.snapshotCount > 0 && row.latestSha}
-										<div class="flex items-center gap-2 text-xs">
+										<div class="flex items-baseline gap-3 text-xs">
 											<span class="font-mono text-bourbon-300 bg-bourbon-800/60 border border-bourbon-700/40 px-1.5 py-0.5 rounded">
 												{shortSha(row.latestSha)}
 											</span>
