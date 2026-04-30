@@ -31,9 +31,11 @@ type graphRepoRow struct {
 	LatestNodeCount *int    `json:"latestNodeCount"`
 }
 
-// handleListGraphs returns one row per monitored repo with rollup info
-// from graph_snapshots. Repos with zero snapshots still appear, so the
-// frontend can show a "Build graph" CTA on them.
+// handleListGraphs returns one row per repo in the repos table with
+// rollup info from graph_snapshots. The `monitor` flag is intentionally
+// ignored here — it gates commit syncing, not graph eligibility. Repos
+// with zero snapshots still appear, so the frontend can show a "Build
+// graph" CTA on them.
 func handleListGraphs(database *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := database.Query(`
@@ -44,7 +46,6 @@ func handleListGraphs(database *sql.DB) http.HandlerFunc {
 			       (SELECT status     FROM graph_snapshots g WHERE g.repo_path = r.path ORDER BY built_at DESC LIMIT 1),
 			       (SELECT node_count FROM graph_snapshots g WHERE g.repo_path = r.path ORDER BY built_at DESC LIMIT 1)
 			FROM repos r
-			WHERE r.monitor = 1
 			ORDER BY r.name
 		`)
 		if err != nil {
@@ -308,11 +309,13 @@ func failGraphBuild(database *sql.DB, snapshotID int64, cause error) {
 	}
 }
 
-// repoPathBySlug walks monitored repos and returns the one whose
-// derived slug matches. Slugs are derived from the absolute path so
-// they're stable without storing them on the repos row.
+// repoPathBySlug walks all repos and returns the one whose derived
+// slug matches. Slugs are derived from the absolute path so they're
+// stable without storing them on the repos row. The `monitor` flag is
+// not consulted — graph builds are user-triggered, independent of
+// whether the repo is being fetched on the sync schedule.
 func repoPathBySlug(database *sql.DB, slug string) (string, error) {
-	rows, err := database.Query(`SELECT path FROM repos WHERE monitor = 1`)
+	rows, err := database.Query(`SELECT path FROM repos`)
 	if err != nil {
 		return "", err
 	}
