@@ -93,7 +93,7 @@
 
 <div class="mb-6">
 	<h1 class="font-display text-3xl font-bold text-bourbon-100 lowercase">graphs</h1>
-	<p class="text-bourbon-600 mt-1">Knowledge graphs of your monitored repos</p>
+	<p class="text-bourbon-600 mt-1">Knowledge graphs of your repos</p>
 </div>
 
 {#if loading}
