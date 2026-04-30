@@ -350,10 +350,12 @@
 		onclick={onCanvasClick}
 	></canvas>
 
-	<!-- Hover tooltip -->
+	<!-- Hover tooltip — fixed positioning so cursor coords (viewport space)
+	     map directly to the tooltip's top/left regardless of where the
+	     canvas sits on the page. -->
 	{#if hoveredNode && cursor && !dragging}
 		<div
-			class="absolute pointer-events-none px-2 py-1 rounded
+			class="fixed z-30 pointer-events-none px-2 py-1 rounded
 				bg-bourbon-900/95 border border-bourbon-700 backdrop-blur-sm
 				text-[10px] font-mono text-bourbon-200 shadow-lg
 				whitespace-nowrap"
