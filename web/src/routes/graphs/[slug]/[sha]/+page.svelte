@@ -13,8 +13,11 @@
 	} from '$lib/api';
 	import { events } from '$lib/events';
 	import NetworkFacet from '$lib/components/graphs/NetworkFacet.svelte';
+	import FlowFacet from '$lib/components/graphs/FlowFacet.svelte';
 	import GraphSidebar from '$lib/components/graphs/GraphSidebar.svelte';
 	import { communityColor } from '$lib/components/graphs/colors';
+
+	type Facet = 'network' | 'flow';
 
 	let slug = $derived(page.params.slug ?? '');
 	let sha = $derived(page.params.sha ?? '');
@@ -29,6 +32,8 @@
 	let buildError: string | null = $state(null);
 	let selectedId: string | null = $state(null);
 	let statsExpanded = $state(false);
+	let facet: Facet = $state('network');
+	let flowDepth = $state(2);
 
 	let repoName = $derived.by(() => {
 		const s = snapshot;
@@ -165,6 +170,38 @@
 		</div>
 
 		<div class="flex items-center gap-3 shrink-0">
+			{#if snapshot}
+				<!-- Facet tabs -->
+				<div class="flex items-center gap-1 p-0.5 rounded-md bg-bourbon-800/40 border border-bourbon-700/40">
+					{#each ['network', 'flow'] as f (f)}
+						<button
+							onclick={() => (facet = f as Facet)}
+							class="px-2.5 py-1 rounded font-display text-[10px] font-bold uppercase tracking-widest transition-colors cursor-pointer
+								{facet === f
+									? 'bg-bourbon-700/60 text-bourbon-200'
+									: 'text-bourbon-500 hover:text-bourbon-300'}"
+						>
+							{f}
+						</button>
+					{/each}
+				</div>
+
+				{#if facet === 'flow'}
+					<!-- Depth slider -->
+					<div class="flex items-center gap-2 px-2.5 py-1 rounded-md bg-bourbon-800/40 border border-bourbon-700/40">
+						<span class="font-display text-[10px] uppercase tracking-widest text-bourbon-500">depth</span>
+						<input
+							type="range"
+							min="1"
+							max="5"
+							bind:value={flowDepth}
+							class="w-20 accent-cmd-500"
+						/>
+						<span class="font-mono text-[10px] text-bourbon-300 w-3 text-right">{flowDepth}</span>
+					</div>
+				{/if}
+			{/if}
+
 			{#if buildPhase}
 				<span class="font-display text-[10px] uppercase tracking-widest text-run-500">
 					{phaseLabels[buildPhase]}
@@ -239,6 +276,8 @@
 						<span class="font-display text-xs uppercase tracking-widest">Empty graph</span>
 						<span class="text-sm">No nodes were extracted. Phase 1 only handles Go files; multi-language support lands in Phase 6.</span>
 					</div>
+				{:else if facet === 'flow'}
+					<FlowFacet {snapshot} bind:selectedId bind:depth={flowDepth} />
 				{:else}
 					<NetworkFacet {snapshot} bind:selectedId />
 
