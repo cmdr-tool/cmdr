@@ -201,6 +201,22 @@
 
 		<div class="flex items-center gap-3 shrink-0">
 			{#if snapshot}
+				{#if facet === 'flow'}
+					<!-- Depth slider — appears to the left of the tabs so the
+					     tab position stays stable across mode switches. -->
+					<div class="flex items-center gap-2 px-2.5 py-1 rounded-md bg-bourbon-800/40 border border-bourbon-700/40">
+						<span class="font-display text-[10px] uppercase tracking-widest text-bourbon-500">depth</span>
+						<input
+							type="range"
+							min="1"
+							max="5"
+							bind:value={flowDepth}
+							class="w-20 accent-cmd-500"
+						/>
+						<span class="font-mono text-[10px] text-bourbon-300 w-3 text-right">{flowDepth}</span>
+					</div>
+				{/if}
+
 				<!-- Facet tabs -->
 				<div class="flex items-center gap-1 p-0.5 rounded-md bg-bourbon-800/40 border border-bourbon-700/40">
 					{#each ['network', 'flow'] as f (f)}
@@ -215,21 +231,6 @@
 						</button>
 					{/each}
 				</div>
-
-				{#if facet === 'flow'}
-					<!-- Depth slider -->
-					<div class="flex items-center gap-2 px-2.5 py-1 rounded-md bg-bourbon-800/40 border border-bourbon-700/40">
-						<span class="font-display text-[10px] uppercase tracking-widest text-bourbon-500">depth</span>
-						<input
-							type="range"
-							min="1"
-							max="5"
-							bind:value={flowDepth}
-							class="w-20 accent-cmd-500"
-						/>
-						<span class="font-mono text-[10px] text-bourbon-300 w-3 text-right">{flowDepth}</span>
-					</div>
-				{/if}
 			{/if}
 
 			{#if buildPhase}
