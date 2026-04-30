@@ -117,7 +117,7 @@
 				{#each rows as row (row.slug)}
 					{@const inFlight = live[row.slug]}
 					{@const error = buildErrors[row.slug]}
-					<div class="bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5">
+					<div class="group bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5">
 						<div class="flex items-center justify-between gap-4">
 							<div class="flex items-center gap-3 min-w-0">
 								<FolderCode size={14} class="text-cmd-400 shrink-0" />
@@ -146,27 +146,35 @@
 										{phaseLabels[inFlight.phase]}
 									</span>
 								{:else if row.snapshotCount > 0 && row.latestSha}
-									<a
-										href="/graphs/{row.slug}/{row.latestSha}"
-										class="btn-chiclet btn-chiclet-alt no-underline"
-										title="Open graph"
-									>
-										<ChevronRight size={16} />
-									</a>
 									<button
 										onclick={() => handleBuild(row.slug)}
-										class="btn-chiclet-sm"
 										title="Rebuild for current HEAD"
+										class="invisible group-hover:visible text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
 									>
 										<Hammer size={12} />
 									</button>
+									<a
+										href="/graphs/{row.slug}/{row.latestSha}"
+										class="flex items-center gap-1.5 px-2.5 py-1 rounded-md
+											text-xs font-display font-bold uppercase tracking-widest no-underline
+											border backdrop-blur-sm transition-colors cursor-pointer
+											bg-run-700/30 border-run-700/40 text-run-400
+											hover:bg-run-700/50 hover:border-run-500/50 hover:text-run-300"
+									>
+										<ChevronRight size={12} />
+										Open
+									</a>
 								{:else}
 									<button
 										onclick={() => handleBuild(row.slug)}
-										class="btn-chiclet"
-										title="Build graph"
+										class="flex items-center gap-1.5 px-2.5 py-1 rounded-md
+											text-xs font-display font-bold uppercase tracking-widest
+											border backdrop-blur-sm transition-colors cursor-pointer
+											bg-cmd-700/40 border-cmd-600/30 text-cmd-300
+											hover:bg-cmd-700/60 hover:border-cmd-500/50"
 									>
-										<Hammer size={14} />
+										<Hammer size={12} />
+										Build graph
 									</button>
 								{/if}
 							</div>
