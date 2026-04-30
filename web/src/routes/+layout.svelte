@@ -44,12 +44,21 @@
 	};
 
 	let pageTitle = $derived(pageTitles[page.url.pathname] ?? 'cmdr');
+
+	// Fullscreen routes opt out of the global nav chrome / max-width constraint.
+	// Currently the graph viewer at /graphs/{slug}/{sha}.
+	let fullscreen = $derived(/^\/graphs\/[^/]+\/[^/]+/.test(page.url.pathname));
 </script>
 
 <svelte:head>
 	<title>⌘R {pageTitle}</title>
 </svelte:head>
 
+{#if fullscreen}
+	<div class="min-h-screen bg-bourbon-950 text-bourbon-300 font-body">
+		{@render children()}
+	</div>
+{:else}
 <div class="relative min-h-screen bg-bourbon-950 text-bourbon-300 font-body bg-crosshair">
 	<div class="pointer-events-none absolute inset-x-0 top-0 h-80 z-0 bg-linear-to-b from-bourbon-950 from-40% via-bourbon-950/85 via-50% to-transparent"></div>
 	<div class="relative z-10 max-w-7xl mx-auto px-6 pt-8 pb-6">
@@ -95,3 +104,4 @@
 		</main>
 	</div>
 </div>
+{/if}

@@ -85,8 +85,9 @@ func handleListGraphs(database *sql.DB) http.HandlerFunc {
 }
 
 // handleGraphsSubpath dispatches the parameterized routes under
-// /api/graphs/. Three shapes are accepted:
+// /api/graphs/. Four shapes are accepted:
 //
+//	GET  /api/graphs/{slug}/snapshots       → [{commit_sha, built_at, ...}]
 //	GET  /api/graphs/{slug}/{sha}          → graph.json
 //	GET  /api/graphs/{slug}/{sha}/report   → report.md
 //	POST /api/graphs/{slug}/build          → kick off a build
@@ -99,6 +100,8 @@ func handleGraphsSubpath(database *sql.DB, bus *EventBus, store *graph.Store) ht
 		switch {
 		case len(parts) == 2 && parts[1] == "build":
 			handleBuildGraph(database, bus, store, parts[0])(w, r)
+		case len(parts) == 2 && parts[1] == "snapshots":
+			handleListSnapshots(database, parts[0])(w, r)
 		case len(parts) == 2:
 			handleGetGraph(store, parts[0], parts[1])(w, r)
 		case len(parts) == 3 && parts[2] == "report":
@@ -106,6 +109,47 @@ func handleGraphsSubpath(database *sql.DB, bus *EventBus, store *graph.Store) ht
 		default:
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 		}
+	}
+}
+
+// handleListSnapshots returns all snapshots for a slug, ordered by
+// built_at DESC. Powers the snapshot picker in the viewer header.
+func handleListSnapshots(database *sql.DB, slug string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := database.Query(`
+			SELECT commit_sha, built_at, status,
+			       COALESCE(node_count, 0), COALESCE(edge_count, 0),
+			       COALESCE(community_count, 0), COALESCE(duration_ms, 0)
+			FROM graph_snapshots
+			WHERE repo_slug = ?
+			ORDER BY built_at DESC
+		`, slug)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		type snap struct {
+			CommitSHA      string `json:"commitSha"`
+			BuiltAt        string `json:"builtAt"`
+			Status         string `json:"status"`
+			NodeCount      int    `json:"nodeCount"`
+			EdgeCount      int    `json:"edgeCount"`
+			CommunityCount int    `json:"communityCount"`
+			DurationMs     int64  `json:"durationMs"`
+		}
+		out := []snap{}
+		for rows.Next() {
+			var s snap
+			if err := rows.Scan(&s.CommitSHA, &s.BuiltAt, &s.Status, &s.NodeCount, &s.EdgeCount, &s.CommunityCount, &s.DurationMs); err != nil {
+				continue
+			}
+			out = append(out, s)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
 	}
 }
 

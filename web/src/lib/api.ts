@@ -785,8 +785,22 @@ export interface GraphSnapshot {
 	edges: GraphEdge[];
 }
 
+export interface GraphSnapshotMeta {
+	commitSha: string;
+	builtAt: string;
+	status: 'building' | 'ready' | 'failed';
+	nodeCount: number;
+	edgeCount: number;
+	communityCount: number;
+	durationMs: number;
+}
+
 export function listGraphs(): Promise<GraphRepoRow[]> {
 	return request('/graphs');
+}
+
+export function listSnapshots(slug: string): Promise<GraphSnapshotMeta[]> {
+	return request(`/graphs/${encodeURIComponent(slug)}/snapshots`);
 }
 
 export function getGraph(slug: string, sha: string): Promise<GraphSnapshot> {
