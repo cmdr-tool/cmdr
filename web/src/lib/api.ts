@@ -813,6 +813,18 @@ export async function getGraphReport(slug: string, sha: string): Promise<string>
 	return res.text();
 }
 
+export function getGraphContext(slug: string): Promise<{ context: string }> {
+	return request(`/graphs/${encodeURIComponent(slug)}/context`);
+}
+
+export function setGraphContext(slug: string, context: string): Promise<{ ok: boolean }> {
+	return request(`/graphs/${encodeURIComponent(slug)}/context`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ context })
+	});
+}
+
 export async function buildGraph(
 	slug: string,
 	opts?: { force?: boolean }

@@ -1,0 +1,1 @@
+ALTER TABLE repos ADD COLUMN graph_context TEXT NOT NULL DEFAULT '';

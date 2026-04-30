@@ -85,9 +85,11 @@ func handleListGraphs(database *sql.DB) http.HandlerFunc {
 }
 
 // handleGraphsSubpath dispatches the parameterized routes under
-// /api/graphs/. Four shapes are accepted:
+// /api/graphs/. Five shapes are accepted:
 //
 //	GET  /api/graphs/{slug}/snapshots       → [{commit_sha, built_at, ...}]
+//	GET  /api/graphs/{slug}/context         → { context: "..." }
+//	PUT  /api/graphs/{slug}/context         → update markdown context
 //	GET  /api/graphs/{slug}/{sha}          → graph.json
 //	GET  /api/graphs/{slug}/{sha}/report   → report.md
 //	POST /api/graphs/{slug}/build          → kick off a build
@@ -102,12 +104,61 @@ func handleGraphsSubpath(database *sql.DB, bus *EventBus, store *graph.Store) ht
 			handleBuildGraph(database, bus, store, parts[0])(w, r)
 		case len(parts) == 2 && parts[1] == "snapshots":
 			handleListSnapshots(database, parts[0])(w, r)
+		case len(parts) == 2 && parts[1] == "context":
+			handleGraphContext(database, parts[0])(w, r)
 		case len(parts) == 2:
 			handleGetGraph(store, parts[0], parts[1])(w, r)
 		case len(parts) == 3 && parts[2] == "report":
 			handleGetGraphReport(store, parts[0], parts[1])(w, r)
 		default:
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		}
+	}
+}
+
+// handleGraphContext serves GET (returns current markdown context) and
+// PUT (updates it) for a slug. Used by the /graphs UI to capture the
+// per-repo guidance the LLM trace pipeline anchors against.
+func handleGraphContext(database *sql.DB, slug string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repoPath, err := repoPathBySlug(database, slug)
+		if err != nil {
+			http.Error(w, `{"error":"repo not found"}`, http.StatusNotFound)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			var ctx string
+			if err := database.QueryRow(
+				`SELECT graph_context FROM repos WHERE path = ?`, repoPath,
+			).Scan(&ctx); err != nil {
+				http.Error(w, jsonErr(err), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"context": ctx})
+
+		case http.MethodPut:
+			var body struct {
+				Context string `json:"context"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, jsonErr(err), http.StatusBadRequest)
+				return
+			}
+			if _, err := database.Exec(
+				`UPDATE repos SET graph_context = ? WHERE path = ?`,
+				body.Context, repoPath,
+			); err != nil {
+				http.Error(w, jsonErr(err), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"ok": true})
+
+		default:
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		}
 	}
 }

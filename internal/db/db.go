@@ -69,7 +69,8 @@ func ensureSchema(d *sql.DB) error {
 			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
 			squad           TEXT NOT NULL DEFAULT '',
 			squad_alias     TEXT NOT NULL DEFAULT '',
-			monitor         INTEGER NOT NULL DEFAULT 1
+			monitor         INTEGER NOT NULL DEFAULT 1,
+			graph_context   TEXT NOT NULL DEFAULT ''
 		);
 
 		CREATE TABLE IF NOT EXISTS commits (

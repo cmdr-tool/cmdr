@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Network, Hammer, FolderCode, AlertCircle, ChevronRight } from 'lucide-svelte';
+	import { Network, Hammer, FolderCode, AlertCircle, ChevronRight, BookOpen, X } from 'lucide-svelte';
 	import {
 		listGraphs,
 		buildGraph,
+		getGraphContext,
+		setGraphContext,
 		type GraphRepoRow,
 		type GraphPhase
 	} from '$lib/api';
@@ -19,6 +21,42 @@
 	let loading = $state(true);
 	let live: Record<string, LiveBuild> = $state({});
 	let buildErrors: Record<string, string> = $state({});
+
+	// Context-edit modal state.
+	let editingSlug: string | null = $state(null);
+	let editingRepoName = $state('');
+	let editingContext = $state('');
+	let savingContext = $state(false);
+
+	async function openContextEditor(row: GraphRepoRow) {
+		editingSlug = row.slug;
+		editingRepoName = row.repoName;
+		editingContext = '';
+		try {
+			const res = await getGraphContext(row.slug);
+			editingContext = res.context;
+		} catch {
+			// new repo, no context yet — leave empty
+		}
+	}
+
+	function closeContextEditor() {
+		editingSlug = null;
+		editingRepoName = '';
+		editingContext = '';
+	}
+
+	async function saveContext() {
+		if (!editingSlug) return;
+		savingContext = true;
+		try {
+			await setGraphContext(editingSlug, editingContext);
+			closeContextEditor();
+		} catch (err) {
+			buildErrors[editingSlug] = err instanceof Error ? err.message : 'save failed';
+		}
+		savingContext = false;
+	}
 
 	const phaseLabels: Record<GraphPhase, string> = {
 		started: 'starting…',
@@ -142,6 +180,15 @@
 							</div>
 
 							<div class="flex items-center gap-2 shrink-0">
+								{#if !inFlight}
+									<button
+										onclick={() => openContextEditor(row)}
+										title="Edit graph context"
+										class="text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
+									>
+										<BookOpen size={14} />
+									</button>
+								{/if}
 								{#if inFlight}
 									<span class="font-display text-[10px] uppercase tracking-widest text-run-500">
 										{phaseLabels[inFlight.phase]}
@@ -205,5 +252,78 @@
 				{/each}
 			</div>
 		{/if}
+	</div>
+{/if}
+
+<!-- Context editor modal — markdown guidance for the LLM trace pipeline.
+     Stored in repos.graph_context, loaded fresh on each open. -->
+{#if editingSlug}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="fixed inset-0 z-40 flex items-center justify-center bg-bourbon-950/80 backdrop-blur-sm"
+		onclick={closeContextEditor}
+	>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="w-[600px] max-h-[80vh] flex flex-col bg-bourbon-900 border border-bourbon-700 rounded-2xl shadow-2xl overflow-hidden"
+			onclick={(e) => e.stopPropagation()}
+		>
+			<header class="flex items-center justify-between px-5 py-3 border-b border-bourbon-800">
+				<div class="flex items-center gap-3">
+					<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500">
+						context
+					</span>
+					<span class="text-bourbon-200">{editingRepoName}</span>
+				</div>
+				<button
+					onclick={closeContextEditor}
+					class="text-bourbon-500 hover:text-bourbon-200 transition-colors cursor-pointer"
+				>
+					<X size={16} />
+				</button>
+			</header>
+
+			<div class="px-5 py-3 border-b border-bourbon-800">
+				<p class="text-xs text-bourbon-500 leading-relaxed">
+					Markdown describing this repo's architecture, entry points, and
+					notable flows. The LLM trace pipeline anchors on this when
+					generating data-flow visualizations.
+				</p>
+			</div>
+
+			<div class="flex-1 min-h-0 px-5 py-3">
+				<textarea
+					bind:value={editingContext}
+					placeholder={`# Architecture\nDescribe what this repo does and how requests flow through it.\n\n# Entry points\n- src/index.ts — bootstrap\n- src/handlers/* — route handlers\n\n# Notable flows\n- generate-image: Vision → OpenAI → S3`}
+					class="w-full h-[40vh] bg-bourbon-950 border border-bourbon-800 rounded-lg px-3 py-2
+						text-sm font-mono text-bourbon-200 placeholder:text-bourbon-700
+						focus:outline-none focus:border-cmd-500 transition-colors resize-none leading-relaxed"
+				></textarea>
+			</div>
+
+			<footer class="flex items-center justify-end gap-3 px-5 py-3 border-t border-bourbon-800">
+				<button
+					onclick={closeContextEditor}
+					class="px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest
+						text-bourbon-500 hover:text-bourbon-300 transition-colors cursor-pointer"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={saveContext}
+					disabled={savingContext}
+					class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+						text-xs font-display font-bold uppercase tracking-widest
+						border backdrop-blur-sm transition-colors cursor-pointer
+						bg-cmd-700/40 border-cmd-600/30 text-cmd-400
+						hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300
+						disabled:opacity-40 disabled:cursor-default"
+				>
+					{savingContext ? 'Saving…' : 'Save'}
+				</button>
+			</footer>
+		</div>
 	</div>
 {/if}
