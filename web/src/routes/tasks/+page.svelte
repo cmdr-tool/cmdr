@@ -230,8 +230,16 @@
 		<h2 class="font-display text-xs font-bold uppercase tracking-widest text-run-500">
 			<span class="flex items-center gap-2"><Bot size={12} /> Agentic Tasks</span>
 		</h2>
-		<button onclick={openCreateForm} class="btn-chiclet">
-			<Plus size={14} />
+		<button
+			onclick={openCreateForm}
+			class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+				text-xs font-display font-bold uppercase tracking-widest
+				border backdrop-blur-sm transition-colors cursor-pointer
+				bg-cmd-700/40 border-cmd-600/30 text-cmd-400
+				hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300"
+		>
+			<Plus size={12} />
+			Add task
 		</button>
 	</div>
 
@@ -315,7 +323,7 @@
 
 	<!-- Task List -->
 	{#if agenticTasks.length === 0 && !showForm}
-		<p class="text-bourbon-600 text-sm">No agentic tasks configured. Click + to add one.</p>
+		<p class="text-bourbon-600 text-sm">No agentic tasks configured. Click Add task to add one.</p>
 	{:else}
 		<div class="flex flex-col gap-1.5">
 			{#each agenticTasks as task}
