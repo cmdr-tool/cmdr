@@ -179,35 +179,21 @@
 								     full height. -->
 								{#if direction === 'out'}
 									<svg
-										class="absolute left-0 top-0 h-full w-1.5 text-cmd-400/50 pointer-events-none"
-										viewBox="0 0 6 24"
+										class="absolute left-0 top-0 h-full w-2 text-cmd-500/60 pointer-events-none"
+										viewBox="0 0 8 24"
 										preserveAspectRatio="none"
 										aria-hidden="true"
 									>
-										<path
-											d="M 0 0 L 6 12 L 0 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-										/>
+										<path d="M 0 0 L 8 12 L 0 24 Z" fill="currentColor" />
 									</svg>
 								{:else}
 									<svg
-										class="absolute right-0 top-0 h-full w-1.5 text-run-400/50 pointer-events-none"
-										viewBox="0 0 6 24"
+										class="absolute right-0 top-0 h-full w-2 text-run-500/60 pointer-events-none"
+										viewBox="0 0 8 24"
 										preserveAspectRatio="none"
 										aria-hidden="true"
 									>
-										<path
-											d="M 6 0 L 0 12 L 6 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-										/>
+										<path d="M 8 0 L 0 12 L 8 24 Z" fill="currentColor" />
 									</svg>
 								{/if}
 								<div class="flex items-center gap-2 min-w-0">
