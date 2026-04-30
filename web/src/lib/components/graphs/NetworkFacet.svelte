@@ -125,7 +125,16 @@
 	}
 
 	function fitToViewport() {
-		if (!canvas || !zoomBehavior || nodes.length === 0) return;
+		if (!canvas || nodes.length === 0) return;
+		// Self-heal across the $effect-runs-before-onMount race: zoomBehavior
+		// is set up in onMount, but rebuild() (in $effect) schedules this
+		// before that. If we're here too early, retry next frame.
+		const w = canvas.clientWidth;
+		const h = canvas.clientHeight;
+		if (!zoomBehavior || w === 0 || h === 0) {
+			requestAnimationFrame(fitToViewport);
+			return;
+		}
 		let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 		for (const n of nodes) {
 			const x = n.x ?? 0;
@@ -135,9 +144,7 @@
 			if (y < minY) minY = y;
 			if (y > maxY) maxY = y;
 		}
-		const w = canvas.clientWidth;
-		const h = canvas.clientHeight;
-		if (w === 0 || h === 0 || maxX === minX || maxY === minY) return;
+		if (maxX === minX || maxY === minY) return;
 		const padding = 60;
 		const scale = Math.min(
 			(w - padding * 2) / (maxX - minX),
@@ -154,9 +161,10 @@
 
 	function resizeCanvas() {
 		if (!canvas) return;
-		dpr = window.devicePixelRatio || 1;
 		const w = canvas.clientWidth;
 		const h = canvas.clientHeight;
+		if (w === 0 || h === 0) return;
+		dpr = window.devicePixelRatio || 1;
 		canvas.width = Math.round(w * dpr);
 		canvas.height = Math.round(h * dpr);
 		scheduleDraw();
