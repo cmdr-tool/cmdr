@@ -3,7 +3,7 @@
 	import { hierarchy, tree, type HierarchyPointNode } from 'd3-hierarchy';
 	import { zoom, zoomIdentity, type ZoomBehavior } from 'd3-zoom';
 	import { select } from 'd3-selection';
-	import { ChevronLeft } from 'lucide-svelte';
+	import { Undo } from 'lucide-svelte';
 	import type { GraphSnapshot, GraphNode, GraphEdge } from '$lib/api';
 	import { communityColor } from './colors';
 
@@ -436,7 +436,7 @@
 				bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-400
 				hover:bg-bourbon-800/60 hover:border-bourbon-600/50 hover:text-bourbon-200"
 		>
-			<ChevronLeft size={12} />
+			<Undo size={12} />
 			Back
 			<span class="text-bourbon-600">·</span>
 			<span class="text-bourbon-500">{history.length}</span>
