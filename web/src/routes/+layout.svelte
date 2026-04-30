@@ -25,8 +25,8 @@
 
 	const nav = [
 		{ href: '/', label: 'Dashboard', icon: LayoutDashboard },
-		{ href: '/tasks', label: 'Tasks', icon: ListChecks },
 		{ href: '/graphs', label: 'Graphs', icon: Network },
+		{ href: '/tasks', label: 'Tasks', icon: ListChecks },
 		{ href: '/settings', label: 'Settings', icon: Settings }
 	];
 
