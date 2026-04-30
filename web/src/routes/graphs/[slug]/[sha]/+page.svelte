@@ -30,9 +30,11 @@
 	let selectedId: string | null = $state(null);
 	let statsExpanded = $state(false);
 
-	let repoName = $derived(
-		snapshot ? snapshot.snapshot.repo_path.split('/').pop() || slug : slug
-	);
+	let repoName = $derived.by(() => {
+		const s = snapshot;
+		if (!s) return slug;
+		return s.snapshot.repo_path.split('/').pop() || slug;
+	});
 
 	// Top communities by size — for the legend bottom-left of the canvas.
 	let topCommunities = $derived.by(() => {
