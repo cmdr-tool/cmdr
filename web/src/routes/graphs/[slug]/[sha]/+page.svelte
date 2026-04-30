@@ -145,20 +145,22 @@
 
 			<div class="flex items-center gap-3 min-w-0">
 				<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500 mr-3">graph</span>
-				<span class="text-bourbon-200 truncate" title={snapshot?.snapshot.repo_path}>{repoName}</span>
+				{#if snapshot}
+					<span class="text-bourbon-200 truncate" title={snapshot.snapshot.repo_path}>{repoName}</span>
 
-				<!-- Snapshot picker -->
-				<button
-					onclick={() => (pickerOpen = !pickerOpen)}
-					class="flex items-center gap-1.5 px-2.5 py-1 rounded-md
-						text-[10px] font-mono
-						border backdrop-blur-sm transition-colors cursor-pointer
-						bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-300
-						hover:bg-bourbon-800/60 hover:border-bourbon-600/50"
-				>
-					{shortSha(sha)}
-					<ChevronDown size={12} class="text-bourbon-500" />
-				</button>
+					<!-- Snapshot picker -->
+					<button
+						onclick={() => (pickerOpen = !pickerOpen)}
+						class="flex items-center gap-1.5 px-2.5 py-1 rounded-md
+							text-[10px] font-mono
+							border backdrop-blur-sm transition-colors cursor-pointer
+							bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-300
+							hover:bg-bourbon-800/60 hover:border-bourbon-600/50"
+					>
+						{shortSha(sha)}
+						<ChevronDown size={12} class="text-bourbon-500" />
+					</button>
+				{/if}
 			</div>
 		</div>
 
