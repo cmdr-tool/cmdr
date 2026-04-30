@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { page } from '$app/state';
-	import { LayoutDashboard, ListChecks, Settings } from 'lucide-svelte';
+	import { LayoutDashboard, ListChecks, Network, Settings } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
 	import { events } from '$lib/events';
 	import type { DaemonStatus } from '$lib/api';
@@ -26,6 +26,7 @@
 	const nav = [
 		{ href: '/', label: 'Dashboard', icon: LayoutDashboard },
 		{ href: '/tasks', label: 'Tasks', icon: ListChecks },
+		{ href: '/graphs', label: 'Graphs', icon: Network },
 		{ href: '/settings', label: 'Settings', icon: Settings }
 	];
 
@@ -38,6 +39,7 @@
 	const pageTitles: Record<string, string> = {
 		'/': 'Dashboard',
 		'/tasks': 'Tasks',
+		'/graphs': 'Graphs',
 		'/settings': 'Settings'
 	};
 

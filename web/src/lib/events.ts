@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { DaemonStatus, TmuxSession, AgentSession, ActivityResponse, AgentTask, BrewOutdated } from './api';
+import type { DaemonStatus, TmuxSession, AgentSession, ActivityResponse, AgentTask, BrewOutdated, GraphBuildEvent } from './api';
 
 type EventMap = {
 	status: DaemonStatus;
@@ -14,6 +14,7 @@ type EventMap = {
 	'delegation:update': { squad: string; taskId: number; status: string };
 	'agentic:run': { id: number; status: string; last_run_at?: string };
 	'agentic:update': { action: string; id: number };
+	'graphs:build': GraphBuildEvent;
 };
 
 type EventHandler<K extends keyof EventMap> = (data: EventMap[K]) => void;
