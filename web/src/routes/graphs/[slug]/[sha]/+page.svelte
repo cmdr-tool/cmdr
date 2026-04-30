@@ -144,7 +144,7 @@
 			</a>
 
 			<div class="flex items-center gap-3 min-w-0">
-				<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500">graph</span>
+				<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500 mr-3">graph</span>
 				<span class="text-bourbon-200 truncate" title={snapshot?.snapshot.repo_path}>{repoName}</span>
 
 				<!-- Snapshot picker -->
