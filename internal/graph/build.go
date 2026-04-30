@@ -231,14 +231,9 @@ func mergeAndPrune(nodes []Node, edges []Edge) ([]Node, []Edge) {
 			continue
 		}
 		path := strings.TrimPrefix(e.Target, "import:")
-		// import:<pkg>.<Symbol> stays as-is; bare import:<pkg> becomes a module node.
-		label := path
-		if idx := strings.LastIndex(path, "."); idx > 0 && !strings.Contains(path[idx+1:], "/") {
-			label = path[idx+1:]
-		}
 		byID[e.Target] = Node{
 			ID:       e.Target,
-			Label:    label,
+			Label:    importLabel(path),
 			Kind:     KindModule,
 			Language: "go",
 			Attrs: map[string]any{
@@ -265,6 +260,43 @@ func mergeAndPrune(nodes []Node, edges []Edge) ([]Node, []Edge) {
 	}
 
 	return out, keptEdges
+}
+
+// fileExtensions is the set of suffixes we treat as file-extension-shaped
+// when deciding how to label import targets. Anything in here, used as
+// the suffix-after-last-dot, makes us fall back to using the path's
+// basename as the label rather than trimming everything before the dot
+// (which would leave just "js" / "ts" / "vue" / etc).
+var fileExtensions = map[string]bool{
+	"js": true, "ts": true, "mjs": true, "cjs": true,
+	"jsx": true, "tsx": true, "py": true, "sql": true,
+	"vue": true, "svelte": true, "json": true, "css": true,
+	"scss": true, "html": true, "md": true, "go": true,
+}
+
+// importLabel produces a human-readable label for an import target.
+// Handles three shapes:
+//   - Go FQN with exported symbol: pkg.Symbol → "Symbol"
+//   - Path with file extension:    ./foo/bar.js → "bar.js" (basename)
+//   - Bare module path:            github.com/foo/bar → full path
+func importLabel(path string) string {
+	idx := strings.LastIndex(path, ".")
+	if idx <= 0 {
+		// No dot or leading dot — return as-is.
+		return path
+	}
+	suffix := path[idx+1:]
+	if strings.Contains(suffix, "/") {
+		// e.g. "github.com/foo/bar" — the dot is in the host portion,
+		// not a symbol/extension separator. Keep the full path.
+		return path
+	}
+	if fileExtensions[strings.ToLower(suffix)] {
+		// Path with explicit extension: ./foo/bar.js → "bar.js"
+		return filepath.Base(path)
+	}
+	// Symbol-shaped suffix: pkg.Symbol → "Symbol", utils.foo → "foo"
+	return suffix
 }
 
 func sortedKeys(m map[string]struct{}) []string {

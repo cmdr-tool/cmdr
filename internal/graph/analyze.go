@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -162,10 +163,13 @@ func detectCommunities(snap *Snapshot) []int {
 	return out
 }
 
-// labelCommunities derives a human-readable label per community by
-// finding the most common top-level path component among its members,
-// computes per-community cohesion (modularity contribution), and
-// writes everything onto the snapshot.
+// labelCommunities derives a human-readable label per community using
+// the longest common directory prefix of its members' source files.
+// When multiple communities collide on the same prefix (common in
+// Node.js apps where src/services/{auth,users,orders}/ are separate
+// modules), drills into the most-common next-level subdirectory to
+// disambiguate. Falls back to a count suffix if drilling can't make
+// labels unique.
 func labelCommunities(snap *Snapshot, idx []int) {
 	a := buildAdjacency(snap)
 	groups := map[int][]int{}
@@ -176,40 +180,149 @@ func labelCommunities(snap *Snapshot, idx []int) {
 		}
 	}
 
-	out := make(map[string]Community, len(groups))
+	// Collect each community's member node ids + source paths.
+	communityPaths := map[int][]string{}
+	communityNodeIDs := map[int][]string{}
 	for c, members := range groups {
+		var paths []string
 		nodeIDs := make([]string, 0, len(members))
-		paths := map[string]int{}
 		for _, mi := range members {
-			id := a.ids[mi]
-			nodeIDs = append(nodeIDs, id)
+			nodeIDs = append(nodeIDs, a.ids[mi])
 			if mi < len(snap.Nodes) {
 				if sf := snap.Nodes[mi].SourceFile; sf != "" {
-					paths[topComponent(sf)]++
+					paths = append(paths, filepath.ToSlash(sf))
 				}
 			}
 		}
-		label := dominantLabel(paths)
-		if label == "" {
-			label = "community"
+		communityPaths[c] = paths
+		communityNodeIDs[c] = nodeIDs
+	}
+
+	// Initial labels: longest common directory prefix of each community.
+	labels := map[int]string{}
+	for c, paths := range communityPaths {
+		labels[c] = longestCommonDirPrefix(paths)
+		if labels[c] == "" {
+			labels[c] = "community"
 		}
+	}
+
+	// Drill into deeper subdirectories for any communities sharing a
+	// label, repeating until no more progress can be made.
+	for pass := 0; pass < 4; pass++ {
+		labelToCommunities := map[string][]int{}
+		for c, label := range labels {
+			labelToCommunities[label] = append(labelToCommunities[label], c)
+		}
+		anyDrilled := false
+		for label, cs := range labelToCommunities {
+			if len(cs) <= 1 {
+				continue
+			}
+			for _, c := range cs {
+				deeper := mostCommonSubdirBeyond(communityPaths[c], label)
+				if deeper != "" && deeper != labels[c] {
+					labels[c] = deeper
+					anyDrilled = true
+				}
+			}
+		}
+		if !anyDrilled {
+			break
+		}
+	}
+
+	// Anything still colliding gets a stable count suffix.
+	finalCollisions := map[string][]int{}
+	for c, label := range labels {
+		finalCollisions[label] = append(finalCollisions[label], c)
+	}
+	for label, cs := range finalCollisions {
+		if len(cs) <= 1 {
+			continue
+		}
+		// Sort by community id for deterministic numbering.
+		sort.Ints(cs)
+		for i, c := range cs {
+			if i == 0 {
+				continue
+			}
+			labels[c] = fmt.Sprintf("%s (%d)", label, i+1)
+		}
+	}
+
+	out := make(map[string]Community, len(groups))
+	for c := range groups {
 		out[itoa(c)] = Community{
-			Label:    label,
-			NodeIDs:  nodeIDs,
+			Label:    labels[c],
+			NodeIDs:  communityNodeIDs[c],
 			Cohesion: cohesionFor(a, idx, c),
 		}
 	}
 	snap.Communities = out
 }
 
-func topComponent(rel string) string {
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if len(parts) >= 2 {
-		// Prefer two-level grouping (e.g. internal/daemon) when
-		// available; this matches how cmdr is actually organized.
-		return parts[0] + "/" + parts[1]
+// longestCommonDirPrefix returns the longest path prefix shared by all
+// the directories in paths. A single-file community returns the file's
+// directory. Returns "" if no common prefix exists or all files are
+// in the repo root.
+func longestCommonDirPrefix(paths []string) string {
+	if len(paths) == 0 {
+		return ""
 	}
-	return parts[0]
+	dirs := make([][]string, 0, len(paths))
+	for _, p := range paths {
+		dir := filepath.ToSlash(filepath.Dir(p))
+		if dir == "." || dir == "" {
+			dirs = append(dirs, nil)
+			continue
+		}
+		dirs = append(dirs, strings.Split(dir, "/"))
+	}
+	if len(dirs[0]) == 0 {
+		return ""
+	}
+	var common []string
+	for level := 0; level < len(dirs[0]); level++ {
+		ref := dirs[0][level]
+		same := true
+		for _, d := range dirs[1:] {
+			if level >= len(d) || d[level] != ref {
+				same = false
+				break
+			}
+		}
+		if !same {
+			break
+		}
+		common = append(common, ref)
+	}
+	return strings.Join(common, "/")
+}
+
+// mostCommonSubdirBeyond returns prefix + "/" + most-common-next-level
+// component among paths. Used to drill deeper when multiple communities
+// share the same prefix label.
+func mostCommonSubdirBeyond(paths []string, prefix string) string {
+	pref := prefix + "/"
+	counts := map[string]int{}
+	for _, p := range paths {
+		rel := strings.TrimPrefix(p, pref)
+		if rel == p {
+			continue
+		}
+		idx := strings.Index(rel, "/")
+		if idx < 0 {
+			// File directly in prefix dir (no further nesting); skip.
+			continue
+		}
+		counts[rel[:idx]]++
+	}
+	best := dominantLabel(counts)
+	if best == "" {
+		return ""
+	}
+	return prefix + "/" + best
 }
 
 func dominantLabel(counts map[string]int) string {
