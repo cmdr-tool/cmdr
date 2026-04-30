@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Network, Hammer, FolderCode, AlertCircle } from 'lucide-svelte';
+	import { Network, Hammer, FolderCode, AlertCircle, ChevronRight } from 'lucide-svelte';
 	import {
 		listGraphs,
 		buildGraph,
@@ -140,7 +140,7 @@
 								{/if}
 							</div>
 
-							<div class="flex items-center gap-3 shrink-0">
+							<div class="flex items-center gap-2 shrink-0">
 								{#if inFlight}
 									<span class="font-display text-[10px] uppercase tracking-widest text-run-500">
 										{phaseLabels[inFlight.phase]}
@@ -148,13 +148,14 @@
 								{:else if row.snapshotCount > 0 && row.latestSha}
 									<a
 										href="/graphs/{row.slug}/{row.latestSha}"
-										class="font-display text-xs font-bold uppercase tracking-widest text-cmd-400 hover:text-cmd-300 no-underline transition-colors"
+										class="btn-chiclet btn-chiclet-alt no-underline"
+										title="Open graph"
 									>
-										Open
+										<ChevronRight size={16} />
 									</a>
 									<button
 										onclick={() => handleBuild(row.slug)}
-										class="flex items-center gap-1.5 text-bourbon-500 hover:text-bourbon-300 transition-colors cursor-pointer"
+										class="btn-chiclet-sm"
 										title="Rebuild for current HEAD"
 									>
 										<Hammer size={12} />
@@ -162,10 +163,10 @@
 								{:else}
 									<button
 										onclick={() => handleBuild(row.slug)}
-										class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer"
+										class="btn-chiclet"
+										title="Build graph"
 									>
-										<Hammer size={12} />
-										Build graph
+										<Hammer size={14} />
 									</button>
 								{/if}
 							</div>
