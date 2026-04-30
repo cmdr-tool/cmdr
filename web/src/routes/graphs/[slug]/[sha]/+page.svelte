@@ -18,9 +18,6 @@
 
 	let slug = $derived(page.params.slug ?? '');
 	let sha = $derived(page.params.sha ?? '');
-	let repoName = $derived(
-		snapshot ? snapshot.snapshot.repo_path.split('/').pop() || slug : slug
-	);
 
 	let snapshot: GraphSnapshot | null = $state(null);
 	let snapshotList: GraphSnapshotMeta[] = $state([]);
@@ -32,6 +29,10 @@
 	let buildError: string | null = $state(null);
 	let selectedId: string | null = $state(null);
 	let statsExpanded = $state(false);
+
+	let repoName = $derived(
+		snapshot ? snapshot.snapshot.repo_path.split('/').pop() || slug : slug
+	);
 
 	// Top communities by size — for the legend bottom-left of the canvas.
 	let topCommunities = $derived.by(() => {
