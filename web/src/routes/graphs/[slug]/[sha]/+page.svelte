@@ -2,11 +2,10 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { X, Hammer, ChevronDown, Info } from 'lucide-svelte';
+	import { X, ChevronDown, Info } from 'lucide-svelte';
 	import {
 		getGraph,
 		listSnapshots,
-		buildGraph,
 		type GraphSnapshot,
 		type GraphSnapshotMeta,
 		type GraphPhase
@@ -129,20 +128,6 @@
 		}
 	}
 
-	async function handleRebuild() {
-		buildError = null;
-		try {
-			const res = await buildGraph(slug);
-			if (res.status === 'ready') {
-				// Already had a snapshot for current HEAD — just refresh the list
-				snapshotList = await listSnapshots(slug);
-			} else {
-				buildPhase = 'started';
-			}
-		} catch (err) {
-			buildError = err instanceof Error ? err.message : 'build failed';
-		}
-	}
 
 	function shortSha(s: string) {
 		return s.slice(0, 7);
@@ -178,7 +163,7 @@
 			</a>
 
 			<div class="flex items-center gap-3 min-w-0">
-				<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500 mr-3">graph</span>
+				<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500 mr-3">atlas</span>
 				{#if snapshot}
 					<span class="text-bourbon-200 truncate" title={snapshot.snapshot.repo_path}>{repoName}</span>
 
@@ -238,19 +223,6 @@
 					{phaseLabels[buildPhase]}
 				</span>
 			{/if}
-			<button
-				onclick={handleRebuild}
-				disabled={buildPhase !== null}
-				class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-					text-xs font-display font-bold uppercase tracking-widest
-					border backdrop-blur-sm transition-colors cursor-pointer
-					bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-400
-					hover:bg-bourbon-800/60 hover:border-bourbon-600/50 hover:text-bourbon-200
-					disabled:opacity-40 disabled:cursor-default"
-			>
-				<Hammer size={12} />
-				Rebuild
-			</button>
 		</div>
 	</header>
 
