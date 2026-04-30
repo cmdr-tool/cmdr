@@ -155,7 +155,7 @@
 											bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-400
 											hover:bg-bourbon-800/60 hover:border-bourbon-600/50 hover:text-bourbon-200"
 									>
-										<Hammer size={12} />
+										<Hammer size={12} class="-translate-y-px" />
 										Rebuild
 									</button>
 									<a
@@ -166,7 +166,7 @@
 											bg-run-700/30 border-run-700/40 text-run-400
 											hover:bg-run-700/50 hover:border-run-500/50 hover:text-run-300"
 									>
-										<ChevronRight size={12} />
+										<ChevronRight size={12} class="-translate-y-px" />
 										Open
 									</a>
 								{:else}
@@ -178,7 +178,7 @@
 											bg-cmd-700/40 border-cmd-600/30 text-cmd-400
 											hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300"
 									>
-										<Hammer size={12} />
+										<Hammer size={12} class="-translate-y-px" />
 										Build graph
 									</button>
 								{/if}
