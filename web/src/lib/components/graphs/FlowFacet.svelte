@@ -3,6 +3,7 @@
 	import { hierarchy, tree, type HierarchyPointNode } from 'd3-hierarchy';
 	import { zoom, zoomIdentity, type ZoomBehavior } from 'd3-zoom';
 	import { select } from 'd3-selection';
+	import { ChevronLeft } from 'lucide-svelte';
 	import type { GraphSnapshot, GraphNode, GraphEdge } from '$lib/api';
 	import { communityColor } from './colors';
 
@@ -304,10 +305,31 @@
 		cursor = null;
 	}
 
+	// Pivot history — a breadcrumb stack of previous roots so the user
+	// can walk back out after navigating into call chains. Only flow-
+	// mode clicks contribute; sidebar/list selections start a fresh
+	// exploration. Cleared whenever the snapshot itself changes.
+	let history: string[] = $state([]);
+
+	$effect(() => {
+		snapshot;
+		history = [];
+	});
+
 	function onCanvasClick(e: MouseEvent) {
 		const hit = findNodeAt(e.clientX, e.clientY);
 		if (hit && hit.id !== selectedId) {
+			if (selectedId) history.push(selectedId);
+			history = history; // re-trigger reactivity for length read
 			selectedId = hit.id;
+		}
+	}
+
+	function goBack() {
+		const prev = history.pop();
+		history = history;
+		if (prev !== undefined) {
+			selectedId = prev;
 		}
 	}
 
@@ -399,5 +421,25 @@
 			text-[10px] font-mono text-bourbon-500 leading-relaxed pointer-events-none">
 			depth {depth} · {leafCount} leaves
 		</div>
+	{/if}
+
+	<!-- Back button — visible whenever the user has navigated into nodes
+	     via flow-mode clicks. Pops the breadcrumb stack and restores the
+	     previous root. -->
+	{#if history.length > 0}
+		<button
+			onclick={goBack}
+			title="Back to previous root"
+			class="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md
+				text-[10px] font-display font-bold uppercase tracking-widest
+				border backdrop-blur-sm transition-colors cursor-pointer
+				bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-400
+				hover:bg-bourbon-800/60 hover:border-bourbon-600/50 hover:text-bourbon-200"
+		>
+			<ChevronLeft size={12} />
+			Back
+			<span class="text-bourbon-600">·</span>
+			<span class="text-bourbon-500">{history.length}</span>
+		</button>
 	{/if}
 </div>
