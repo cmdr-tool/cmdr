@@ -119,8 +119,8 @@
 					{@const error = buildErrors[row.slug]}
 					<div class="group bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5">
 						<div class="flex items-center justify-between gap-4">
-							<div class="flex items-center gap-3 min-w-0">
-								<FolderCode size={14} class="text-cmd-400 shrink-0" />
+							<div class="flex items-start gap-3 min-w-0">
+								<FolderCode size={14} class="text-cmd-400 shrink-0 mt-1" />
 								<div class="flex flex-col gap-1 min-w-0">
 									<span class="text-bourbon-200 truncate">{row.repoName}</span>
 									{#if row.snapshotCount > 0 && row.latestSha}
