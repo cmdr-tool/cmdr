@@ -13,8 +13,15 @@
 	import { zoom, zoomIdentity, type ZoomBehavior } from 'd3-zoom';
 	import { select } from 'd3-selection';
 	import type { GraphSnapshot } from '$lib/api';
+	import { communityColor } from './colors';
 
-	let { snapshot }: { snapshot: GraphSnapshot } = $props();
+	let {
+		snapshot,
+		selectedId = $bindable(null)
+	}: {
+		snapshot: GraphSnapshot;
+		selectedId?: string | null;
+	} = $props();
 
 	type SimNode = SimulationNodeDatum & {
 		id: string;
@@ -25,30 +32,6 @@
 		sourceFile: string;
 	};
 	type SimLink = SimulationLinkDatum<SimNode>;
-
-	// Distinct community colors with similar saturation/lightness for the
-	// dark theme. Cycles by modulo for graphs with more communities than
-	// palette entries.
-	const palette = [
-		'#7F77DD', // cmd-purple
-		'#FAC775', // run-amber
-		'#85D7B5', // mint
-		'#F38BA8', // pink
-		'#94A3F4', // periwinkle
-		'#E5C07B', // gold
-		'#FF8A65', // peach
-		'#80DEEA', // cyan
-		'#B39DDB', // lavender
-		'#A5D6A7', // sage
-		'#FFAB91', // coral
-		'#9FA8DA', // dusty blue
-		'#CE93D8', // orchid
-		'#BCAAA4', // tan
-		'#90CAF9' // sky
-	];
-	function communityColor(c: number): string {
-		return palette[((c % palette.length) + palette.length) % palette.length];
-	}
 
 	function nodeRadius(degree: number): number {
 		return 4 + Math.sqrt(degree) * 1.4;
@@ -66,7 +49,6 @@
 
 	let transform = $state({ x: 0, y: 0, k: 1 });
 	let hoveredId: string | null = $state(null);
-	let selectedId: string | null = $state(null);
 	let cursor: { x: number; y: number } | null = $state(null);
 
 	// Drag state — native pointer events.
@@ -335,9 +317,6 @@
 		simulation?.stop();
 	});
 
-	let selectedNode = $derived(
-		selectedId ? nodes.find((n) => n.id === selectedId) ?? null : null
-	);
 	let selectedNeighbors = $derived.by(() => {
 		if (!selectedId) return new Set<string>();
 		const out = new Set<string>();
@@ -383,43 +362,6 @@
 		>
 			{hoveredNode.label}
 			<span class="text-bourbon-500"> · {hoveredNode.kind}</span>
-		</div>
-	{/if}
-
-	<!-- Legend / stats -->
-	<div class="absolute top-3 right-3 px-3 py-2 rounded-md
-		bg-bourbon-900/60 border border-bourbon-800 backdrop-blur-sm
-		text-[10px] font-mono text-bourbon-500 leading-relaxed pointer-events-none">
-		<div>{snapshot.stats.node_count} nodes</div>
-		<div>{snapshot.stats.edge_count} edges</div>
-		<div>{snapshot.stats.community_count} communities</div>
-	</div>
-
-	<!-- Detail panel -->
-	{#if selectedNode}
-		<div class="absolute top-3 left-3 max-w-md p-4 rounded-lg
-			bg-bourbon-900/90 border border-bourbon-700 backdrop-blur-sm
-			shadow-xl">
-			<div class="flex items-center gap-2 mb-2">
-				<span
-					class="w-2.5 h-2.5 rounded-full shrink-0"
-					style:background-color={communityColor(selectedNode.community)}
-				></span>
-				<span class="font-display text-xs font-bold uppercase tracking-widest text-bourbon-200">
-					{selectedNode.kind}
-				</span>
-				<span class="text-[10px] font-mono text-bourbon-600">
-					community {selectedNode.community}
-				</span>
-			</div>
-			<div class="text-bourbon-100 font-mono text-sm break-all mb-2">{selectedNode.label}</div>
-			{#if selectedNode.sourceFile}
-				<div class="text-[10px] font-mono text-bourbon-500 break-all">{selectedNode.sourceFile}</div>
-			{/if}
-			<div class="flex items-center gap-3 mt-3 pt-3 border-t border-bourbon-800 text-[10px] font-mono text-bourbon-500">
-				<span>degree <span class="text-bourbon-300">{selectedNode.degree}</span></span>
-				<span>neighbors <span class="text-bourbon-300">{selectedNeighbors.size}</span></span>
-			</div>
 		</div>
 	{/if}
 </div>

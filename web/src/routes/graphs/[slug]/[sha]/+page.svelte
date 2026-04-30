@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { X, Hammer, ChevronDown } from 'lucide-svelte';
+	import { X, Hammer, ChevronDown, Info } from 'lucide-svelte';
 	import {
 		getGraph,
 		listSnapshots,
@@ -13,6 +13,8 @@
 	} from '$lib/api';
 	import { events } from '$lib/events';
 	import NetworkFacet from '$lib/components/graphs/NetworkFacet.svelte';
+	import GraphSidebar from '$lib/components/graphs/GraphSidebar.svelte';
+	import { communityColor } from '$lib/components/graphs/colors';
 
 	let slug = $derived(page.params.slug ?? '');
 	let sha = $derived(page.params.sha ?? '');
@@ -25,6 +27,20 @@
 	let pickerOpen = $state(false);
 	let buildPhase: GraphPhase | null = $state(null);
 	let buildError: string | null = $state(null);
+	let selectedId: string | null = $state(null);
+	let statsExpanded = $state(false);
+
+	// Top communities by size — for the legend bottom-left of the canvas.
+	let topCommunities = $derived.by(() => {
+		if (!snapshot) return [] as { id: number; label: string; size: number }[];
+		const list = Object.entries(snapshot.communities).map(([id, c]) => ({
+			id: Number(id),
+			label: c.label,
+			size: c.node_ids.length
+		}));
+		list.sort((a, b) => b.size - a.size);
+		return list.slice(0, 8);
+	});
 
 	const phaseLabels: Record<GraphPhase, string> = {
 		started: 'starting',
@@ -191,29 +207,89 @@
 	{/if}
 
 	<!-- Body -->
-	<main class="flex-1 min-h-0 relative">
+	<main class="flex-1 min-h-0 flex">
 		{#if loading}
-			<div class="absolute inset-0 flex items-center justify-center gap-3 text-bourbon-600">
+			<div class="flex-1 flex items-center justify-center gap-3 text-bourbon-600">
 				<div class="w-4 h-4 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
 				<span class="font-display text-xs uppercase tracking-widest">Loading graph</span>
 			</div>
 		{:else if error}
-			<div class="absolute inset-0 flex flex-col items-center justify-center gap-2 text-bourbon-500">
+			<div class="flex-1 flex flex-col items-center justify-center gap-2 text-bourbon-500">
 				<span class="font-display text-xs uppercase tracking-widest text-red-400">Error</span>
 				<span class="text-sm font-mono">{error}</span>
 			</div>
-		{:else if buildError}
-			<div class="absolute inset-x-0 top-0 px-5 py-2 bg-red-950/40 border-b border-red-900/50 text-xs font-mono text-red-300">
-				{buildError}
-			</div>
 		{:else if snapshot}
-			{#if snapshot.nodes.length === 0}
-				<div class="absolute inset-0 flex flex-col items-center justify-center gap-2 text-bourbon-500">
-					<span class="font-display text-xs uppercase tracking-widest">Empty graph</span>
-					<span class="text-sm">No nodes were extracted. Phase 1 only handles Go files; multi-language support lands in Phase 6.</span>
-				</div>
-			{:else}
-				<NetworkFacet {snapshot} />
+			<div class="flex-1 min-w-0 relative">
+				{#if buildError}
+					<div class="absolute inset-x-0 top-0 z-10 px-5 py-2 bg-red-950/40 border-b border-red-900/50 text-xs font-mono text-red-300">
+						{buildError}
+					</div>
+				{/if}
+
+				{#if snapshot.nodes.length === 0}
+					<div class="absolute inset-0 flex flex-col items-center justify-center gap-2 text-bourbon-500">
+						<span class="font-display text-xs uppercase tracking-widest">Empty graph</span>
+						<span class="text-sm">No nodes were extracted. Phase 1 only handles Go files; multi-language support lands in Phase 6.</span>
+					</div>
+				{:else}
+					<NetworkFacet {snapshot} bind:selectedId />
+
+					<!-- Community legend (top communities by size) -->
+					<div class="absolute bottom-3 left-3 max-w-xs px-3 py-2.5 rounded-md
+						bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
+						pointer-events-none">
+						<div class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500 mb-1.5">
+							communities
+						</div>
+						<div class="flex flex-col gap-1">
+							{#each topCommunities as c (c.id)}
+								<div class="flex items-center gap-2 text-[10px] font-mono text-bourbon-400">
+									<span
+										class="w-2 h-2 rounded-full shrink-0"
+										style:background-color={communityColor(c.id)}
+									></span>
+									<span class="truncate">{c.label}</span>
+									<span class="text-bourbon-600">{c.size}</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+
+					<!-- Stats info button (collapsible) -->
+					<div class="absolute bottom-3 right-3">
+						{#if statsExpanded}
+							<div class="px-3 py-2 rounded-md bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
+								text-[10px] font-mono text-bourbon-400 leading-relaxed">
+								<div class="flex items-center justify-between gap-3 mb-1">
+									<span class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500">stats</span>
+									<button
+										onclick={() => (statsExpanded = false)}
+										class="text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
+									>
+										<X size={10} />
+									</button>
+								</div>
+								<div>{snapshot.stats.node_count} nodes</div>
+								<div>{snapshot.stats.edge_count} edges</div>
+								<div>{snapshot.stats.community_count} communities</div>
+							</div>
+						{:else}
+							<button
+								onclick={() => (statsExpanded = true)}
+								class="flex items-center justify-center w-7 h-7 rounded-md
+									bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
+									text-bourbon-500 hover:text-bourbon-200 transition-colors cursor-pointer"
+								title="Graph stats"
+							>
+								<Info size={14} />
+							</button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			{#if snapshot.nodes.length > 0}
+				<GraphSidebar {snapshot} bind:selectedId />
 			{/if}
 		{/if}
 	</main>
