@@ -102,13 +102,13 @@
 <aside class="w-80 shrink-0 flex flex-col border-l border-bourbon-800 bg-bourbon-950/40 backdrop-blur-sm overflow-hidden">
 	{#if selectedNode}
 		<!-- Detail mode -->
-		<header class="shrink-0 px-4 py-3 border-b border-bourbon-800 flex items-center gap-2">
+		<header class="shrink-0 h-11 px-4 flex items-center gap-2 border-b border-bourbon-800">
 			<button
 				onclick={() => (selectedId = null)}
-				class="flex items-center justify-center w-7 h-7 rounded-md text-bourbon-500 hover:text-bourbon-200 hover:bg-bourbon-800/50 transition-colors cursor-pointer"
+				class="text-bourbon-500 hover:text-bourbon-200 transition-colors cursor-pointer"
 				title="Back to all nodes"
 			>
-				<ArrowLeft size={16} />
+				<ArrowLeft size={14} />
 			</button>
 			<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500">
 				node
@@ -196,7 +196,7 @@
 		</div>
 	{:else}
 		<!-- List mode -->
-		<header class="shrink-0 px-4 py-3 border-b border-bourbon-800 flex items-center justify-between">
+		<header class="shrink-0 h-11 px-4 flex items-center justify-between border-b border-bourbon-800">
 			<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500">
 				nodes
 			</span>
