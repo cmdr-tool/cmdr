@@ -1,23 +1,21 @@
 package graph
 
 import (
-	"context"
 	"fmt"
 	"path"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/typescript/tsx"
-	"github.com/smacker/go-tree-sitter/typescript/typescript"
+	sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
 // extractTS parses a TypeScript file. Selects the typescript or tsx
 // grammar based on extension. Emits the same node/edge shape as the
 // Go extractor so the build pipeline doesn't care about language.
 func extractTS(relPath string, content []byte) (*FileExtraction, error) {
-	lang := typescript.GetLanguage()
+	lang := sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript())
 	if strings.HasSuffix(relPath, ".tsx") {
-		lang = tsx.GetLanguage()
+		lang = sitter.NewLanguage(tree_sitter_typescript.LanguageTSX())
 	}
 	return extractWithTSGrammar(relPath, content, lang, "ts")
 }
@@ -26,9 +24,12 @@ func extractTS(relPath string, content []byte) (*FileExtraction, error) {
 // grammar and emits a FileExtraction with one file node + walked decls.
 func extractWithTSGrammar(relPath string, content []byte, lang *sitter.Language, language string) (*FileExtraction, error) {
 	parser := sitter.NewParser()
-	parser.SetLanguage(lang)
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
-	if err != nil {
+	defer parser.Close()
+	if err := parser.SetLanguage(lang); err != nil {
+		return &FileExtraction{Language: language}, nil
+	}
+	tree := parser.Parse(content, nil)
+	if tree == nil {
 		return &FileExtraction{Language: language}, nil
 	}
 	defer tree.Close()
@@ -57,9 +58,9 @@ func walkTSDecls(fx *FileExtraction, root *sitter.Node, content []byte, fileID, 
 	declSymbols := map[string]string{}
 
 	// First pass: imports + top-level declared symbol names.
-	for i := uint32(0); i < root.NamedChildCount(); i++ {
-		child := root.NamedChild(int(i))
-		switch child.Type() {
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		child := root.NamedChild(i)
+		switch child.Kind() {
 		case "import_statement":
 			collectTSImports(fx, fileID, child, content, imports)
 		case "function_declaration":
@@ -77,7 +78,7 @@ func walkTSDecls(fx *FileExtraction, root *sitter.Node, content []byte, fileID, 
 			if inner == nil {
 				continue
 			}
-			switch inner.Type() {
+			switch inner.Kind() {
 			case "function_declaration", "class_declaration", "interface_declaration", "type_alias_declaration":
 				if name := nameOf(inner, content); name != "" {
 					declSymbols[name] = relPath + "::" + name
@@ -89,8 +90,8 @@ func walkTSDecls(fx *FileExtraction, root *sitter.Node, content []byte, fileID, 
 	}
 
 	// Second pass: emit nodes + edges.
-	for i := uint32(0); i < root.NamedChildCount(); i++ {
-		child := root.NamedChild(int(i))
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		child := root.NamedChild(i)
 		emitTSDecl(fx, child, content, fileID, relPath, language, declSymbols, imports, false)
 	}
 }
@@ -99,7 +100,7 @@ func walkTSDecls(fx *FileExtraction, root *sitter.Node, content []byte, fileID, 
 // `exported` propagates through export_statement wrappers so we record
 // it on the produced node attrs.
 func emitTSDecl(fx *FileExtraction, n *sitter.Node, content []byte, fileID, relPath, language string, declSymbols, imports map[string]string, exported bool) {
-	switch n.Type() {
+	switch n.Kind() {
 	case "export_statement":
 		inner := exportInner(n)
 		if inner != nil {
@@ -168,9 +169,9 @@ func emitTSClass(fx *FileExtraction, n *sitter.Node, content []byte, fileID, rel
 	if body == nil {
 		return
 	}
-	for i := uint32(0); i < body.NamedChildCount(); i++ {
-		c := body.NamedChild(int(i))
-		if c.Type() != "method_definition" {
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		c := body.NamedChild(i)
+		if c.Kind() != "method_definition" {
 			continue
 		}
 		mname := nameOf(c, content)
@@ -227,9 +228,9 @@ func emitTSSimpleDecl(fx *FileExtraction, n *sitter.Node, content []byte, fileID
 // and similar. Treats arrow-function and class assignments as named
 // function/class nodes; otherwise drops the variable.
 func emitTSVarDecl(fx *FileExtraction, n *sitter.Node, content []byte, fileID, relPath, language string, declSymbols, imports map[string]string, exported bool) {
-	for i := uint32(0); i < n.NamedChildCount(); i++ {
-		decl := n.NamedChild(int(i))
-		if decl.Type() != "variable_declarator" {
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		decl := n.NamedChild(i)
+		if decl.Kind() != "variable_declarator" {
 			continue
 		}
 		nameNode := decl.ChildByFieldName("name")
@@ -237,12 +238,12 @@ func emitTSVarDecl(fx *FileExtraction, n *sitter.Node, content []byte, fileID, r
 		if nameNode == nil || valueNode == nil {
 			continue
 		}
-		name := nameNode.Content(content)
+		name := nameNode.Utf8Text(content)
 		if name == "" {
 			continue
 		}
 		id := relPath + "::" + name
-		switch valueNode.Type() {
+		switch valueNode.Kind() {
 		case "arrow_function", "function_expression":
 			fx.Nodes = append(fx.Nodes, Node{
 				ID:             id,
@@ -282,7 +283,7 @@ func collectTSImports(fx *FileExtraction, fileID string, n *sitter.Node, content
 	if src == nil {
 		return
 	}
-	specifier := strings.Trim(src.Content(content), `"'`)
+	specifier := strings.Trim(src.Utf8Text(content), `"'`)
 	if specifier == "" {
 		return
 	}
@@ -291,9 +292,9 @@ func collectTSImports(fx *FileExtraction, fileID string, n *sitter.Node, content
 	//   import x from 'mod'                  → default
 	//   import { a, b as c } from 'mod'      → named
 	//   import * as ns from 'mod'            → namespace
-	for i := uint32(0); i < n.NamedChildCount(); i++ {
-		child := n.NamedChild(int(i))
-		switch child.Type() {
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		child := n.NamedChild(i)
+		switch child.Kind() {
 		case "import_clause":
 			collectImportClauseNames(child, content, specifier, imports)
 		}
@@ -308,24 +309,24 @@ func collectTSImports(fx *FileExtraction, fileID string, n *sitter.Node, content
 }
 
 func collectImportClauseNames(clause *sitter.Node, content []byte, specifier string, imports map[string]string) {
-	for i := uint32(0); i < clause.NamedChildCount(); i++ {
-		c := clause.NamedChild(int(i))
-		switch c.Type() {
+	for i := uint(0); i < clause.NamedChildCount(); i++ {
+		c := clause.NamedChild(i)
+		switch c.Kind() {
 		case "identifier":
 			// Default import: import Foo from 'mod'
-			imports[c.Content(content)] = specifier
+			imports[c.Utf8Text(content)] = specifier
 		case "namespace_import":
 			// import * as ns from 'mod'
-			for j := uint32(0); j < c.NamedChildCount(); j++ {
-				inner := c.NamedChild(int(j))
-				if inner.Type() == "identifier" {
-					imports[inner.Content(content)] = specifier
+			for j := uint(0); j < c.NamedChildCount(); j++ {
+				inner := c.NamedChild(j)
+				if inner.Kind() == "identifier" {
+					imports[inner.Utf8Text(content)] = specifier
 				}
 			}
 		case "named_imports":
-			for j := uint32(0); j < c.NamedChildCount(); j++ {
-				spec := c.NamedChild(int(j))
-				if spec.Type() != "import_specifier" {
+			for j := uint(0); j < c.NamedChildCount(); j++ {
+				spec := c.NamedChild(j)
+				if spec.Kind() != "import_specifier" {
 					continue
 				}
 				// Could be `name` or `name as alias`
@@ -333,9 +334,9 @@ func collectImportClauseNames(clause *sitter.Node, content []byte, specifier str
 				aliasNode := spec.ChildByFieldName("alias")
 				local := ""
 				if aliasNode != nil {
-					local = aliasNode.Content(content)
+					local = aliasNode.Utf8Text(content)
 				} else if nameNode != nil {
-					local = nameNode.Content(content)
+					local = nameNode.Utf8Text(content)
 				}
 				if local != "" {
 					imports[local] = specifier
@@ -346,9 +347,9 @@ func collectImportClauseNames(clause *sitter.Node, content []byte, specifier str
 }
 
 func collectTSVarDeclSymbols(n *sitter.Node, content []byte, relPath string, declSymbols map[string]string) {
-	for i := uint32(0); i < n.NamedChildCount(); i++ {
-		decl := n.NamedChild(int(i))
-		if decl.Type() != "variable_declarator" {
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		decl := n.NamedChild(i)
+		if decl.Kind() != "variable_declarator" {
 			continue
 		}
 		nameNode := decl.ChildByFieldName("name")
@@ -356,9 +357,9 @@ func collectTSVarDeclSymbols(n *sitter.Node, content []byte, relPath string, dec
 		if nameNode == nil || valueNode == nil {
 			continue
 		}
-		switch valueNode.Type() {
+		switch valueNode.Kind() {
 		case "arrow_function", "function_expression", "class", "class_expression":
-			name := nameNode.Content(content)
+			name := nameNode.Utf8Text(content)
 			if name != "" {
 				declSymbols[name] = relPath + "::" + name
 			}
@@ -376,14 +377,14 @@ func walkTSCalls(fx *FileExtraction, n *sitter.Node, content []byte, callerID st
 		if node == nil {
 			return
 		}
-		if node.Type() == "call_expression" {
+		if node.Kind() == "call_expression" {
 			fn := node.ChildByFieldName("function")
 			target := resolveTSCallTarget(fn, content, declSymbols, imports)
 			if target != "" {
 				key := callerID + "->" + target
 				if !seen[key] {
 					seen[key] = true
-					line := int(node.StartPoint().Row) + 1
+					line := int(node.StartPosition().Row) + 1
 					fx.Edges = append(fx.Edges, Edge{
 						Source:     callerID,
 						Target:     target,
@@ -396,8 +397,8 @@ func walkTSCalls(fx *FileExtraction, n *sitter.Node, content []byte, callerID st
 				}
 			}
 		}
-		for i := uint32(0); i < node.NamedChildCount(); i++ {
-			walk(node.NamedChild(int(i)))
+		for i := uint(0); i < node.NamedChildCount(); i++ {
+			walk(node.NamedChild(i))
 		}
 	}
 	walk(n)
@@ -407,9 +408,9 @@ func resolveTSCallTarget(fn *sitter.Node, content []byte, declSymbols, imports m
 	if fn == nil {
 		return ""
 	}
-	switch fn.Type() {
+	switch fn.Kind() {
 	case "identifier":
-		name := fn.Content(content)
+		name := fn.Utf8Text(content)
 		if id, ok := declSymbols[name]; ok {
 			return id
 		}
@@ -425,10 +426,10 @@ func resolveTSCallTarget(fn *sitter.Node, content []byte, declSymbols, imports m
 		if obj == nil || prop == nil {
 			return ""
 		}
-		if obj.Type() == "identifier" {
-			objName := obj.Content(content)
+		if obj.Kind() == "identifier" {
+			objName := obj.Utf8Text(content)
 			if spec, ok := imports[objName]; ok {
-				return "import:" + spec + "." + prop.Content(content)
+				return "import:" + spec + "." + prop.Utf8Text(content)
 			}
 		}
 	}
@@ -442,15 +443,15 @@ func nameOf(n *sitter.Node, content []byte) string {
 	if nameNode == nil {
 		return ""
 	}
-	return nameNode.Content(content)
+	return nameNode.Utf8Text(content)
 }
 
 // exportInner returns the inner declaration of an export_statement, or
 // nil if it's a re-export / export-from-anchor without a body.
 func exportInner(exp *sitter.Node) *sitter.Node {
-	for i := uint32(0); i < exp.NamedChildCount(); i++ {
-		c := exp.NamedChild(int(i))
-		switch c.Type() {
+	for i := uint(0); i < exp.NamedChildCount(); i++ {
+		c := exp.NamedChild(i)
+		switch c.Kind() {
 		case "function_declaration", "class_declaration", "interface_declaration",
 			"type_alias_declaration", "lexical_declaration", "variable_declaration":
 			return c
@@ -460,8 +461,8 @@ func exportInner(exp *sitter.Node) *sitter.Node {
 }
 
 func tsRange(n *sitter.Node) string {
-	a := int(n.StartPoint().Row) + 1
-	b := int(n.EndPoint().Row) + 1
+	a := int(n.StartPosition().Row) + 1
+	b := int(n.EndPosition().Row) + 1
 	if a == b {
 		return fmt.Sprintf("L%d", a)
 	}

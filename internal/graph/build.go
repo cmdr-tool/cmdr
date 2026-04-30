@@ -25,7 +25,9 @@ func isJSTestFile(name string) bool {
 }
 
 // dispatchByExt maps file extensions to their extractor. Phase 6
-// added TS/JS/Svelte/SQL via tree-sitter; Go still uses stdlib parser.
+// added TS/JS/Svelte via tree-sitter; Go still uses stdlib parser.
+// SQL is on hold — the available SQL grammars have packaging
+// issues with their Go bindings; revisit when we tackle SchemaFacet.
 func dispatchByExt(relPath string) Extractor {
 	switch strings.ToLower(filepath.Ext(relPath)) {
 	case ".go":
@@ -38,8 +40,6 @@ func dispatchByExt(relPath string) Extractor {
 		return extractJS
 	case ".svelte":
 		return extractSvelte
-	case ".sql":
-		return extractSQL
 	}
 	return nil
 }

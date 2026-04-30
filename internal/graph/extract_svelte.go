@@ -1,14 +1,13 @@
 package graph
 
 import (
-	"context"
 	"path"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/javascript"
-	"github.com/smacker/go-tree-sitter/svelte"
-	"github.com/smacker/go-tree-sitter/typescript/typescript"
+	sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	tree_sitter_svelte "github.com/tree-sitter-grammars/tree-sitter-svelte/bindings/go"
+	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
 // extractSvelte parses a .svelte file. Svelte's grammar exposes
@@ -22,9 +21,12 @@ import (
 // script body, not the .svelte file. Acceptable v1 imprecision.
 func extractSvelte(relPath string, content []byte) (*FileExtraction, error) {
 	parser := sitter.NewParser()
-	parser.SetLanguage(svelte.GetLanguage())
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
-	if err != nil {
+	defer parser.Close()
+	if err := parser.SetLanguage(sitter.NewLanguage(tree_sitter_svelte.Language())); err != nil {
+		return &FileExtraction{Language: "svelte"}, nil
+	}
+	tree := parser.Parse(content, nil)
+	if tree == nil {
 		return &FileExtraction{Language: "svelte"}, nil
 	}
 	defer tree.Close()
@@ -40,9 +42,9 @@ func extractSvelte(relPath string, content []byte) (*FileExtraction, error) {
 	})
 
 	root := tree.RootNode()
-	for i := uint32(0); i < root.NamedChildCount(); i++ {
-		c := root.NamedChild(int(i))
-		if c.Type() != "script_element" {
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		c := root.NamedChild(i)
+		if c.Kind() != "script_element" {
 			continue
 		}
 		walkSvelteScript(fx, c, content, fileID, relPath)
@@ -54,17 +56,17 @@ func extractSvelte(relPath string, content []byte) (*FileExtraction, error) {
 // node, reparses with the appropriate grammar, then runs the TS-style
 // decl walker against it.
 func walkSvelteScript(fx *FileExtraction, scriptEl *sitter.Node, content []byte, fileID, relPath string) {
-	lang := javascript.GetLanguage()
+	lang := sitter.NewLanguage(tree_sitter_javascript.Language())
 	language := "js"
 	if scriptHasLangTS(scriptEl, content) {
-		lang = typescript.GetLanguage()
+		lang = sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript())
 		language = "ts"
 	}
 
 	var raw *sitter.Node
-	for i := uint32(0); i < scriptEl.NamedChildCount(); i++ {
-		c := scriptEl.NamedChild(int(i))
-		if c.Type() == "raw_text" {
+	for i := uint(0); i < scriptEl.NamedChildCount(); i++ {
+		c := scriptEl.NamedChild(i)
+		if c.Kind() == "raw_text" {
 			raw = c
 			break
 		}
@@ -75,9 +77,12 @@ func walkSvelteScript(fx *FileExtraction, scriptEl *sitter.Node, content []byte,
 	body := content[raw.StartByte():raw.EndByte()]
 
 	parser := sitter.NewParser()
-	parser.SetLanguage(lang)
-	tree, err := parser.ParseCtx(context.Background(), nil, body)
-	if err != nil || tree == nil {
+	defer parser.Close()
+	if err := parser.SetLanguage(lang); err != nil {
+		return
+	}
+	tree := parser.Parse(body, nil)
+	if tree == nil {
 		return
 	}
 	defer tree.Close()
@@ -87,18 +92,18 @@ func walkSvelteScript(fx *FileExtraction, scriptEl *sitter.Node, content []byte,
 
 // scriptHasLangTS scans the start_tag for a `lang="ts"` attribute.
 func scriptHasLangTS(scriptEl *sitter.Node, content []byte) bool {
-	for i := uint32(0); i < scriptEl.NamedChildCount(); i++ {
-		c := scriptEl.NamedChild(int(i))
-		if c.Type() != "start_tag" {
+	for i := uint(0); i < scriptEl.NamedChildCount(); i++ {
+		c := scriptEl.NamedChild(i)
+		if c.Kind() != "start_tag" {
 			continue
 		}
 		// start_tag children look like: tag_name, attribute*, end of tag
-		for j := uint32(0); j < c.NamedChildCount(); j++ {
-			attr := c.NamedChild(int(j))
-			if attr.Type() != "attribute" {
+		for j := uint(0); j < c.NamedChildCount(); j++ {
+			attr := c.NamedChild(j)
+			if attr.Kind() != "attribute" {
 				continue
 			}
-			text := strings.ToLower(attr.Content(content))
+			text := strings.ToLower(attr.Utf8Text(content))
 			// Match common shapes: lang="ts" / lang='ts' / lang=ts
 			if strings.Contains(text, "lang") && strings.Contains(text, "ts") {
 				return true
