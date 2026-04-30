@@ -9,11 +9,13 @@
 	let {
 		snapshot,
 		selectedId = $bindable(null),
-		depth = $bindable(2)
+		depth = $bindable(2),
+		onReady
 	}: {
 		snapshot: GraphSnapshot;
 		selectedId?: string | null;
 		depth?: number;
+		onReady?: () => void;
 	} = $props();
 
 	type FlowNode = {
@@ -143,8 +145,22 @@
 		scheduleDraw();
 	}
 
+	let readyFired = false;
+
+	function fireReadyOnce() {
+		if (!readyFired) {
+			readyFired = true;
+			onReady?.();
+		}
+	}
+
 	function fitToViewport() {
-		if (!canvas || !zoomBehavior || !layoutRoot) return;
+		if (!canvas || !zoomBehavior || !layoutRoot) {
+			// Nothing to fit — empty state. Still ready from the page's
+			// perspective.
+			fireReadyOnce();
+			return;
+		}
 		const w = canvas.clientWidth;
 		const h = canvas.clientHeight;
 		if (w === 0 || h === 0) {
@@ -172,7 +188,15 @@
 			zoomBehavior.transform,
 			zoomIdentity.translate(-cx * scale, -cy * scale).scale(scale)
 		);
+		fireReadyOnce();
 	}
+
+	// Reset ready signal whenever the snapshot itself changes, so the
+	// page can re-trigger its loading overlay across sha switches.
+	$effect(() => {
+		snapshot;
+		readyFired = false;
+	});
 
 	// Re-fit when the layout changes (selection or depth).
 	$effect(() => {

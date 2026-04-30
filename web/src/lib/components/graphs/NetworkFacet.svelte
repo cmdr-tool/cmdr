@@ -17,10 +17,12 @@
 
 	let {
 		snapshot,
-		selectedId = $bindable(null)
+		selectedId = $bindable(null),
+		onReady
 	}: {
 		snapshot: GraphSnapshot;
 		selectedId?: string | null;
+		onReady?: () => void;
 	} = $props();
 
 	type SimNode = SimulationNodeDatum & {
@@ -81,9 +83,14 @@
 		scheduleDraw();
 	});
 
+	let readyFired = false;
+
 	function rebuild(snap: GraphSnapshot) {
 		simulation?.stop();
+		readyFired = false;
 
+		// Cheap data prep — runs synchronously so the data references
+		// resolve immediately for any reactive readers.
 		const nodeIds = new Set(snap.nodes.map((n) => n.id));
 		nodes = snap.nodes.map((n) => ({
 			id: n.id,
@@ -97,30 +104,36 @@
 			.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
 			.map((e) => ({ source: e.source, target: e.target }));
 
-		simulation = forceSimulation<SimNode, SimLink>(nodes)
-			.force(
-				'link',
-				forceLink<SimNode, SimLink>(links)
-					.id((d) => d.id)
-					.distance(45)
-					.strength(0.5)
-			)
-			.force('charge', forceManyBody<SimNode>().strength(-120).distanceMax(400))
-			.force('center', forceCenter(0, 0).strength(0.04))
-			.force(
-				'collide',
-				forceCollide<SimNode>().radius((d) => nodeRadius(d.degree) + 2)
-			)
-			.alphaDecay(0.04)
-			.stop()
-			.on('tick', scheduleDraw);
-
-		// Settle layout synchronously so the user sees a stable graph
-		// instantly, no animation phase.
-		simulation.tick(150);
+		// Defer the heavy simulation work to the next animation frame
+		// so the browser gets to paint any pending UI (page loading
+		// overlay, etc.) before we block the JS thread for 500-1000ms
+		// on tick(150) for large graphs.
 		requestAnimationFrame(() => {
-			fitToViewport();
-			scheduleDraw();
+			simulation = forceSimulation<SimNode, SimLink>(nodes)
+				.force(
+					'link',
+					forceLink<SimNode, SimLink>(links)
+						.id((d) => d.id)
+						.distance(45)
+						.strength(0.5)
+				)
+				.force('charge', forceManyBody<SimNode>().strength(-120).distanceMax(400))
+				.force('center', forceCenter(0, 0).strength(0.04))
+				.force(
+					'collide',
+					forceCollide<SimNode>().radius((d) => nodeRadius(d.degree) + 2)
+				)
+				.alphaDecay(0.04)
+				.stop()
+				.on('tick', scheduleDraw);
+
+			// Settle layout synchronously so the user sees a stable graph
+			// instantly once we render, no animation phase.
+			simulation.tick(150);
+			requestAnimationFrame(() => {
+				fitToViewport();
+				scheduleDraw();
+			});
 		});
 	}
 
@@ -157,6 +170,13 @@
 			zoomBehavior.transform,
 			zoomIdentity.translate(-cx * scale, -cy * scale).scale(scale)
 		);
+
+		// First successful fit ⇒ canvas is now showing the graph.
+		// Notify the page so it can drop the loading overlay.
+		if (!readyFired) {
+			readyFired = true;
+			onReady?.();
+		}
 	}
 
 	function resizeCanvas() {

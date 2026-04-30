@@ -71,12 +71,41 @@
 			.then(([snap, list]) => {
 				snapshot = snap;
 				snapshotList = list;
-				loading = false;
+				// Loading stays true until the facet signals it has
+				// drawn the new snapshot — see handleFacetReady. For
+				// graphs with no nodes there's no facet to wait on,
+				// so clear immediately.
+				if (snap.nodes.length === 0) {
+					loading = false;
+				}
 			})
 			.catch((e) => {
 				error = e instanceof Error ? e.message : 'failed to load';
 				loading = false;
 			});
+	});
+
+	function handleFacetReady() {
+		loading = false;
+	}
+
+	let pickerEl: HTMLDivElement | null = $state(null);
+	let pickerToggleEl: HTMLButtonElement | null = $state(null);
+
+	// Dismiss the snapshot picker on any pointerdown that's outside both
+	// the dropdown panel and its toggle button. Per the project's pointer-
+	// events convention.
+	$effect(() => {
+		if (!pickerOpen) return;
+		function handleOutside(e: PointerEvent) {
+			const target = e.target as Node | null;
+			if (!target) return;
+			if (pickerEl && pickerEl.contains(target)) return;
+			if (pickerToggleEl && pickerToggleEl.contains(target)) return;
+			pickerOpen = false;
+		}
+		window.addEventListener('pointerdown', handleOutside);
+		return () => window.removeEventListener('pointerdown', handleOutside);
 	});
 
 	const unsub = events.on('graphs:build', async (e) => {
@@ -155,6 +184,7 @@
 
 					<!-- Snapshot picker -->
 					<button
+						bind:this={pickerToggleEl}
 						onclick={() => (pickerOpen = !pickerOpen)}
 						class="flex items-center gap-1.5 px-2.5 py-1 rounded-md
 							text-[10px] font-mono
@@ -225,7 +255,7 @@
 
 	<!-- Snapshot picker dropdown (overlay) -->
 	{#if pickerOpen}
-		<div class="absolute top-20 left-32 z-20 w-80 max-h-96 overflow-y-auto bg-bourbon-900 border border-bourbon-700 rounded-lg shadow-xl">
+		<div bind:this={pickerEl} class="absolute top-20 left-32 z-20 w-80 max-h-96 overflow-y-auto bg-bourbon-900 border border-bourbon-700 rounded-lg shadow-xl">
 			{#each snapshotList as s}
 				<a
 					href="/graphs/{slug}/{s.commitSha}"
@@ -253,12 +283,7 @@
 
 	<!-- Body -->
 	<main class="flex-1 min-h-0 flex">
-		{#if loading}
-			<div class="flex-1 flex items-center justify-center gap-3 text-bourbon-600">
-				<div class="w-4 h-4 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
-				<span class="font-display text-xs uppercase tracking-widest">Loading graph</span>
-			</div>
-		{:else if error}
+		{#if error}
 			<div class="flex-1 flex flex-col items-center justify-center gap-2 text-bourbon-500">
 				<span class="font-display text-xs uppercase tracking-widest text-red-400">Error</span>
 				<span class="text-sm font-mono">{error}</span>
@@ -277,9 +302,9 @@
 						<span class="text-sm">No nodes were extracted. Phase 1 only handles Go files; multi-language support lands in Phase 6.</span>
 					</div>
 				{:else if facet === 'flow'}
-					<FlowFacet {snapshot} bind:selectedId bind:depth={flowDepth} />
+					<FlowFacet {snapshot} bind:selectedId bind:depth={flowDepth} onReady={handleFacetReady} />
 				{:else}
-					<NetworkFacet {snapshot} bind:selectedId />
+					<NetworkFacet {snapshot} bind:selectedId onReady={handleFacetReady} />
 
 					<!-- Community legend (top communities by size) -->
 					<div class="absolute bottom-3 left-3 max-w-xs px-3 py-2.5 rounded-md
@@ -333,11 +358,27 @@
 						{/if}
 					</div>
 				{/if}
+
+				<!-- Loading overlay — covers the canvas while it's preparing
+				     the new snapshot's layout. Drops away when the facet
+				     signals onReady. -->
+				{#if loading && snapshot.nodes.length > 0}
+					<div class="absolute inset-0 z-30 flex items-center justify-center gap-3 bg-bourbon-950/80 backdrop-blur-sm text-bourbon-400">
+						<div class="w-4 h-4 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
+						<span class="font-display text-xs uppercase tracking-widest">Loading graph</span>
+					</div>
+				{/if}
 			</div>
 
 			{#if snapshot.nodes.length > 0}
 				<GraphSidebar {snapshot} bind:selectedId />
 			{/if}
+		{:else if loading}
+			<!-- Initial mount: snapshot not yet fetched. -->
+			<div class="flex-1 flex items-center justify-center gap-3 text-bourbon-600">
+				<div class="w-4 h-4 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
+				<span class="font-display text-xs uppercase tracking-widest">Loading graph</span>
+			</div>
 		{/if}
 	</main>
 </div>
