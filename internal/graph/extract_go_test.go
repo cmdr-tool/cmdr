@@ -90,15 +90,13 @@ func TestGoExtractor_Basics(t *testing.T) {
 		t.Error("expected call edge to import:strings.ToUpper")
 	}
 
-	// Method receiver linked back to type via uses_type
-	wantReceiverEdge := false
+	// Method should NOT have a uses_type edge back to its receiver
+	// type — that's tautological with the receiver→method `contains`
+	// edge and was creating mirror entries in the sidebar.
 	for _, e := range fx.Edges {
 		if e.Relation == RelUsesType && strings.HasSuffix(e.Source, "::Greeter.Hello") && strings.HasSuffix(e.Target, "::Greeter") {
-			wantReceiverEdge = true
+			t.Error("unexpected uses_type/receiver edge — should be dropped")
 		}
-	}
-	if !wantReceiverEdge {
-		t.Error("expected uses_type edge from method to receiver type")
 	}
 }
 
