@@ -329,10 +329,12 @@ func repoPathBySlug(database *sql.DB, slug string) (string, error) {
 	return "", fmt.Errorf("graph: slug %q not found", slug)
 }
 
-// dirtyWorkingTree reports whether `git status --porcelain` returns any
-// output, meaning there are uncommitted changes.
+// dirtyWorkingTree reports whether the repo has uncommitted *tracked*
+// changes. Untracked files (scratch notes, build artifacts that escaped
+// .gitignore) are ignored — they don't represent in-flight work the
+// user cares about gating on.
 func dirtyWorkingTree(repoPath string) bool {
-	out, err := exec.Command("git", "-C", repoPath, "status", "--porcelain").Output()
+	out, err := exec.Command("git", "-C", repoPath, "status", "--porcelain", "--untracked-files=no").Output()
 	if err != nil {
 		return false
 	}
