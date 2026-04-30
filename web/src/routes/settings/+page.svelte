@@ -141,9 +141,13 @@
 			{#if repos.some(r => r.monitor)}
 				<button
 					onclick={handleSync}
-					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest
-						text-bourbon-500 hover:text-bourbon-300 transition-colors cursor-pointer"
 					disabled={syncing}
+					class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+						text-xs font-display font-bold uppercase tracking-widest
+						border backdrop-blur-sm transition-colors cursor-pointer
+						bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-400
+						hover:bg-bourbon-800/60 hover:border-bourbon-600/50 hover:text-bourbon-200
+						disabled:opacity-40 disabled:cursor-default"
 				>
 					<RefreshCw size={12} class={syncing ? 'animate-spin' : ''} />
 					Sync now
@@ -151,15 +155,73 @@
 			{/if}
 			<button
 				onclick={openAddRepo}
-				class="btn-chiclet"
+				class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+					text-xs font-display font-bold uppercase tracking-widest
+					border backdrop-blur-sm transition-colors cursor-pointer
+					bg-cmd-700/40 border-cmd-600/30 text-cmd-400
+					hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300"
 			>
-				<Plus size={14} />
+				<Plus size={12} />
+				Add repo
 			</button>
 		</div>
 	</div>
 
+	<!-- Add Repo Panel -->
+	{#if showAddRepo}
+		<div class="mb-4 bg-bourbon-950/50 border border-bourbon-800 rounded-lg p-4">
+			<div class="flex items-center justify-between mb-3">
+				<h3 class="font-display text-xs font-bold uppercase tracking-widest text-cmd-400">Add Repository</h3>
+				<button
+					onclick={() => { showAddRepo = false; repoSearch = ''; }}
+					class="text-bourbon-600 hover:text-bourbon-400 text-xs cursor-pointer"
+				>
+					cancel
+				</button>
+			</div>
+
+			{#if !discovering}
+				<input
+					type="text"
+					placeholder="Filter repos..."
+					bind:value={repoSearch}
+					class="w-full bg-bourbon-900 border border-bourbon-700 rounded-lg px-3 py-2 text-sm text-bourbon-200
+						placeholder:text-bourbon-600 focus:outline-none focus:border-cmd-500 mb-3"
+				/>
+			{/if}
+
+			<div class="max-h-64 overflow-y-auto flex flex-col gap-1">
+				{#if discovering}
+					<div class="flex items-center justify-center gap-2 py-4 text-bourbon-600">
+						<div class="w-3 h-3 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
+						<span class="text-xs">Scanning for repos...</span>
+					</div>
+				{:else}
+					{#each filteredDiscovered as repo}
+						<button
+							onclick={() => handleAddRepo(repo)}
+							class="flex items-center justify-between px-3 py-2 rounded-md text-left
+								text-bourbon-300 hover:bg-bourbon-800/50 transition-colors cursor-pointer"
+						>
+							<div class="flex items-center gap-2">
+								<FolderCode size={12} class="text-bourbon-600" />
+								<span class="text-sm">{repo.name}</span>
+								<span class="text-xs text-bourbon-600 font-mono">{shortenPath(repo.path)}</span>
+							</div>
+							<Plus size={14} class="text-bourbon-600" />
+						</button>
+					{:else}
+						<p class="text-bourbon-600 text-sm px-3 py-2">
+							{repoSearch ? 'No matching repos' : 'No new repos found'}
+						</p>
+					{/each}
+				{/if}
+			</div>
+		</div>
+	{/if}
+
 	{#if repos.length === 0}
-		<p class="text-bourbon-600 text-sm">No repos monitored yet. Click + to add one.</p>
+		<p class="text-bourbon-600 text-sm">No repos monitored yet. Click Add repo to add one.</p>
 	{:else}
 		<div class="flex flex-col gap-1.5">
 			{#each repos as repo}
@@ -219,58 +281,6 @@
 		</div>
 	{/if}
 
-	<!-- Add Repo Panel -->
-	{#if showAddRepo}
-		<div class="mt-4 bg-bourbon-950/50 border border-bourbon-800 rounded-lg p-4">
-			<div class="flex items-center justify-between mb-3">
-				<h3 class="font-display text-xs font-bold uppercase tracking-widest text-cmd-400">Add Repository</h3>
-				<button
-					onclick={() => { showAddRepo = false; repoSearch = ''; }}
-					class="text-bourbon-600 hover:text-bourbon-400 text-xs cursor-pointer"
-				>
-					cancel
-				</button>
-			</div>
-
-			{#if !discovering}
-				<input
-					type="text"
-					placeholder="Filter repos..."
-					bind:value={repoSearch}
-					class="w-full bg-bourbon-900 border border-bourbon-700 rounded-lg px-3 py-2 text-sm text-bourbon-200
-						placeholder:text-bourbon-600 focus:outline-none focus:border-cmd-500 mb-3"
-				/>
-			{/if}
-
-			<div class="max-h-64 overflow-y-auto flex flex-col gap-1">
-				{#if discovering}
-					<div class="flex items-center justify-center gap-2 py-4 text-bourbon-600">
-						<div class="w-3 h-3 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
-						<span class="text-xs">Scanning for repos...</span>
-					</div>
-				{:else}
-					{#each filteredDiscovered as repo}
-						<button
-							onclick={() => handleAddRepo(repo)}
-							class="flex items-center justify-between px-3 py-2 rounded-md text-left
-								text-bourbon-300 hover:bg-bourbon-800/50 transition-colors cursor-pointer"
-						>
-							<div class="flex items-center gap-2">
-								<FolderCode size={12} class="text-bourbon-600" />
-								<span class="text-sm">{repo.name}</span>
-								<span class="text-xs text-bourbon-600 font-mono">{shortenPath(repo.path)}</span>
-							</div>
-							<Plus size={14} class="text-bourbon-600" />
-						</button>
-					{:else}
-						<p class="text-bourbon-600 text-sm px-3 py-2">
-							{repoSearch ? 'No matching repos' : 'No new repos found'}
-						</p>
-					{/each}
-				{/if}
-			</div>
-		</div>
-	{/if}
 </div>
 
 <!-- Squads -->
@@ -281,9 +291,14 @@
 		</h2>
 		<button
 			onclick={() => { showNewSquad = !showNewSquad; newSquadName = ''; }}
-			class="btn-chiclet"
+			class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+				text-xs font-display font-bold uppercase tracking-widest
+				border backdrop-blur-sm transition-colors cursor-pointer
+				bg-cmd-700/40 border-cmd-600/30 text-cmd-400
+				hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300"
 		>
-			<Plus size={14} />
+			<Plus size={12} />
+			Add squad
 		</button>
 	</div>
 
