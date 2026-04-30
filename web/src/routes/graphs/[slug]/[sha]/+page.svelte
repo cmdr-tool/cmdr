@@ -18,6 +18,9 @@
 
 	let slug = $derived(page.params.slug ?? '');
 	let sha = $derived(page.params.sha ?? '');
+	let repoName = $derived(
+		snapshot ? snapshot.snapshot.repo_path.split('/').pop() || slug : slug
+	);
 
 	let snapshot: GraphSnapshot | null = $state(null);
 	let snapshotList: GraphSnapshotMeta[] = $state([]);
@@ -139,7 +142,7 @@
 
 			<div class="flex items-center gap-3 min-w-0">
 				<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500">graph</span>
-				<span class="text-bourbon-200 truncate">{slug}</span>
+				<span class="text-bourbon-200 truncate" title={snapshot?.snapshot.repo_path}>{repoName}</span>
 
 				<!-- Snapshot picker -->
 				<button
