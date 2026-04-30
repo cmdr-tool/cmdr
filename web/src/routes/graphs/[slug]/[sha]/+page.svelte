@@ -274,62 +274,72 @@
 						<span class="font-display text-xs uppercase tracking-widest">Empty graph</span>
 						<span class="text-sm">No nodes were extracted. Phase 1 only handles Go files; multi-language support lands in Phase 6.</span>
 					</div>
-				{:else if facet === 'flow'}
-					<FlowFacet {snapshot} bind:selectedId bind:depth={flowDepth} onReady={handleFacetReady} />
 				{:else}
-					<NetworkFacet {snapshot} bind:selectedId onReady={handleFacetReady} />
-
-					<!-- Community legend (top communities by size) -->
-					<div class="absolute bottom-3 left-3 max-w-xs px-3 py-2.5 rounded-md
-						bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
-						pointer-events-none">
-						<div class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500 mb-1.5">
-							communities
-						</div>
-						<div class="flex flex-col gap-1">
-							{#each topCommunities as c (c.id)}
-								<div class="flex items-center gap-2 text-[10px] font-mono text-bourbon-400">
-									<span
-										class="w-2 h-2 rounded-full shrink-0"
-										style:background-color={communityColor(c.id)}
-									></span>
-									<span class="truncate">{c.label}</span>
-									<span class="text-bourbon-600">{c.size}</span>
-								</div>
-							{/each}
-						</div>
+					<!-- Both facets stay mounted across tab switches so we don't
+					     pay re-init costs (force simulation rebuild, hierarchy
+					     re-layout) every time the user toggles. The inactive
+					     one is hidden + click-disabled but keeps its state. -->
+					<div class="absolute inset-0" class:invisible={facet !== 'network'} class:pointer-events-none={facet !== 'network'}>
+						<NetworkFacet {snapshot} bind:selectedId onReady={handleFacetReady} />
+					</div>
+					<div class="absolute inset-0" class:invisible={facet !== 'flow'} class:pointer-events-none={facet !== 'flow'}>
+						<FlowFacet {snapshot} bind:selectedId bind:depth={flowDepth} onReady={handleFacetReady} />
 					</div>
 
-					<!-- Stats info button (collapsible) -->
-					<div class="absolute bottom-3 right-3">
-						{#if statsExpanded}
-							<div class="px-3 py-2 rounded-md bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
-								text-[10px] font-mono text-bourbon-400 leading-relaxed">
-								<div class="flex items-center justify-between gap-3 mb-1">
-									<span class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500">stats</span>
-									<button
-										onclick={() => (statsExpanded = false)}
-										class="text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
-									>
-										<X size={10} />
-									</button>
-								</div>
-								<div>{snapshot.stats.node_count} nodes</div>
-								<div>{snapshot.stats.edge_count} edges</div>
-								<div>{snapshot.stats.community_count} communities</div>
+					{#if facet === 'network'}
+						<!-- Community legend (top communities by size) — Network-only,
+						     Flow has its own bottom-left depth indicator. -->
+						<div class="absolute bottom-3 left-3 max-w-xs px-3 py-2.5 rounded-md
+							bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
+							pointer-events-none">
+							<div class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500 mb-1.5">
+								communities
 							</div>
-						{:else}
-							<button
-								onclick={() => (statsExpanded = true)}
-								class="flex items-center justify-center w-7 h-7 rounded-md
-									bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
-									text-bourbon-500 hover:text-bourbon-200 transition-colors cursor-pointer"
-								title="Graph stats"
-							>
-								<Info size={14} />
-							</button>
-						{/if}
-					</div>
+							<div class="flex flex-col gap-1">
+								{#each topCommunities as c (c.id)}
+									<div class="flex items-center gap-2 text-[10px] font-mono text-bourbon-400">
+										<span
+											class="w-2 h-2 rounded-full shrink-0"
+											style:background-color={communityColor(c.id)}
+										></span>
+										<span class="truncate">{c.label}</span>
+										<span class="text-bourbon-600">{c.size}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+
+						<!-- Stats info button (collapsible) -->
+						<div class="absolute bottom-3 right-3">
+							{#if statsExpanded}
+								<div class="px-3 py-2 rounded-md bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
+									text-[10px] font-mono text-bourbon-400 leading-relaxed">
+									<div class="flex items-center justify-between gap-3 mb-1">
+										<span class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500">stats</span>
+										<button
+											onclick={() => (statsExpanded = false)}
+											class="text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
+										>
+											<X size={10} />
+										</button>
+									</div>
+									<div>{snapshot.stats.node_count} nodes</div>
+									<div>{snapshot.stats.edge_count} edges</div>
+									<div>{snapshot.stats.community_count} communities</div>
+								</div>
+							{:else}
+								<button
+									onclick={() => (statsExpanded = true)}
+									class="flex items-center justify-center w-7 h-7 rounded-md
+										bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
+										text-bourbon-500 hover:text-bourbon-200 transition-colors cursor-pointer"
+									title="Graph stats"
+								>
+									<Info size={14} />
+								</button>
+							{/if}
+						</div>
+					{/if}
 				{/if}
 
 				<!-- Loading overlay — covers the canvas while it's preparing

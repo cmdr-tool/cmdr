@@ -344,8 +344,23 @@
 </script>
 
 <div bind:this={viewport} class="relative w-full h-full overflow-hidden">
+	<!-- Canvas is always present so onMount + zoomBehavior setup happens
+	     once and doesn't get torn down across leaf/tree state transitions.
+	     Empty/leaf states render as overlays on top. -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<canvas
+		bind:this={canvas}
+		class="w-full h-full block"
+		class:cursor-grab={selectedId && layoutRoot && layoutRoot.descendants().length > 1}
+		class:cursor-pointer={hoveredId !== null}
+		onpointermove={onPointerMove}
+		onpointerleave={onPointerLeave}
+		onclick={onCanvasClick}
+	></canvas>
+
 	{#if !selectedId}
-		<div class="absolute inset-0 flex items-center justify-center text-bourbon-500">
+		<div class="absolute inset-0 flex items-center justify-center text-bourbon-500 pointer-events-none">
 			<div class="max-w-md text-center">
 				<div class="font-display text-xs font-bold uppercase tracking-widest text-run-500 mb-2">flow</div>
 				<p class="text-sm text-bourbon-400">
@@ -355,15 +370,6 @@
 			</div>
 		</div>
 	{:else if !layoutRoot || layoutRoot.descendants().length === 1}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<canvas
-			bind:this={canvas}
-			class="w-full h-full block"
-			onpointermove={onPointerMove}
-			onpointerleave={onPointerLeave}
-			onclick={onCanvasClick}
-		></canvas>
 		<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
 			<div class="max-w-md text-center bg-bourbon-900/80 border border-bourbon-800 backdrop-blur-sm rounded-lg px-5 py-4">
 				<div class="font-display text-xs font-bold uppercase tracking-widest text-bourbon-500 mb-1">leaf node</div>
@@ -373,17 +379,6 @@
 			</div>
 		</div>
 	{:else}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<canvas
-			bind:this={canvas}
-			class="w-full h-full block cursor-grab"
-			class:cursor-pointer={hoveredId !== null}
-			onpointermove={onPointerMove}
-			onpointerleave={onPointerLeave}
-			onclick={onCanvasClick}
-		></canvas>
-
 		{#if hoveredFlowNode && cursor}
 			<div
 				class="fixed z-30 pointer-events-none px-2 py-1 rounded
