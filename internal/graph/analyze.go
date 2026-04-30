@@ -180,15 +180,17 @@ func labelCommunities(snap *Snapshot, idx []int) {
 		}
 	}
 
-	// Collect each community's member node ids + paths. SourceFile is
-	// the primary signal, but we also pull module nodes' Attrs.path so
-	// communities of external imports (npm packages, relative imports
-	// our extractors couldn't resolve to files) still get meaningful
-	// labels rather than the "community" fallback.
+	// Collect each community's member node ids + paths. Track file
+	// paths and module paths separately so a community that has even
+	// one local file gets labeled by its file structure rather than
+	// being dragged into "external" fallback by an external module
+	// it happens to be connected to. Pure-module communities (no
+	// local files at all) fall back to module paths.
 	communityPaths := map[int][]string{}
 	communityNodeIDs := map[int][]string{}
 	for c, members := range groups {
-		var paths []string
+		var filePaths []string
+		var modulePaths []string
 		nodeIDs := make([]string, 0, len(members))
 		for _, mi := range members {
 			nodeIDs = append(nodeIDs, a.ids[mi])
@@ -197,16 +199,20 @@ func labelCommunities(snap *Snapshot, idx []int) {
 			}
 			n := snap.Nodes[mi]
 			if n.SourceFile != "" {
-				paths = append(paths, filepath.ToSlash(n.SourceFile))
+				filePaths = append(filePaths, filepath.ToSlash(n.SourceFile))
 				continue
 			}
 			if n.Kind == KindModule {
 				if p, ok := n.Attrs["path"].(string); ok && p != "" {
-					paths = append(paths, filepath.ToSlash(p))
+					modulePaths = append(modulePaths, filepath.ToSlash(p))
 				}
 			}
 		}
-		communityPaths[c] = paths
+		if len(filePaths) > 0 {
+			communityPaths[c] = filePaths
+		} else {
+			communityPaths[c] = modulePaths
+		}
 		communityNodeIDs[c] = nodeIDs
 	}
 
