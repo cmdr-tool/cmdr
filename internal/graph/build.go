@@ -13,12 +13,33 @@ import (
 // FileExtraction with nil error.
 type Extractor func(relPath string, content []byte) (*FileExtraction, error)
 
-// dispatchByExt maps file extensions to their extractor. Phase 1 ships
-// only Go; Phase 6 grows this map for TS, Svelte, Vue, Python, SQL.
+// isJSTestFile recognizes the common .test.{ext} / .spec.{ext}
+// patterns that signal a test file.
+func isJSTestFile(name string) bool {
+	for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"} {
+		if strings.HasSuffix(name, ".test"+ext) || strings.HasSuffix(name, ".spec"+ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// dispatchByExt maps file extensions to their extractor. Phase 6
+// added TS/JS/Svelte/SQL via tree-sitter; Go still uses stdlib parser.
 func dispatchByExt(relPath string) Extractor {
 	switch strings.ToLower(filepath.Ext(relPath)) {
 	case ".go":
 		return extractGo
+	case ".ts", ".tsx":
+		// .d.ts files match this case naturally — filepath.Ext returns
+		// just ".ts" for foo.d.ts.
+		return extractTS
+	case ".js", ".mjs", ".cjs":
+		return extractJS
+	case ".svelte":
+		return extractSvelte
+	case ".sql":
+		return extractSQL
 	}
 	return nil
 }
@@ -55,9 +76,13 @@ func detectFiles(repoPath string) ([]string, error) {
 			}
 			return nil
 		}
-		// Skip Go test files — they bloat the graph without adding
-		// structural understanding of the codebase.
+		// Skip test files — they bloat the graph without adding
+		// structural understanding of the codebase. Covers Go's
+		// _test.go convention plus the JS/TS .test./.spec. patterns.
 		if strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+		if isJSTestFile(name) {
 			return nil
 		}
 		if dispatchByExt(name) == nil {
