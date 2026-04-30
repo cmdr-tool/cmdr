@@ -262,7 +262,7 @@
 				<span class="text-sm font-mono">{error}</span>
 			</div>
 		{:else if snapshot}
-			<div class="flex-1 min-w-0 relative">
+			<div class="flex-1 min-w-0 relative bg-[#08070a]">
 				{#if buildError}
 					<div class="absolute inset-x-0 top-0 z-10 px-5 py-2 bg-red-950/40 border-b border-red-900/50 text-xs font-mono text-red-300">
 						{buildError}
