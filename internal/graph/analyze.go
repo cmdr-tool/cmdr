@@ -300,29 +300,37 @@ func longestCommonDirPrefix(paths []string) string {
 	return strings.Join(common, "/")
 }
 
-// mostCommonSubdirBeyond returns prefix + "/" + most-common-next-level
-// component among paths. Used to drill deeper when multiple communities
-// share the same prefix label.
+// mostCommonSubdirBeyond returns prefix + "/" + a discriminator that
+// drills deeper into the community's path structure. Two strategies,
+// tried in order:
+//
+//  1. Most-common next-level subdirectory (when the community spans
+//     a structured layout like src/services/{auth,orders,users}).
+//  2. Most-common file basename in the immediate prefix dir (when the
+//     community is one or more "flat" files like src/services/
+//     Inventory.js where a whole class + methods cluster together).
 func mostCommonSubdirBeyond(paths []string, prefix string) string {
 	pref := prefix + "/"
-	counts := map[string]int{}
+	subdirs := map[string]int{}
+	files := map[string]int{}
 	for _, p := range paths {
 		rel := strings.TrimPrefix(p, pref)
 		if rel == p {
 			continue
 		}
-		idx := strings.Index(rel, "/")
-		if idx < 0 {
-			// File directly in prefix dir (no further nesting); skip.
-			continue
+		if idx := strings.Index(rel, "/"); idx >= 0 {
+			subdirs[rel[:idx]]++
+		} else {
+			files[rel]++
 		}
-		counts[rel[:idx]]++
 	}
-	best := dominantLabel(counts)
-	if best == "" {
-		return ""
+	if best := dominantLabel(subdirs); best != "" {
+		return prefix + "/" + best
 	}
-	return prefix + "/" + best
+	if best := dominantLabel(files); best != "" {
+		return prefix + "/" + best
+	}
+	return ""
 }
 
 func dominantLabel(counts map[string]int) string {
