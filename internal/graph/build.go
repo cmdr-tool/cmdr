@@ -40,6 +40,8 @@ func dispatchByExt(relPath string) Extractor {
 		return extractJS
 	case ".svelte":
 		return extractSvelte
+	case ".py":
+		return extractPython
 	}
 	return nil
 }
