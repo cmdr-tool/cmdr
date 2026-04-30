@@ -10,7 +10,7 @@
 		type SimulationNodeDatum,
 		type SimulationLinkDatum
 	} from 'd3-force';
-	import { zoom, type ZoomBehavior } from 'd3-zoom';
+	import { zoom, zoomIdentity, type ZoomBehavior } from 'd3-zoom';
 	import { select } from 'd3-selection';
 	import type { GraphSnapshot } from '$lib/api';
 
@@ -103,6 +103,9 @@
 				target: e.target
 			}));
 
+		// Build the simulation but don't auto-animate; we'll settle it
+		// synchronously below so the user sees a stable layout immediately
+		// rather than 60fps DOM updates for hundreds of nodes.
 		simulation = forceSimulation<SimNode, SimLink>(nodes)
 			.force(
 				'link',
@@ -117,10 +120,51 @@
 				'collide',
 				forceCollide<SimNode>().radius((d) => nodeRadius(d.degree) + 2)
 			)
-			.alphaDecay(0.02)
+			.alphaDecay(0.04)
+			.stop()
 			.on('tick', () => {
 				tick++;
 			});
+
+		// Headless settle: ~150 ticks puts alpha well below the auto-stop
+		// threshold, so the simulation is fully settled when we render.
+		simulation.tick(150);
+		tick++;
+
+		// Fit settled layout to the viewport on next frame (after svgEl has
+		// dimensions).
+		requestAnimationFrame(fitToViewport);
+	}
+
+	function fitToViewport() {
+		if (!svgEl || !zoomBehavior || nodes.length === 0) return;
+		let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+		for (const n of nodes) {
+			const x = n.x ?? 0;
+			const y = n.y ?? 0;
+			if (x < minX) minX = x;
+			if (x > maxX) maxX = x;
+			if (y < minY) minY = y;
+			if (y > maxY) maxY = y;
+		}
+		const w = svgEl.clientWidth;
+		const h = svgEl.clientHeight;
+		if (w === 0 || h === 0 || maxX === minX || maxY === minY) return;
+		const padding = 60;
+		const scale = Math.min(
+			(w - padding * 2) / (maxX - minX),
+			(h - padding * 2) / (maxY - minY),
+			1.5 // don't zoom in past 1.5×
+		);
+		const cx = (minX + maxX) / 2;
+		const cy = (minY + maxY) / 2;
+		// The inner <g> already translates by (w/2 + transform.x, h/2 + transform.y)
+		// and scales by transform.k, so we need transform.x = -cx * k and
+		// transform.y = -cy * k to put the bbox center at the viewport center.
+		select(svgEl).call(
+			zoomBehavior.transform,
+			zoomIdentity.translate(-cx * scale, -cy * scale).scale(scale)
+		);
 	}
 
 	onMount(() => {

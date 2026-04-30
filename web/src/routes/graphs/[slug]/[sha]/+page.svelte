@@ -109,8 +109,9 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="h-screen flex flex-col bg-bourbon-950 overflow-hidden">
-	<!-- Header bar -->
-	<header class="shrink-0 flex items-center justify-between gap-4 px-5 py-3 border-b border-bourbon-800 bg-bourbon-900/50 backdrop-blur-sm">
+	<!-- Header bar — extra pt to clear the macOS title bar / traffic-light area
+	     when running inside cmdr.app. Harmless in the browser. -->
+	<header class="shrink-0 flex items-center justify-between gap-4 px-5 pt-7 pb-3 border-b border-bourbon-800 bg-bourbon-900/50 backdrop-blur-sm">
 		<div class="flex items-center gap-4 min-w-0">
 			<a
 				href="/graphs"
@@ -163,7 +164,7 @@
 
 	<!-- Snapshot picker dropdown (overlay) -->
 	{#if pickerOpen}
-		<div class="absolute top-14 left-32 z-20 w-80 max-h-96 overflow-y-auto bg-bourbon-900 border border-bourbon-700 rounded-lg shadow-xl">
+		<div class="absolute top-20 left-32 z-20 w-80 max-h-96 overflow-y-auto bg-bourbon-900 border border-bourbon-700 rounded-lg shadow-xl">
 			{#each snapshotList as s}
 				<a
 					href="/graphs/{slug}/{s.commitSha}"
