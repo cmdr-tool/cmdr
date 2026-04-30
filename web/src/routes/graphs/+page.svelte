@@ -121,23 +121,24 @@
 						<div class="flex items-center justify-between gap-4">
 							<div class="flex items-center gap-3 min-w-0">
 								<FolderCode size={14} class="text-cmd-400 shrink-0" />
-								<span class="text-bourbon-200 truncate">{row.repoName}</span>
-								{#if row.snapshotCount > 0}
-									<span class="text-xs text-bourbon-600 font-mono">
-										{row.snapshotCount} snapshot{row.snapshotCount !== 1 ? 's' : ''}
-									</span>
-									{#if row.latestSha}
-										<span class="text-xs text-bourbon-600 font-mono">· {shortSha(row.latestSha)}</span>
+								<div class="flex flex-col gap-1 min-w-0">
+									<span class="text-bourbon-200 truncate">{row.repoName}</span>
+									{#if row.snapshotCount > 0 && row.latestSha}
+										<div class="flex items-center gap-2 text-xs">
+											<span class="font-mono text-bourbon-300 bg-bourbon-800/60 border border-bourbon-700/40 px-1.5 py-0.5 rounded">
+												{shortSha(row.latestSha)}
+											</span>
+											<span class="text-bourbon-600">
+												{row.latestNodeCount ?? 0} nodes
+												{#if row.latestBuiltAt}
+													· built {timeAgo(row.latestBuiltAt)}
+												{/if}
+											</span>
+										</div>
+									{:else}
+										<span class="text-xs text-bourbon-600">no snapshots</span>
 									{/if}
-									{#if row.latestNodeCount != null}
-										<span class="text-xs text-bourbon-600">· {row.latestNodeCount} nodes</span>
-									{/if}
-									{#if row.latestBuiltAt}
-										<span class="text-xs text-bourbon-600">· built {timeAgo(row.latestBuiltAt)}</span>
-									{/if}
-								{:else}
-									<span class="text-xs text-bourbon-600">no snapshots</span>
-								{/if}
+								</div>
 							</div>
 
 							<div class="flex items-center gap-2 shrink-0">
