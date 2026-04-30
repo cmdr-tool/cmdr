@@ -14,28 +14,31 @@ const SchemaVersion = 1
 type NodeKind string
 
 const (
-	KindFile      NodeKind = "file"
-	KindModule    NodeKind = "module"
-	KindFunction  NodeKind = "function"
-	KindMethod    NodeKind = "method"
-	KindClass     NodeKind = "class"
-	KindInterface NodeKind = "interface"
-	KindType      NodeKind = "type"
-	KindTable     NodeKind = "table"
-	KindColumn    NodeKind = "column"
+	KindFile       NodeKind = "file"
+	KindModule     NodeKind = "module"
+	KindFunction   NodeKind = "function"
+	KindMethod     NodeKind = "method"
+	KindClass      NodeKind = "class"
+	KindInterface  NodeKind = "interface"
+	KindType       NodeKind = "type"
+	KindTable      NodeKind = "table"
+	KindColumn     NodeKind = "column"
+	KindCollection NodeKind = "collection" // Phase 7: Mongo collections
 )
 
 // EdgeRelation is the closed enum of edge relations we model. See ADR.
 type EdgeRelation string
 
 const (
-	RelContains    EdgeRelation = "contains"
-	RelImports     EdgeRelation = "imports"
-	RelCalls       EdgeRelation = "calls"
-	RelExtends     EdgeRelation = "extends"
-	RelImplements  EdgeRelation = "implements"
-	RelUsesType    EdgeRelation = "uses_type"
-	RelForeignKey  EdgeRelation = "foreign_key"
+	RelContains   EdgeRelation = "contains"
+	RelImports    EdgeRelation = "imports"
+	RelCalls      EdgeRelation = "calls"
+	RelExtends    EdgeRelation = "extends"
+	RelImplements EdgeRelation = "implements"
+	RelUsesType   EdgeRelation = "uses_type"
+	RelForeignKey EdgeRelation = "foreign_key"
+	RelAccesses   EdgeRelation = "accesses" // Phase 7: function → collection
+	RelJoins      EdgeRelation = "joins"    // Phase 7: collection → collection (reserved, unused in v1)
 )
 
 // Confidence reflects how certain we are an edge is real.

@@ -94,6 +94,11 @@ func walkTSDecls(fx *FileExtraction, root *sitter.Node, content []byte, fileID, 
 		child := root.NamedChild(i)
 		emitTSDecl(fx, child, content, fileID, relPath, language, declSymbols, imports, false)
 	}
+
+	// Third pass: Mongo collection patterns. Reuses the same already-
+	// parsed tree; piggybacks on the same enclosing-function tracking
+	// the structural walker uses.
+	walkMongoPatterns(fx, root, content, fileID, relPath, language, declSymbols)
 }
 
 // emitTSDecl handles one top-level (or export-wrapped) declaration.
