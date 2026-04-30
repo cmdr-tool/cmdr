@@ -157,19 +157,11 @@ func emitFuncDecl(fx *FileExtraction, fset *token.FileSet, fileID, relPath strin
 		Confidence: ConfidenceExtracted,
 	})
 
-	// If this is a method, link the type to it via uses_type.
-	if kind == KindMethod {
-		recvType := strings.TrimPrefix(receiver, "*")
-		if target, ok := declSymbols[recvType]; ok {
-			fx.Edges = append(fx.Edges, Edge{
-				Source:     id,
-				Target:     target,
-				Relation:   RelUsesType,
-				Confidence: ConfidenceExtracted,
-				Attrs:      map[string]any{"role": "receiver"},
-			})
-		}
-	}
+	// We used to emit a uses_type edge from method → receiver type, but
+	// it duplicates the contains edge from receiver → method (every method
+	// uses its receiver type — tautological). Dropping it cleans up the
+	// graph without losing signal; uses_type body-walk below still picks
+	// up references to other types.
 
 	if fn.Body == nil {
 		return

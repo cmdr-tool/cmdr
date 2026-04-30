@@ -159,10 +159,7 @@ func emitPyClass(fx *FileExtraction, n *sitter.Node, content []byte, fileID, rel
 		fx.Edges = append(fx.Edges, Edge{
 			Source: classID, Target: mid, Relation: RelContains, Confidence: ConfidenceExtracted,
 		})
-		fx.Edges = append(fx.Edges, Edge{
-			Source: mid, Target: classID, Relation: RelUsesType, Confidence: ConfidenceExtracted,
-			Attrs: map[string]any{"role": "receiver"},
-		})
+		// uses_type/receiver dropped — tautological with contains.
 		mbody := fn.ChildByFieldName("body")
 		if mbody != nil {
 			walkPyCalls(fx, mbody, content, mid, declSymbols, imports)
