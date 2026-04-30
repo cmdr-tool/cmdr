@@ -1,5 +1,26 @@
 <script lang="ts">
-	import { Search, X, ArrowRight, ArrowLeft } from 'lucide-svelte';
+	import {
+		Search, X, ArrowRight, ArrowLeft,
+		File, Package, Braces, Component as ComponentIcon, Shapes, Tag,
+		Table as TableIcon, Columns3, Database
+	} from 'lucide-svelte';
+
+	const kindIcons: Record<string, typeof File> = {
+		file: File,
+		module: Package,
+		function: Braces,
+		method: Braces,
+		class: ComponentIcon,
+		interface: Shapes,
+		type: Tag,
+		table: TableIcon,
+		column: Columns3,
+		collection: Database
+	};
+
+	function iconFor(kind: string) {
+		return kindIcons[kind] ?? Tag;
+	}
 	import type { GraphSnapshot, GraphNode } from '$lib/api';
 	import { communityColor } from './colors';
 
@@ -115,12 +136,14 @@
 			</span>
 		</header>
 
+		{@const SelectedIcon = iconFor(selectedNode.kind)}
 		<div class="shrink-0 px-4 py-4 border-b border-bourbon-800">
 			<div class="flex items-center gap-2 mb-2">
-				<span
-					class="w-2.5 h-2.5 rounded-full shrink-0"
-					style:background-color={communityColor(selectedNode.community)}
-				></span>
+				<SelectedIcon
+					size={13}
+					class="shrink-0"
+					color={communityColor(selectedNode.community)}
+				/>
 				<span class="font-display text-[10px] font-bold uppercase tracking-widest text-bourbon-300">
 					{selectedNode.kind}
 				</span>
@@ -166,6 +189,7 @@
 			{:else}
 				<ul class="flex flex-col">
 					{#each filteredNeighbors as { node, relation, direction } (node.id + relation + direction)}
+						{@const Icon = iconFor(node.kind)}
 						<li>
 							<button
 								onclick={() => (selectedId = node.id)}
@@ -197,13 +221,10 @@
 									</svg>
 								{/if}
 								<div class="flex items-center gap-2 min-w-0">
-									<span
-										class="w-2 h-2 rounded-full shrink-0"
-										style:background-color={communityColor(node.community)}
-									></span>
+									<Icon size={12} class="shrink-0" color={communityColor(node.community)} />
 									<span class="text-bourbon-200 text-sm truncate">{node.label}</span>
 								</div>
-								<div class="flex items-center gap-1.5 text-[10px] font-mono text-bourbon-600 ml-4">
+								<div class="flex items-center gap-1.5 text-[10px] font-mono text-bourbon-600 ml-[22px]">
 									{#if direction === 'out'}
 										<ArrowRight size={10} />
 									{:else}
@@ -261,20 +282,18 @@
 						</div>
 						<ul class="flex flex-col">
 							{#each members as node (node.id)}
+								{@const Icon = iconFor(node.kind)}
 								<li>
 									<button
 										onclick={() => (selectedId = node.id)}
 										class="w-full text-left px-4 py-2 hover:bg-bourbon-800/40 transition-colors cursor-pointer flex flex-col gap-0.5 border-b border-bourbon-900"
 									>
 										<div class="flex items-center gap-2 min-w-0">
-											<span
-												class="w-2 h-2 rounded-full shrink-0"
-												style:background-color={communityColor(node.community)}
-											></span>
+											<Icon size={12} class="shrink-0" color={communityColor(node.community)} />
 											<span class="text-bourbon-200 text-sm truncate">{node.label}</span>
 										</div>
 										{#if node.source_file}
-											<div class="text-[10px] font-mono text-bourbon-600 ml-4 truncate">
+											<div class="text-[10px] font-mono text-bourbon-600 ml-[22px] truncate">
 												{node.source_file}
 											</div>
 										{/if}
