@@ -162,6 +162,11 @@ func Run() error {
 		OnCommitsSync: func() {
 			bus.Publish(Event{Type: "commits:sync", Data: true})
 		},
+		OnGraphWatchBuild: func(slug, sha, repoPath string) {
+			if _, _, err := kickOffGraphBuild(database, bus, graphStore, slug, sha, repoPath); err != nil {
+				log.Printf("cmdr: graph-watch: kickoff failed for %s@%s: %v", slug, sha, err)
+			}
+		},
 	})
 	LoadAgenticTasks(s, database, bus)
 	s.Start()

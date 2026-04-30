@@ -8,11 +8,11 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/cmdr-tool/cmdr/internal/gitlocal"
 	"github.com/cmdr-tool/cmdr/internal/graph"
 )
 
@@ -205,63 +205,68 @@ func handleBuildGraph(database *sql.DB, bus *EventBus, store *graph.Store, slug 
 			return
 		}
 
-		if dirtyWorkingTree(repoPath) {
+		if gitlocal.DirtyWorkingTree(repoPath) {
 			http.Error(w, `{"error":"working tree is dirty; commit or stash before building"}`, http.StatusConflict)
 			return
 		}
 
-		sha, err := headSHA(repoPath)
+		sha, err := gitlocal.HeadSHA(repoPath)
 		if err != nil {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
 		}
 
-		// Already-built SHA is a no-op: return the existing row id.
-		var existingID int64
-		err = database.QueryRow(
-			`SELECT id FROM graph_snapshots WHERE repo_slug = ? AND commit_sha = ?`,
-			slug, sha,
-		).Scan(&existingID)
-		if err == nil && store.HasSnapshot(slug, sha) {
-			respondBuildAccepted(w, existingID, "ready")
-			return
-		}
-
-		// Ensure the per-repo store directory exists before the goroutine
-		// touches the cache subdirectory.
-		if _, err := store.RepoDir(slug, repoPath); err != nil {
+		snapshotID, status, err := kickOffGraphBuild(database, bus, store, slug, sha, repoPath)
+		if err != nil {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
 		}
-
-		now := time.Now().UTC()
-		var snapshotID int64
-		if existingID != 0 {
-			// Stale row (file is gone): reset it for the fresh build.
-			if _, err := database.Exec(
-				`UPDATE graph_snapshots SET status='building', built_at=?, error='' WHERE id=?`,
-				now, existingID,
-			); err != nil {
-				http.Error(w, jsonErr(err), http.StatusInternalServerError)
-				return
-			}
-			snapshotID = existingID
-		} else {
-			res, err := database.Exec(
-				`INSERT INTO graph_snapshots (repo_path, repo_slug, commit_sha, built_at, status) VALUES (?, ?, ?, ?, 'building')`,
-				repoPath, slug, sha, now,
-			)
-			if err != nil {
-				http.Error(w, jsonErr(err), http.StatusInternalServerError)
-				return
-			}
-			snapshotID, _ = res.LastInsertId()
-		}
-
-		go runGraphBuild(database, bus, store, snapshotID, slug, sha, repoPath)
-
-		respondBuildAccepted(w, snapshotID, "building")
+		respondBuildAccepted(w, snapshotID, status)
 	}
+}
+
+// kickOffGraphBuild is the build-orchestration core: returns existing
+// snapshot id with status='ready' when the SHA already has a snapshot,
+// otherwise inserts/updates a 'building' row and spawns runGraphBuild
+// as a goroutine. Used by both the HTTP handler and the scheduler
+// graph-watch hook.
+func kickOffGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, slug, sha, repoPath string) (snapshotID int64, status string, err error) {
+	// Already-built SHA is a no-op: return the existing row id.
+	var existingID int64
+	row := database.QueryRow(`SELECT id FROM graph_snapshots WHERE repo_slug = ? AND commit_sha = ?`, slug, sha)
+	if err := row.Scan(&existingID); err == nil && store.HasSnapshot(slug, sha) {
+		return existingID, "ready", nil
+	}
+
+	// Ensure the per-repo store directory exists before the goroutine
+	// touches the cache subdirectory.
+	if _, err := store.RepoDir(slug, repoPath); err != nil {
+		return 0, "", err
+	}
+
+	now := time.Now().UTC()
+	if existingID != 0 {
+		// Stale row (file is gone): reset it for the fresh build.
+		if _, err := database.Exec(
+			`UPDATE graph_snapshots SET status='building', built_at=?, error='' WHERE id=?`,
+			now, existingID,
+		); err != nil {
+			return 0, "", err
+		}
+		snapshotID = existingID
+	} else {
+		res, err := database.Exec(
+			`INSERT INTO graph_snapshots (repo_path, repo_slug, commit_sha, built_at, status) VALUES (?, ?, ?, ?, 'building')`,
+			repoPath, slug, sha, now,
+		)
+		if err != nil {
+			return 0, "", err
+		}
+		snapshotID, _ = res.LastInsertId()
+	}
+
+	go runGraphBuild(database, bus, store, snapshotID, slug, sha, repoPath)
+	return snapshotID, "building", nil
 }
 
 func respondBuildAccepted(w http.ResponseWriter, snapshotID int64, status string) {
@@ -376,23 +381,3 @@ func repoPathBySlug(database *sql.DB, slug string) (string, error) {
 	return "", fmt.Errorf("graph: slug %q not found", slug)
 }
 
-// dirtyWorkingTree reports whether the repo has uncommitted *tracked*
-// changes. Untracked files (scratch notes, build artifacts that escaped
-// .gitignore) are ignored — they don't represent in-flight work the
-// user cares about gating on.
-func dirtyWorkingTree(repoPath string) bool {
-	out, err := exec.Command("git", "-C", repoPath, "status", "--porcelain", "--untracked-files=no").Output()
-	if err != nil {
-		return false
-	}
-	return len(strings.TrimSpace(string(out))) > 0
-}
-
-// headSHA returns the full HEAD commit sha for the given repo.
-func headSHA(repoPath string) (string, error) {
-	out, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
-	if err != nil {
-		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}

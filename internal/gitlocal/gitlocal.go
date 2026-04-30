@@ -34,6 +34,28 @@ type CommitFile struct {
 	Deletions int    `json:"deletions"`
 }
 
+// HeadSHA returns the full HEAD commit sha for the repo at repoPath,
+// or "" + error if the repo isn't a git directory or git fails.
+func HeadSHA(repoPath string) (string, error) {
+	out, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DirtyWorkingTree reports whether the repo has uncommitted *tracked*
+// changes. Untracked files (scratch notes, build artifacts that escaped
+// .gitignore) are intentionally not counted — they don't represent
+// in-flight work that should gate operations like graph builds.
+func DirtyWorkingTree(repoPath string) bool {
+	out, err := exec.Command("git", "-C", repoPath, "status", "--porcelain", "--untracked-files=no").Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(out))) > 0
+}
+
 // CodeDir returns the root code directory from CMDR_CODE_DIR env var,
 // defaulting to ~/Code.
 func CodeDir() string {

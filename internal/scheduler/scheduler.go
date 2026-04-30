@@ -28,7 +28,8 @@ type Scheduler struct {
 
 // Hooks holds optional callbacks that tasks can invoke.
 type Hooks struct {
-	OnCommitsSync func() // called when sync-commits finds new commits
+	OnCommitsSync     func()                        // called when sync-commits finds new commits
+	OnGraphWatchBuild tasks.GraphWatchHook          // invoked by graph-watch when a repo's HEAD has moved
 }
 
 // New creates a scheduler with all registered tasks.
@@ -54,6 +55,12 @@ func (s *Scheduler) register(db *sql.DB, hooks Hooks) {
 			Description: "Clean up stale commits, tasks, and delegations",
 			Schedule:    "0 0 3 * * *", // daily at 3am
 			Fn:          tasks.Prune(db),
+		},
+		{
+			Name:        "graph-watch",
+			Description: "Rebuild knowledge graphs when monitored repos' HEAD moves",
+			Schedule:    "0 */15 * * * *", // every 15 minutes
+			Fn:          tasks.GraphWatch(db, hooks.OnGraphWatchBuild),
 		},
 	}
 }
