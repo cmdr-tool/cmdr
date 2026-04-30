@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Search, X, ArrowRight, ArrowLeft, ChevronRight, ChevronLeft } from 'lucide-svelte';
+	import { Search, X, ArrowRight, ArrowLeft } from 'lucide-svelte';
 	import type { GraphSnapshot, GraphNode } from '$lib/api';
 	import { communityColor } from './colors';
 
@@ -169,38 +169,64 @@
 						<li>
 							<button
 								onclick={() => (selectedId = node.id)}
-								class="w-full text-left px-4 py-2 hover:bg-bourbon-800/40 transition-colors cursor-pointer group flex items-center gap-2 border-b border-bourbon-900"
+								class="relative w-full text-left px-4 py-2 hover:bg-bourbon-800/40 transition-colors cursor-pointer group flex flex-col gap-0.5 border-b border-bourbon-900"
 							>
-								<div class="flex flex-col gap-0.5 min-w-0 flex-1">
-									<div class="flex items-center gap-2 min-w-0">
-										<span
-											class="w-2 h-2 rounded-full shrink-0"
-											style:background-color={communityColor(node.community)}
-										></span>
-										<span class="text-bourbon-200 text-sm truncate">{node.label}</span>
-									</div>
-									<div class="flex items-center gap-1.5 text-[10px] font-mono text-bourbon-600 ml-4">
-										{#if direction === 'out'}
-											<ArrowRight size={10} />
-										{:else}
-											<ArrowLeft size={10} />
-										{/if}
-										<span>{relationLabel(relation, direction)}</span>
-										<span class="text-bourbon-700">·</span>
-										<span>{node.kind}</span>
-									</div>
+								<!-- Full-height edge decorator. Outgoing edges get a
+								     blue chevron on the LEFT (selected → this neighbor);
+								     incoming edges get an amber chevron on the RIGHT
+								     (this neighbor → selected). preserveAspectRatio="none"
+								     stretches the small viewBox shape to the cell's
+								     full height. -->
+								{#if direction === 'out'}
+									<svg
+										class="absolute left-0 top-0 h-full w-1.5 text-cmd-400/50 pointer-events-none"
+										viewBox="0 0 6 24"
+										preserveAspectRatio="none"
+										aria-hidden="true"
+									>
+										<path
+											d="M 0 0 L 6 12 L 0 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										/>
+									</svg>
+								{:else}
+									<svg
+										class="absolute right-0 top-0 h-full w-1.5 text-run-400/50 pointer-events-none"
+										viewBox="0 0 6 24"
+										preserveAspectRatio="none"
+										aria-hidden="true"
+									>
+										<path
+											d="M 6 0 L 0 12 L 6 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										/>
+									</svg>
+								{/if}
+								<div class="flex items-center gap-2 min-w-0">
+									<span
+										class="w-2 h-2 rounded-full shrink-0"
+										style:background-color={communityColor(node.community)}
+									></span>
+									<span class="text-bourbon-200 text-sm truncate">{node.label}</span>
 								</div>
-								<!-- Directional decorator on the right edge — mirrors the
-								     inline arrow but at a more scannable location.
-								     Outgoing: chevron right (you → them).
-								     Incoming: chevron left (them → you). -->
-								<span class="shrink-0 {direction === 'out' ? 'text-cmd-400/60' : 'text-run-400/60'}">
+								<div class="flex items-center gap-1.5 text-[10px] font-mono text-bourbon-600 ml-4">
 									{#if direction === 'out'}
-										<ChevronRight size={16} />
+										<ArrowRight size={10} />
 									{:else}
-										<ChevronLeft size={16} />
+										<ArrowLeft size={10} />
 									{/if}
-								</span>
+									<span>{relationLabel(relation, direction)}</span>
+									<span class="text-bourbon-700">·</span>
+									<span>{node.kind}</span>
+								</div>
 							</button>
 						</li>
 					{/each}
