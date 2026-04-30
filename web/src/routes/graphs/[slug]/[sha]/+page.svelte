@@ -40,7 +40,8 @@
 		return s.snapshot.repo_path.split('/').pop() || slug;
 	});
 
-	// Top communities by size — for the legend bottom-left of the canvas.
+	// All communities sorted by size — for the legend bottom-left of the
+	// canvas. Capped only by the visual scrollable area, not the count.
 	let topCommunities = $derived.by(() => {
 		if (!snapshot) return [] as { id: number; label: string; size: number }[];
 		const list = Object.entries(snapshot.communities).map(([id, c]) => ({
@@ -49,7 +50,7 @@
 			size: c.node_ids.length
 		}));
 		list.sort((a, b) => b.size - a.size);
-		return list.slice(0, 8);
+		return list;
 	});
 
 	const phaseLabels: Record<GraphPhase, string> = {
@@ -287,13 +288,13 @@
 					</div>
 
 					{#if facet === 'network'}
-						<!-- Community legend (top communities by size) — Network-only,
-						     Flow has its own bottom-left depth indicator. -->
-						<div class="absolute bottom-3 left-3 max-w-xs px-3 py-2.5 rounded-md
-							bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm
-							pointer-events-none">
-							<div class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500 mb-1.5">
-								communities
+						<!-- Community legend (sorted by size) — Network-only,
+						     Flow has its own bottom-left depth indicator.
+						     Scrollable when there are many communities. -->
+						<div class="absolute bottom-3 left-3 max-w-xs max-h-72 overflow-y-auto px-3 py-2.5 rounded-md
+							bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm">
+							<div class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500 mb-1.5 sticky top-0 bg-bourbon-900/90 backdrop-blur-sm -mx-3 px-3 py-0.5">
+								communities <span class="text-bourbon-700">{topCommunities.length}</span>
 							</div>
 							<div class="flex flex-col gap-1">
 								{#each topCommunities as c (c.id)}
