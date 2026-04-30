@@ -293,7 +293,7 @@
 						     Scrollable when there are many communities. -->
 						<div class="absolute bottom-3 left-3 max-w-xs max-h-72 overflow-y-auto px-3 py-2.5 rounded-md
 							bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm">
-							<div class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500 mb-1.5 sticky top-0 bg-bourbon-900/90 backdrop-blur-sm -mx-3 px-3 py-0.5">
+							<div class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500 mb-1.5">
 								communities <span class="text-bourbon-700">{topCommunities.length}</span>
 							</div>
 							<div class="flex flex-col gap-1">
