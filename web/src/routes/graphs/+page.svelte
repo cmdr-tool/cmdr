@@ -149,14 +149,19 @@
 									<button
 										onclick={() => handleBuild(row.slug)}
 										title="Rebuild for current HEAD"
-										class="invisible group-hover:visible text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
+										class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+											text-[10px] font-display font-bold uppercase tracking-widest
+											border backdrop-blur-sm transition-colors cursor-pointer
+											bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-400
+											hover:bg-bourbon-800/60 hover:border-bourbon-600/50 hover:text-bourbon-200"
 									>
 										<Hammer size={12} />
+										Rebuild
 									</button>
 									<a
 										href="/graphs/{row.slug}/{row.latestSha}"
-										class="flex items-center gap-1.5 px-2.5 py-1 rounded-md
-											text-xs font-display font-bold uppercase tracking-widest no-underline
+										class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+											text-[10px] font-display font-bold uppercase tracking-widest no-underline
 											border backdrop-blur-sm transition-colors cursor-pointer
 											bg-run-700/30 border-run-700/40 text-run-400
 											hover:bg-run-700/50 hover:border-run-500/50 hover:text-run-300"
@@ -167,11 +172,11 @@
 								{:else}
 									<button
 										onclick={() => handleBuild(row.slug)}
-										class="flex items-center gap-1.5 px-2.5 py-1 rounded-md
-											text-xs font-display font-bold uppercase tracking-widest
+										class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+											text-[10px] font-display font-bold uppercase tracking-widest
 											border backdrop-blur-sm transition-colors cursor-pointer
-											bg-cmd-700/40 border-cmd-600/30 text-cmd-300
-											hover:bg-cmd-700/60 hover:border-cmd-500/50"
+											bg-cmd-700/40 border-cmd-600/30 text-cmd-400
+											hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300"
 									>
 										<Hammer size={12} />
 										Build graph
