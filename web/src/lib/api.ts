@@ -813,8 +813,12 @@ export async function getGraphReport(slug: string, sha: string): Promise<string>
 	return res.text();
 }
 
-export async function buildGraph(slug: string): Promise<{ snapshot_id: number; status: 'building' | 'ready' }> {
-	const res = await fetch(`${BASE}/graphs/${encodeURIComponent(slug)}/build`, { method: 'POST' });
+export async function buildGraph(
+	slug: string,
+	opts?: { force?: boolean }
+): Promise<{ snapshot_id: number; status: 'building' | 'ready' }> {
+	const qs = opts?.force ? '?force=true' : '';
+	const res = await fetch(`${BASE}/graphs/${encodeURIComponent(slug)}/build${qs}`, { method: 'POST' });
 	const data = await res.json();
 	if (!res.ok) {
 		throw new Error(data.error || `${res.status} ${res.statusText}`);

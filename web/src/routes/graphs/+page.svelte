@@ -56,11 +56,11 @@
 
 	onDestroy(unsub);
 
-	async function handleBuild(slug: string) {
+	async function handleBuild(slug: string, force = false) {
 		buildErrors[slug] = '';
 		live[slug] = { phase: 'started', percent: 0 };
 		try {
-			const res = await buildGraph(slug);
+			const res = await buildGraph(slug, { force });
 			if (res.status === 'ready') {
 				// SHA already had a snapshot — refresh and clear inline state
 				rows = await listGraphs();
@@ -148,7 +148,7 @@
 									</span>
 								{:else if row.snapshotCount > 0 && row.latestSha}
 									<button
-										onclick={() => handleBuild(row.slug)}
+										onclick={() => handleBuild(row.slug, true)}
 										title="Rebuild for current HEAD"
 										class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
 											text-xs font-display font-bold uppercase tracking-widest

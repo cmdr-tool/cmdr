@@ -216,7 +216,8 @@ func handleBuildGraph(database *sql.DB, bus *EventBus, store *graph.Store, slug 
 			return
 		}
 
-		snapshotID, status, err := kickOffGraphBuild(database, bus, store, slug, sha, repoPath)
+		force := r.URL.Query().Get("force") == "true"
+		snapshotID, status, err := kickOffGraphBuild(database, bus, store, slug, sha, repoPath, force)
 		if err != nil {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
@@ -226,15 +227,20 @@ func handleBuildGraph(database *sql.DB, bus *EventBus, store *graph.Store, slug 
 }
 
 // kickOffGraphBuild is the build-orchestration core: returns existing
-// snapshot id with status='ready' when the SHA already has a snapshot,
-// otherwise inserts/updates a 'building' row and spawns runGraphBuild
-// as a goroutine. Used by both the HTTP handler and the scheduler
-// graph-watch hook.
-func kickOffGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, slug, sha, repoPath string) (snapshotID int64, status string, err error) {
-	// Already-built SHA is a no-op: return the existing row id.
+// snapshot id with status='ready' when the SHA already has a snapshot
+// (and force is false), otherwise inserts/updates a 'building' row and
+// spawns runGraphBuild as a goroutine. Used by both the HTTP handler
+// and the scheduler graph-watch hook.
+//
+// force=true skips the cached-snapshot short-circuit. Use it when the
+// user explicitly wants to rebuild — e.g. extractors changed since
+// the last build and the current snapshot is stale even though the
+// commit sha hasn't moved.
+func kickOffGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, slug, sha, repoPath string, force bool) (snapshotID int64, status string, err error) {
+	// Already-built SHA is a no-op unless force=true.
 	var existingID int64
 	row := database.QueryRow(`SELECT id FROM graph_snapshots WHERE repo_slug = ? AND commit_sha = ?`, slug, sha)
-	if err := row.Scan(&existingID); err == nil && store.HasSnapshot(slug, sha) {
+	if err := row.Scan(&existingID); err == nil && !force && store.HasSnapshot(slug, sha) {
 		return existingID, "ready", nil
 	}
 

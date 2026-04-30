@@ -163,7 +163,7 @@ func Run() error {
 			bus.Publish(Event{Type: "commits:sync", Data: true})
 		},
 		OnGraphWatchBuild: func(slug, sha, repoPath string) {
-			if _, _, err := kickOffGraphBuild(database, bus, graphStore, slug, sha, repoPath); err != nil {
+			if _, _, err := kickOffGraphBuild(database, bus, graphStore, slug, sha, repoPath, false); err != nil {
 				log.Printf("cmdr: graph-watch: kickoff failed for %s@%s: %v", slug, sha, err)
 			}
 		},
