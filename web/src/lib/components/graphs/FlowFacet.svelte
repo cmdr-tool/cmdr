@@ -155,10 +155,17 @@
 	}
 
 	function fitToViewport() {
-		if (!canvas || !zoomBehavior || !layoutRoot) {
-			// Nothing to fit — empty state. Still ready from the page's
-			// perspective.
+		if (!layoutRoot) {
+			// Genuine empty state (no selection / no descendants).
+			// Page-level loading should clear regardless.
 			fireReadyOnce();
+			return;
+		}
+		// Three "not yet" conditions — retry until ready. Don't fire
+		// onReady early, that would cause the page to drop the loading
+		// overlay before we've actually fit the layout.
+		if (!canvas || !zoomBehavior) {
+			requestAnimationFrame(fitToViewport);
 			return;
 		}
 		const w = canvas.clientWidth;
