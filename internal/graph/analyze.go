@@ -180,7 +180,11 @@ func labelCommunities(snap *Snapshot, idx []int) {
 		}
 	}
 
-	// Collect each community's member node ids + source paths.
+	// Collect each community's member node ids + paths. SourceFile is
+	// the primary signal, but we also pull module nodes' Attrs.path so
+	// communities of external imports (npm packages, relative imports
+	// our extractors couldn't resolve to files) still get meaningful
+	// labels rather than the "community" fallback.
 	communityPaths := map[int][]string{}
 	communityNodeIDs := map[int][]string{}
 	for c, members := range groups {
@@ -188,9 +192,17 @@ func labelCommunities(snap *Snapshot, idx []int) {
 		nodeIDs := make([]string, 0, len(members))
 		for _, mi := range members {
 			nodeIDs = append(nodeIDs, a.ids[mi])
-			if mi < len(snap.Nodes) {
-				if sf := snap.Nodes[mi].SourceFile; sf != "" {
-					paths = append(paths, filepath.ToSlash(sf))
+			if mi >= len(snap.Nodes) {
+				continue
+			}
+			n := snap.Nodes[mi]
+			if n.SourceFile != "" {
+				paths = append(paths, filepath.ToSlash(n.SourceFile))
+				continue
+			}
+			if n.Kind == KindModule {
+				if p, ok := n.Attrs["path"].(string); ok && p != "" {
+					paths = append(paths, filepath.ToSlash(p))
 				}
 			}
 		}
@@ -203,7 +215,7 @@ func labelCommunities(snap *Snapshot, idx []int) {
 	for c, paths := range communityPaths {
 		labels[c] = longestCommonDirPrefix(paths)
 		if labels[c] == "" {
-			labels[c] = "community"
+			labels[c] = "external"
 		}
 	}
 
