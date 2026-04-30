@@ -59,7 +59,7 @@ func (s *Scheduler) register(db *sql.DB, hooks Hooks) {
 		{
 			Name:        "graph-watch",
 			Description: "Rebuild knowledge graphs when monitored repos' HEAD moves",
-			Schedule:    "0 */15 * * * *", // every 15 minutes
+			Schedule:    "0 0 * * * *", // every hour at :00
 			Fn:          tasks.GraphWatch(db, hooks.OnGraphWatchBuild),
 		},
 	}
