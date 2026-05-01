@@ -115,33 +115,6 @@ func (s *Store) ReadSnapshot(slug, sha string) (*Snapshot, error) {
 	return &snap, nil
 }
 
-// TracesPath returns the absolute path to traces.json for a snapshot.
-// Existence is not implied — see HasTraces.
-func (s *Store) TracesPath(slug, sha string) string {
-	return filepath.Join(s.SnapshotDir(slug, sha), "traces.json")
-}
-
-// HasTraces reports whether traces.json exists for a snapshot.
-func (s *Store) HasTraces(slug, sha string) bool {
-	_, err := os.Stat(s.TracesPath(slug, sha))
-	return err == nil
-}
-
-// WriteTraces writes raw bytes to traces.json. Caller is responsible for
-// JSON marshaling — keeps this method free of dependencies on graphtrace.
-func (s *Store) WriteTraces(slug, sha string, data []byte) error {
-	dir := s.SnapshotDir(slug, sha)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("graph: mkdir snapshot: %w", err)
-	}
-	return os.WriteFile(s.TracesPath(slug, sha), data, 0o600)
-}
-
-// ReadTraces returns the raw contents of traces.json.
-func (s *Store) ReadTraces(slug, sha string) ([]byte, error) {
-	return os.ReadFile(s.TracesPath(slug, sha))
-}
-
 // CacheKey hashes content for the per-file extraction cache.
 func CacheKey(content []byte) string {
 	sum := sha256.Sum256(content)

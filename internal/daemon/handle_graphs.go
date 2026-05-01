@@ -88,16 +88,19 @@ func handleListGraphs(database *sql.DB) http.HandlerFunc {
 }
 
 // handleGraphsSubpath dispatches the parameterized routes under
-// /api/graphs/. Five shapes are accepted:
+// /api/graphs/:
 //
-//	GET  /api/graphs/{slug}/snapshots       → [{commit_sha, built_at, ...}]
-//	GET  /api/graphs/{slug}/context         → { context: "..." }
-//	PUT  /api/graphs/{slug}/context         → update markdown context
-//	GET  /api/graphs/{slug}/{sha}          → graph.json
-//	GET  /api/graphs/{slug}/{sha}/report   → report.md
-//	GET  /api/graphs/{slug}/{sha}/traces   → traces.json (404 if not generated)
-//	POST /api/graphs/{slug}/{sha}/traces   → run trace pipeline, save, return result
-//	POST /api/graphs/{slug}/build          → kick off a build
+//	GET    /api/graphs/{slug}/snapshots             → list snapshots
+//	GET    /api/graphs/{slug}/context               → repo graph context
+//	PUT    /api/graphs/{slug}/context               → update graph context
+//	POST   /api/graphs/{slug}/build                 → kick off a graph build
+//	GET    /api/graphs/{slug}/traces                → list traces
+//	POST   /api/graphs/{slug}/traces                → create + generate {prompt}
+//	POST   /api/graphs/{slug}/traces/{id}/regenerate→ regenerate trace
+//	DELETE /api/graphs/{slug}/traces/{id}           → delete trace
+//	GET    /api/graphs/{slug}/traces/events?trace_id=... → SSE feed for one trace
+//	GET    /api/graphs/{slug}/{sha}                 → graph.json
+//	GET    /api/graphs/{slug}/{sha}/report          → report.md
 func handleGraphsSubpath(database *sql.DB, bus *EventBus, store *graph.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/api/graphs/")
@@ -111,14 +114,20 @@ func handleGraphsSubpath(database *sql.DB, bus *EventBus, store *graph.Store) ht
 			handleListSnapshots(database, parts[0])(w, r)
 		case len(parts) == 2 && parts[1] == "context":
 			handleGraphContext(database, parts[0])(w, r)
+		case len(parts) == 2 && parts[1] == "traces" && r.Method == http.MethodGet:
+			handleListTraces(database, parts[0])(w, r)
+		case len(parts) == 2 && parts[1] == "traces" && r.Method == http.MethodPost:
+			handleCreateTrace(database, store, parts[0])(w, r)
+		case len(parts) == 3 && parts[1] == "traces" && parts[2] == "events" && r.Method == http.MethodGet:
+			handleTraceEvents(parts[0])(w, r)
+		case len(parts) == 3 && parts[1] == "traces" && r.Method == http.MethodDelete:
+			handleDeleteTrace(database, parts[0], parts[2])(w, r)
+		case len(parts) == 4 && parts[1] == "traces" && parts[3] == "regenerate" && r.Method == http.MethodPost:
+			handleRegenerateTrace(database, store, parts[0], parts[2])(w, r)
 		case len(parts) == 2:
 			handleGetGraph(store, parts[0], parts[1])(w, r)
 		case len(parts) == 3 && parts[2] == "report":
 			handleGetGraphReport(store, parts[0], parts[1])(w, r)
-		case len(parts) == 3 && parts[2] == "traces" && r.Method == http.MethodGet:
-			handleGetTraces(store, parts[0], parts[1])(w, r)
-		case len(parts) == 3 && parts[2] == "traces" && r.Method == http.MethodPost:
-			handleGenerateTraces(database, store, parts[0], parts[1])(w, r)
 		default:
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 		}
@@ -231,75 +240,6 @@ func handleGetGraph(store *graph.Store, slug, sha string) http.HandlerFunc {
 	}
 }
 
-// handleGetTraces returns the traces.json for a snapshot, or 404 if not
-// generated yet. Frontend uses this to render the Traces facet.
-func handleGetTraces(store *graph.Store, slug, sha string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data, err := store.ReadTraces(slug, sha)
-		if errors.Is(err, os.ErrNotExist) {
-			http.Error(w, `{"error":"traces not generated"}`, http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			http.Error(w, jsonErr(err), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
-	}
-}
-
-// handleGenerateTraces synchronously runs the trace pipeline for a snapshot
-// and writes traces.json to disk. The agent run can take a couple minutes;
-// the request blocks until done. Returns the parsed result on success.
-func handleGenerateTraces(database *sql.DB, store *graph.Store, slug, sha string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
-			return
-		}
-
-		var body struct {
-			Guidance string `json:"guidance"`
-		}
-		if r.Body != nil {
-			defer r.Body.Close()
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-				http.Error(w, jsonErr(err), http.StatusBadRequest)
-				return
-			}
-		}
-
-		// Verify the snapshot itself exists before kicking off work.
-		if _, err := os.Stat(filepath.Join(store.SnapshotDir(slug, sha), "graph.json")); err != nil {
-			http.Error(w, `{"error":"snapshot not found"}`, http.StatusNotFound)
-			return
-		}
-
-		result, _, err := graphtrace.Run(r.Context(), database, store, slug, graphtrace.RunOptions{
-			SnapshotSHA:  sha,
-			UserGuidance: body.Guidance,
-		}, nil)
-		if err != nil {
-			log.Printf("cmdr: trace generation failed for %s/%s: %v", slug, sha, err)
-			http.Error(w, jsonErr(err), http.StatusInternalServerError)
-			return
-		}
-		if err := result.Save(store); err != nil {
-			http.Error(w, jsonErr(err), http.StatusInternalServerError)
-			return
-		}
-
-		data, err := json.Marshal(result)
-		if err != nil {
-			http.Error(w, jsonErr(err), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
-	}
-}
-
 // handleGetGraphReport returns the markdown report.md for a snapshot.
 func handleGetGraphReport(store *graph.Store, slug, sha string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -320,15 +260,11 @@ func handleGetGraphReport(store *graph.Store, slug, sha string) http.HandlerFunc
 
 // handleBuildGraph validates the slug, requires a clean working tree,
 // no-ops when the HEAD sha already has a snapshot, otherwise inserts a
-// 'building' row and spawns the pipeline goroutine.
+// 'building' row and spawns the pipeline goroutine. The trace pipeline
+// is independent of graph builds — see /traces endpoints.
 //
 // Query params:
 //   - force=true    — skip the cached-snapshot short-circuit
-//   - targets=...   — comma-separated set of stages to run; valid values
-//                     are "graph" and "traces". Default is "graph". Use
-//                     "graph,traces" to chain LLM tracing after the graph
-//                     finishes, or "traces" to trace against the latest
-//                     ready snapshot without rebuilding the graph.
 func handleBuildGraph(database *sql.DB, bus *EventBus, store *graph.Store, slug string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -342,85 +278,25 @@ func handleBuildGraph(database *sql.DB, bus *EventBus, store *graph.Store, slug 
 			return
 		}
 
-		targets, err := parseBuildTargets(r.URL.Query().Get("targets"))
-		if err != nil {
-			http.Error(w, jsonErr(err), http.StatusBadRequest)
-			return
-		}
-
-		// Working-tree dirty check is only relevant when we're rebuilding
-		// the graph from HEAD. Trace-only runs operate on the existing
-		// snapshot and don't care about uncommitted work.
-		if targets.graph && gitlocal.DirtyWorkingTree(repoPath) {
+		if gitlocal.DirtyWorkingTree(repoPath) {
 			http.Error(w, `{"error":"working tree is dirty; commit or stash before building"}`, http.StatusConflict)
 			return
 		}
 
-		var sha string
-		if targets.graph {
-			sha, err = gitlocal.HeadSHA(repoPath)
-			if err != nil {
-				http.Error(w, jsonErr(err), http.StatusInternalServerError)
-				return
-			}
-		} else {
-			// traces-only path: target the most recent ready snapshot.
-			err = database.QueryRow(
-				`SELECT commit_sha FROM graph_snapshots
-				 WHERE repo_slug = ? AND status = 'ready'
-				 ORDER BY built_at DESC LIMIT 1`, slug,
-			).Scan(&sha)
-			if err == sql.ErrNoRows {
-				http.Error(w, `{"error":"no ready snapshot to trace — build the graph first"}`, http.StatusConflict)
-				return
-			}
-			if err != nil {
-				http.Error(w, jsonErr(err), http.StatusInternalServerError)
-				return
-			}
+		sha, err := gitlocal.HeadSHA(repoPath)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
 		}
 
 		force := r.URL.Query().Get("force") == "true"
-		snapshotID, status, err := kickOffGraphBuild(database, bus, store, slug, sha, repoPath, force, targets)
+		snapshotID, status, err := kickOffGraphBuild(database, bus, store, slug, sha, repoPath, force)
 		if err != nil {
 			http.Error(w, jsonErr(err), http.StatusInternalServerError)
 			return
 		}
 		respondBuildAccepted(w, snapshotID, status)
 	}
-}
-
-// buildTargets describes which stages of the pipeline a build request wants.
-type buildTargets struct {
-	graph  bool
-	traces bool
-}
-
-// parseBuildTargets reads the `targets` query param into a buildTargets
-// struct. Empty input defaults to graph-only for backward compatibility.
-// At least one stage must be selected.
-func parseBuildTargets(raw string) (buildTargets, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return buildTargets{graph: true}, nil
-	}
-	t := buildTargets{}
-	for _, part := range strings.Split(raw, ",") {
-		switch strings.TrimSpace(part) {
-		case "graph":
-			t.graph = true
-		case "traces":
-			t.traces = true
-		case "":
-			// skip empty segments from things like "graph,,traces"
-		default:
-			return buildTargets{}, fmt.Errorf("unknown build target %q (valid: graph, traces)", part)
-		}
-	}
-	if !t.graph && !t.traces {
-		return buildTargets{}, fmt.Errorf("at least one target required (graph, traces)")
-	}
-	return t, nil
 }
 
 // kickOffGraphBuild is the build-orchestration core: returns existing
@@ -433,30 +309,13 @@ func parseBuildTargets(raw string) (buildTargets, error) {
 // user explicitly wants to rebuild — e.g. extractors changed since
 // the last build and the current snapshot is stale even though the
 // commit sha hasn't moved.
-func kickOffGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, slug, sha, repoPath string, force bool, targets buildTargets) (snapshotID int64, status string, err error) {
-	// Traces-only path: use the existing snapshot row, skip the graph build.
-	if !targets.graph {
-		var existingID int64
-		err = database.QueryRow(`SELECT id FROM graph_snapshots WHERE repo_slug = ? AND commit_sha = ?`, slug, sha).Scan(&existingID)
-		if err != nil {
-			return 0, "", fmt.Errorf("traces-only: snapshot row lookup: %w", err)
-		}
-		go runTraceOnly(database, bus, store, existingID, slug, sha, repoPath)
-		return existingID, "tracing", nil
-	}
-
-	// Already-built SHA is a no-op unless force=true OR traces are also
-	// requested (in which case we run the trace step against it). The
-	// caller decides via `force` whether stale extractor output is reason
-	// enough to rebuild.
+func kickOffGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, slug, sha, repoPath string, force bool) (snapshotID int64, status string, err error) {
+	// Already-built SHA is a no-op unless force=true. The caller decides
+	// via `force` whether stale extractor output is reason enough to
+	// rebuild.
 	var existingID int64
 	row := database.QueryRow(`SELECT id FROM graph_snapshots WHERE repo_slug = ? AND commit_sha = ?`, slug, sha)
 	if err := row.Scan(&existingID); err == nil && !force && store.HasSnapshot(slug, sha) {
-		if targets.traces {
-			// Graph is up-to-date; run traces against it.
-			go runTraceOnly(database, bus, store, existingID, slug, sha, repoPath)
-			return existingID, "tracing", nil
-		}
 		return existingID, "ready", nil
 	}
 
@@ -487,7 +346,7 @@ func kickOffGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, slug
 		snapshotID, _ = res.LastInsertId()
 	}
 
-	go runGraphBuild(database, bus, store, snapshotID, slug, sha, repoPath, targets.traces)
+	go runGraphBuild(database, bus, store, snapshotID, slug, sha, repoPath)
 	return snapshotID, "building", nil
 }
 
@@ -502,10 +361,7 @@ func respondBuildAccepted(w http.ResponseWriter, snapshotID int64, status string
 
 // runGraphBuild executes the pipeline, publishes graphs:build events at
 // each phase, and updates the graph_snapshots row with terminal state.
-// When withTraces is true, the LLM trace pipeline runs after a successful
-// graph build. Trace failures are soft — they're logged and surfaced via
-// trace_error in the Complete event, but they don't fail the snapshot.
-func runGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, snapshotID int64, slug, sha, repoPath string, withTraces bool) {
+func runGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, snapshotID int64, slug, sha, repoPath string) {
 	publish := func(phase graph.Phase, percent int, extra map[string]any) {
 		data := map[string]any{
 			"snapshot_id": snapshotID,
@@ -564,16 +420,6 @@ func runGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, snapshot
 		},
 	}
 
-	// Run traces (if requested) BEFORE marking the snapshot 'ready' — keeps
-	// the row in 'building' status throughout the whole pipeline so a page
-	// reload can still detect the in-flight state from the DB. Trace
-	// failures are soft: still mark 'ready', but surface trace_error.
-	if withTraces {
-		if traceErr := runTracesAfterBuild(database, bus, store, snapshotID, slug, sha, publish); traceErr != nil {
-			completeExtra["trace_error"] = traceErr.Error()
-		}
-	}
-
 	if _, err := database.Exec(
 		`UPDATE graph_snapshots
 		   SET status='ready', node_count=?, edge_count=?, community_count=?, duration_ms=?, error=''
@@ -584,59 +430,6 @@ func runGraphBuild(database *sql.DB, bus *EventBus, store *graph.Store, snapshot
 	}
 
 	publish(graph.PhaseComplete, 100, completeExtra)
-}
-
-// runTraceOnly is the entrypoint for traces-only builds (targets=traces).
-// It emits a started → tracing → complete event sequence without touching
-// the graph_snapshots row's state machine.
-func runTraceOnly(database *sql.DB, bus *EventBus, store *graph.Store, snapshotID int64, slug, sha, repoPath string) {
-	publish := func(phase graph.Phase, percent int, extra map[string]any) {
-		data := map[string]any{
-			"snapshot_id": snapshotID,
-			"slug":        slug,
-			"sha":         sha,
-			"phase":       string(phase),
-			"percent":     percent,
-		}
-		for k, v := range extra {
-			data[k] = v
-		}
-		bus.Publish(Event{Type: "graphs:build", Data: data})
-	}
-
-	publish(graph.PhaseStarted, 0, nil)
-	completeExtra := map[string]any{}
-	if err := runTracesAfterBuild(database, bus, store, snapshotID, slug, sha, publish); err != nil {
-		completeExtra["trace_error"] = err.Error()
-	}
-	publish(graph.PhaseComplete, 100, completeExtra)
-}
-
-// runTracesAfterBuild runs the trace pipeline against an existing snapshot
-// and saves traces.json. Emits PhaseTracing before invoking the agent.
-// Returns nil on success; on failure, returns the error to be surfaced in
-// the caller's Complete event payload.
-func runTracesAfterBuild(database *sql.DB, bus *EventBus, store *graph.Store, snapshotID int64, slug, sha string, publish func(graph.Phase, int, map[string]any)) error {
-	publish(graph.PhaseTracing, 95, nil)
-	started := time.Now().UTC()
-	result, _, err := graphtrace.Run(context.Background(), database, store, slug, graphtrace.RunOptions{
-		SnapshotSHA: sha,
-	}, func(line string) {
-		// Forward each agent step as a tracing event so the UI can show
-		// progress while the LLM grinds. Also log to stderr for postmortems.
-		log.Printf("cmdr: trace[%s/%s]: %s", slug, sha[:min(7, len(sha))], line)
-		publish(graph.PhaseTracing, 95, map[string]any{"detail": line})
-	})
-	if err != nil {
-		log.Printf("cmdr: trace failed for %s/%s: %v", slug, sha, err)
-		return err
-	}
-	// graphtrace.Run already validated, promoted, and zero-checked. We
-	// don't need to call result.Save — the agent wrote the file and Run
-	// atomically renamed it to the canonical path on success.
-	log.Printf("cmdr: trace: built %s@%s — %d flows in %s",
-		slug, sha[:min(7, len(sha))], len(result.Traces), time.Since(started))
-	return nil
 }
 
 func failGraphBuild(database *sql.DB, snapshotID int64, cause error) {
@@ -669,4 +462,463 @@ func repoPathBySlug(database *sql.DB, slug string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("graph: slug %q not found", slug)
+}
+
+// --- Traces endpoints ---
+
+// traceRowJSON is the JSON wire shape returned by /api/graphs/{slug}/traces.
+// Mirrors the persisted row but flattens the affected_files JSON column,
+// adds a stale flag computed at view time, and ships current/previous
+// snapshot SHAs (rather than ids) so the frontend can label versions
+// against snapshot pickers.
+type traceRowJSON struct {
+	ID                    int64                    `json:"id"`
+	RepoSlug              string                   `json:"repoSlug"`
+	Prompt                string                   `json:"prompt"`
+	Title                 string                   `json:"title"`
+	AffectedFiles         []string                 `json:"affectedFiles"`
+	Stale                 bool                     `json:"stale"`
+	CurrentData           *graphtrace.Trace        `json:"currentData"`
+	CurrentSnapshotSHA    string                   `json:"currentSnapshotSha,omitempty"`
+	CurrentGeneratedAt    *string                  `json:"currentGeneratedAt"`
+	CurrentStatus         string                   `json:"currentStatus"`
+	CurrentError          string                   `json:"currentError,omitempty"`
+	PreviousData          *graphtrace.Trace        `json:"previousData,omitempty"`
+	PreviousSnapshotSHA   string                   `json:"previousSnapshotSha,omitempty"`
+	PreviousGeneratedAt   *string                  `json:"previousGeneratedAt,omitempty"`
+	PreviousChangeSummary *graphtrace.ChangeSummary `json:"previousChangeSummary,omitempty"`
+	CreatedAt             string                   `json:"createdAt"`
+}
+
+// handleListTraces returns all traces for a repo, with stale flags
+// computed against the current HEAD via cached git diffs.
+func handleListTraces(database *sql.DB, slug string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repoPath, err := repoPathBySlug(database, slug)
+		if err != nil {
+			http.Error(w, `{"error":"repo not found"}`, http.StatusNotFound)
+			return
+		}
+
+		traces, err := graphtrace.ListByRepo(database, slug)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+
+		// Resolve snapshot SHAs in bulk for any referenced ids.
+		snapshotSHAs := map[int64]string{}
+		for _, t := range traces {
+			if t.CurrentSnapshotID != nil {
+				snapshotSHAs[*t.CurrentSnapshotID] = ""
+			}
+			if t.PreviousSnapshotID != nil {
+				snapshotSHAs[*t.PreviousSnapshotID] = ""
+			}
+		}
+		if len(snapshotSHAs) > 0 {
+			ids := make([]any, 0, len(snapshotSHAs))
+			placeholders := make([]string, 0, len(snapshotSHAs))
+			for id := range snapshotSHAs {
+				ids = append(ids, id)
+				placeholders = append(placeholders, "?")
+			}
+			q := `SELECT id, commit_sha FROM graph_snapshots WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+			rows, err := database.Query(q, ids...)
+			if err == nil {
+				for rows.Next() {
+					var id int64
+					var sha string
+					if err := rows.Scan(&id, &sha); err == nil {
+						snapshotSHAs[id] = sha
+					}
+				}
+				rows.Close()
+			}
+		}
+
+		// Batch the diff once per unique anchor SHA. Same-anchor traces
+		// share the underlying diff result via the cache.
+		diffByAnchor := map[string][]string{}
+		for _, t := range traces {
+			if t.CurrentSnapshotID == nil {
+				continue
+			}
+			anchorSHA := snapshotSHAs[*t.CurrentSnapshotID]
+			if anchorSHA == "" {
+				continue
+			}
+			if _, ok := diffByAnchor[anchorSHA]; ok {
+				continue
+			}
+			files, err := gitlocal.ChangedFilesSince(repoPath, anchorSHA)
+			if err != nil {
+				log.Printf("cmdr: trace stale check %s/%s: %v", slug, anchorSHA[:min(7, len(anchorSHA))], err)
+				diffByAnchor[anchorSHA] = nil
+				continue
+			}
+			diffByAnchor[anchorSHA] = files
+		}
+
+		out := make([]traceRowJSON, 0, len(traces))
+		for _, t := range traces {
+			row := traceRowJSON{
+				ID:            t.ID,
+				RepoSlug:      t.RepoSlug,
+				Prompt:        t.Prompt,
+				Title:         t.Title,
+				AffectedFiles: t.AffectedFiles,
+				CurrentData:   t.CurrentData,
+				CurrentStatus: t.CurrentStatus,
+				CurrentError:  t.CurrentError,
+				PreviousData:  t.PreviousData,
+				PreviousChangeSummary: t.PreviousChangeSummary,
+				CreatedAt:     t.CreatedAt.Format(time.RFC3339),
+			}
+			if t.CurrentSnapshotID != nil {
+				row.CurrentSnapshotSHA = snapshotSHAs[*t.CurrentSnapshotID]
+			}
+			if t.PreviousSnapshotID != nil {
+				row.PreviousSnapshotSHA = snapshotSHAs[*t.PreviousSnapshotID]
+			}
+			if t.CurrentGeneratedAt != nil {
+				v := t.CurrentGeneratedAt.Format(time.RFC3339)
+				row.CurrentGeneratedAt = &v
+			}
+			if t.PreviousGeneratedAt != nil {
+				v := t.PreviousGeneratedAt.Format(time.RFC3339)
+				row.PreviousGeneratedAt = &v
+			}
+			if row.CurrentSnapshotSHA != "" {
+				changed := diffByAnchor[row.CurrentSnapshotSHA]
+				row.Stale = intersectFiles(t.AffectedFiles, changed)
+			}
+			out = append(out, row)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
+	}
+}
+
+// intersectFiles returns true when affected and changed share any path.
+// Both sides are typically small (single-digit to low-double-digit), so
+// a nested loop is fine; we don't need a hash set.
+func intersectFiles(affected, changed []string) bool {
+	if len(affected) == 0 || len(changed) == 0 {
+		return false
+	}
+	set := make(map[string]struct{}, len(changed))
+	for _, f := range changed {
+		set[f] = struct{}{}
+	}
+	for _, f := range affected {
+		if _, ok := set[f]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// handleCreateTrace inserts a new trace row in 'generating' state and
+// kicks off the generation goroutine. The handler returns immediately
+// once the row is durable so the UI can subscribe to /traces/events.
+func handleCreateTrace(database *sql.DB, store *graph.Store, slug string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Prompt string `json:"prompt"`
+		}
+		if r.Body != nil {
+			defer r.Body.Close()
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+				http.Error(w, jsonErr(err), http.StatusBadRequest)
+				return
+			}
+		}
+		body.Prompt = strings.TrimSpace(body.Prompt)
+		if body.Prompt == "" {
+			http.Error(w, `{"error":"prompt is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if _, err := repoPathBySlug(database, slug); err != nil {
+			http.Error(w, `{"error":"repo not found"}`, http.StatusNotFound)
+			return
+		}
+
+		// A graph snapshot must exist before we can trace against it.
+		snap, err := graphtrace.LoadLatestSnapshot(database, store, slug)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		if snap == nil {
+			http.Error(w, `{"error":"no graph snapshot — build the graph first"}`, http.StatusConflict)
+			return
+		}
+
+		title := generateTraceTitle(body.Prompt)
+
+		traceID, err := graphtrace.Create(database, slug, body.Prompt, title)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+
+		go runTraceGeneration(database, store, traceID, slug, body.Prompt)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]any{
+			"trace_id": traceID,
+			"title":    title,
+			"status":   "generating",
+		})
+	}
+}
+
+// handleRegenerateTrace flips the row back to 'generating' and runs the
+// pipeline again. The version-flip rule (replace current vs promote to
+// previous) is applied inside the goroutine after generation completes.
+func handleRegenerateTrace(database *sql.DB, store *graph.Store, slug, idStr string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		traceID, err := parseTraceID(idStr)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusBadRequest)
+			return
+		}
+
+		row, err := graphtrace.Get(database, traceID)
+		if err == sql.ErrNoRows {
+			http.Error(w, `{"error":"trace not found"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		if row.RepoSlug != slug {
+			http.Error(w, `{"error":"trace does not belong to this repo"}`, http.StatusNotFound)
+			return
+		}
+
+		if err := graphtrace.MarkGenerating(database, traceID); err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+
+		go runTraceGeneration(database, store, traceID, slug, row.Prompt)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]any{
+			"trace_id": traceID,
+			"status":   "generating",
+		})
+	}
+}
+
+// handleDeleteTrace removes a trace row. Idempotent — deleting a missing
+// id returns 200 so the UI doesn't have to special-case races.
+func handleDeleteTrace(database *sql.DB, slug, idStr string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		traceID, err := parseTraceID(idStr)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusBadRequest)
+			return
+		}
+		// Verify the trace belongs to the slug so an unrelated client
+		// can't delete by id alone.
+		row, err := graphtrace.Get(database, traceID)
+		if err == nil && row.RepoSlug != slug {
+			http.Error(w, `{"error":"trace does not belong to this repo"}`, http.StatusNotFound)
+			return
+		}
+		if err := graphtrace.Delete(database, traceID); err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		// Tear down any in-flight stream so subscribers see the close.
+		graphtrace.Close(traceID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}
+}
+
+// handleTraceEvents serves the SSE feed for one trace's generation run.
+// Per-trace channels survive page navigation and reconnects: the daemon
+// publishes events regardless of who's subscribed, and late subscribers
+// replay the buffered events on connect.
+func handleTraceEvents(slug string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_ = slug // slug is used for routing only; the channel key is trace id
+		idStr := r.URL.Query().Get("trace_id")
+		traceID, err := parseTraceID(idStr)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusBadRequest)
+			return
+		}
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		flusher.Flush()
+
+		ch, cleanup := graphtrace.Subscribe(traceID)
+		defer cleanup()
+
+		ctx := r.Context()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case evt, ok := <-ch:
+				if !ok {
+					return
+				}
+				data, err := json.Marshal(evt)
+				if err != nil {
+					continue
+				}
+				typ := evt.Type
+				if typ == "" {
+					typ = "message"
+				}
+				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", typ, data)
+				flusher.Flush()
+				if evt.Type == "phase" && (evt.Phase == graphtrace.PhaseDone || evt.Phase == graphtrace.PhaseFailed) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// runTraceGeneration is the background pipeline for create + regenerate.
+// It resolves the latest snapshot, runs Generate, applies the version-flip
+// rule (promote current → previous on snapshot change), and updates the
+// row. Streams events via the per-trace pub/sub.
+func runTraceGeneration(database *sql.DB, store *graph.Store, traceID int64, slug, prompt string) {
+	graphtrace.Reset(traceID)
+	defer graphtrace.Close(traceID)
+
+	publish := func(e graphtrace.Event) {
+		graphtrace.Publish(traceID, e)
+	}
+	publish(graphtrace.Event{Type: "phase", Phase: graphtrace.PhaseGenerating})
+
+	snap, err := graphtrace.LoadLatestSnapshot(database, store, slug)
+	if err != nil {
+		failTraceRun(database, traceID, fmt.Errorf("resolve snapshot: %w", err), publish)
+		return
+	}
+	if snap == nil {
+		failTraceRun(database, traceID, fmt.Errorf("no graph snapshot — build the graph first"), publish)
+		return
+	}
+
+	row, err := graphtrace.Get(database, traceID)
+	if err != nil {
+		failTraceRun(database, traceID, fmt.Errorf("load trace: %w", err), publish)
+		return
+	}
+
+	ctx := context.Background()
+
+	newTrace, affectedFiles, err := graphtrace.Generate(ctx, *snap, prompt, publish)
+	if err != nil {
+		failTraceRun(database, traceID, err, publish)
+		return
+	}
+
+	// Same-snapshot regeneration: replace current outright. No previous flip.
+	sameSnapshot := row.CurrentSnapshotID != nil && *row.CurrentSnapshotID == snap.ID
+	if sameSnapshot || row.CurrentData == nil {
+		if err := graphtrace.SetCurrentReady(database, traceID, *newTrace, snap.ID, affectedFiles); err != nil {
+			failTraceRun(database, traceID, fmt.Errorf("save current: %w", err), publish)
+			return
+		}
+		publish(graphtrace.Event{Type: "phase", Phase: graphtrace.PhaseDone})
+		log.Printf("cmdr: trace[%d] %s: regenerated against same snapshot", traceID, slug)
+		return
+	}
+
+	// Different snapshot: run comparison, then atomically promote
+	// current → previous and write new current.
+	publish(graphtrace.Event{Type: "phase", Phase: graphtrace.PhaseComparing})
+	summary, err := graphtrace.Compare(ctx, *row.CurrentData, *newTrace, publish)
+	if err != nil {
+		// Soft fail: still publish the new trace; just attach an empty
+		// summary so the UI can render the previous slot.
+		log.Printf("cmdr: trace[%d] %s: compare failed: %v", traceID, slug, err)
+		summary = &graphtrace.ChangeSummary{
+			Summary: "Comparison unavailable.",
+			Changes: []graphtrace.Change{},
+		}
+	}
+
+	if err := graphtrace.PromoteCurrentToPrevious(database, traceID, *newTrace, snap.ID, affectedFiles, *summary); err != nil {
+		failTraceRun(database, traceID, fmt.Errorf("promote: %w", err), publish)
+		return
+	}
+	publish(graphtrace.Event{Type: "phase", Phase: graphtrace.PhaseDone})
+	log.Printf("cmdr: trace[%d] %s: regenerated against new snapshot, %d changes",
+		traceID, slug, len(summary.Changes))
+}
+
+func failTraceRun(database *sql.DB, traceID int64, cause error, publish func(graphtrace.Event)) {
+	msg := cause.Error()
+	if err := graphtrace.SetFailed(database, traceID, msg); err != nil {
+		log.Printf("cmdr: trace[%d]: mark failed: %v", traceID, err)
+	}
+	publish(graphtrace.Event{Type: "error", Text: msg})
+	publish(graphtrace.Event{Type: "phase", Phase: graphtrace.PhaseFailed})
+	log.Printf("cmdr: trace[%d]: %v", traceID, cause)
+}
+
+// generateTraceTitle returns a short title for a trace prompt. Tries
+// the configured summarizer adapter (Apple Intelligence → Ollama →
+// snippet fallback) and falls back to the truncated prompt prefix on
+// failure so the trace always has a non-empty title.
+func generateTraceTitle(prompt string) string {
+	prompt = strings.TrimSpace(prompt)
+	if sum != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		title, err := sum.Summarize(ctx, prompt)
+		if err == nil {
+			title = strings.TrimSpace(title)
+			if title != "" {
+				return title
+			}
+		}
+	}
+	return fallbackTitle(prompt)
+}
+
+func fallbackTitle(prompt string) string {
+	const maxLen = 60
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return "Untitled trace"
+	}
+	if len(prompt) <= maxLen {
+		return prompt
+	}
+	return prompt[:maxLen] + "…"
+}
+
+func parseTraceID(s string) (int64, error) {
+	var id int64
+	_, err := fmt.Sscanf(s, "%d", &id)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("invalid trace id %q", s)
+	}
+	return id, nil
 }

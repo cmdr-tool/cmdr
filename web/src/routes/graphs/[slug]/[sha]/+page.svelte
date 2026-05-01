@@ -6,17 +6,23 @@
 	import {
 		getGraph,
 		listSnapshots,
-		getTraces,
+		listTraces,
+		createTrace,
+		regenerateTrace,
+		deleteTrace,
+		subscribeTraceEvents,
 		type GraphSnapshot,
 		type GraphSnapshotMeta,
 		type GraphPhase,
-		type TraceResult
+		type TraceRow,
+		type TraceEvent
 	} from '$lib/api';
 	import { events } from '$lib/events';
 	import NetworkFacet from '$lib/components/graphs/NetworkFacet.svelte';
 	import TracesFacet from '$lib/components/graphs/TracesFacet.svelte';
 	import GraphSidebar from '$lib/components/graphs/GraphSidebar.svelte';
 	import TracesSidebar from '$lib/components/graphs/TracesSidebar.svelte';
+	import GenerateTraceModal from '$lib/components/graphs/GenerateTraceModal.svelte';
 	import { communityColor, superCommunityColor } from '$lib/components/graphs/colors';
 
 	type NetworkMode = 'flat' | 'super' | 'focus';
@@ -48,29 +54,144 @@
 
 	// Traces state — lifted to the page so the right-hand TracesSidebar
 	// and the canvas TracesFacet can share the same selection.
-	let traces = $state<TraceResult | null>(null);
+	let traces: TraceRow[] = $state([]);
 	let tracesLoading = $state(false);
 	let tracesError: string | null = $state(null);
-	let selectedTraceIdx = $state(0);
+	let selectedTraceId: number | null = $state(null);
+	let traceView: 'current' | 'previous' = $state('current');
 
-	let selectedTrace = $derived(traces?.traces[selectedTraceIdx] ?? null);
+	// Modal + activity state for new/regenerated traces.
+	let modalOpen = $state(false);
+	let modalSubmitting = $state(false);
+	let modalError: string | null = $state(null);
+
+	type ActivityEvent = {
+		id: number;
+		kind: 'tool' | 'text' | 'error' | 'phase';
+		text: string;
+	};
+	let activityByTrace: Record<number, ActivityEvent[]> = $state({});
+	const activeSubscriptions = new Map<number, () => void>();
+
+	let selectedTrace = $derived(
+		selectedTraceId == null ? null : traces.find((t) => t.id === selectedTraceId) ?? null
+	);
+
+	let selectedActivity = $derived(
+		selectedTrace ? activityByTrace[selectedTrace.id] ?? [] : []
+	);
+
+	async function refreshTraces() {
+		if (!slug) return;
+		try {
+			const list = await listTraces(slug);
+			traces = list;
+			tracesError = null;
+			// Auto-select the most recent if nothing is selected, or
+			// re-resolve the selected ID after a refresh deletes it.
+			if (selectedTraceId != null && !list.some((t) => t.id === selectedTraceId)) {
+				selectedTraceId = list[0]?.id ?? null;
+			} else if (selectedTraceId == null && list.length > 0) {
+				selectedTraceId = list[0].id;
+			}
+			// Resubscribe to any in-flight runs after a list refresh —
+			// a page reload mid-run lands here.
+			for (const t of list) {
+				if (t.currentStatus === 'generating') {
+					subscribe(t.id);
+				}
+			}
+		} catch (e) {
+			tracesError = e instanceof Error ? e.message : 'failed to load traces';
+		}
+	}
 
 	$effect(() => {
-		if (!slug || !sha) return;
+		if (!slug) return;
 		tracesLoading = true;
-		tracesError = null;
-		selectedTraceIdx = 0;
-		getTraces(slug, sha)
-			.then((t) => {
-				traces = t;
-			})
-			.catch((e) => {
-				tracesError = e instanceof Error ? e.message : 'failed to load traces';
-			})
-			.finally(() => {
-				tracesLoading = false;
-			});
+		refreshTraces().finally(() => {
+			tracesLoading = false;
+		});
 	});
+
+	function pushActivity(traceId: number, kind: ActivityEvent['kind'], text: string) {
+		const list = activityByTrace[traceId] ?? [];
+		const next = [...list, { id: list.length, kind, text }];
+		// Cap at 200 events to avoid unbounded growth on long runs.
+		const trimmed = next.length > 200 ? next.slice(-200) : next;
+		activityByTrace = { ...activityByTrace, [traceId]: trimmed };
+	}
+
+	function clearActivity(traceId: number) {
+		activityByTrace = { ...activityByTrace, [traceId]: [] };
+	}
+
+	function subscribe(traceId: number) {
+		if (activeSubscriptions.has(traceId)) return;
+		const dispose = subscribeTraceEvents(slug, traceId, (e: TraceEvent) => {
+			if (e.type === 'tool') {
+				pushActivity(traceId, 'tool', e.detail ? `${e.tool}: ${e.detail}` : e.tool);
+			} else if (e.type === 'text') {
+				pushActivity(traceId, 'text', e.text);
+			} else if (e.type === 'error') {
+				pushActivity(traceId, 'error', e.text);
+			} else if (e.type === 'phase') {
+				pushActivity(traceId, 'phase', e.phase);
+				if (e.phase === 'done' || e.phase === 'failed') {
+					unsubscribe(traceId);
+					refreshTraces();
+				}
+			}
+		});
+		activeSubscriptions.set(traceId, dispose);
+	}
+
+	function unsubscribe(traceId: number) {
+		const dispose = activeSubscriptions.get(traceId);
+		if (dispose) {
+			dispose();
+			activeSubscriptions.delete(traceId);
+		}
+	}
+
+	async function handleCreateTrace(prompt: string) {
+		modalSubmitting = true;
+		modalError = null;
+		try {
+			const res = await createTrace(slug, prompt);
+			modalOpen = false;
+			selectedTraceId = res.trace_id;
+			clearActivity(res.trace_id);
+			subscribe(res.trace_id);
+			await refreshTraces();
+		} catch (err) {
+			modalError = err instanceof Error ? err.message : 'failed to generate';
+		} finally {
+			modalSubmitting = false;
+		}
+	}
+
+	async function handleRegenerateTrace(traceId: number) {
+		try {
+			clearActivity(traceId);
+			subscribe(traceId);
+			await regenerateTrace(slug, traceId);
+			await refreshTraces();
+		} catch (err) {
+			tracesError = err instanceof Error ? err.message : 'regenerate failed';
+		}
+	}
+
+	async function handleDeleteTrace(traceId: number) {
+		unsubscribe(traceId);
+		try {
+			await deleteTrace(slug, traceId);
+			if (selectedTraceId === traceId) selectedTraceId = null;
+			await refreshTraces();
+		} catch (err) {
+			tracesError = err instanceof Error ? err.message : 'delete failed';
+		}
+	}
 
 	let repoName = $derived.by(() => {
 		const s = snapshot;
@@ -208,7 +329,15 @@
 		return `${Math.floor(hours / 24)}d ago`;
 	}
 
-	onDestroy(unsub);
+	onDestroy(() => {
+		unsub();
+		// Tear down any open SSE streams. Background generations on the
+		// daemon continue regardless — the next page mount will pick them
+		// up via refreshTraces() (which re-subscribes for any row whose
+		// currentStatus is still 'generating').
+		for (const dispose of activeSubscriptions.values()) dispose();
+		activeSubscriptions.clear();
+	});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -339,10 +468,16 @@
 					</div>
 					<div class="absolute inset-0" class:invisible={facet !== 'traces'} class:pointer-events-none={facet !== 'traces'}>
 						<TracesFacet
-							trace={selectedTrace}
+							trace={traceView === 'current' ? (selectedTrace?.currentData ?? null) : (selectedTrace?.previousData ?? null)}
+							previousTrace={selectedTrace?.previousData ?? null}
+							changeSummary={selectedTrace?.previousChangeSummary ?? null}
+							view={traceView}
+							activity={selectedActivity}
 							loading={tracesLoading}
+							generating={selectedTrace?.currentStatus === 'generating'}
 							repoPath={snapshot.snapshot.repo_path}
-							emptyMessage={traces ? 'Select a trace from the sidebar.' : 'No traces — run a Build with traces from the graphs index.'}
+							emptyMessage={traces.length === 0 ? 'No traces yet — generate one from the sidebar.' : 'Select a trace from the sidebar.'}
+							onViewChange={(v) => (traceView = v)}
 							onNavigate={(id) => {
 								selectedId = id;
 								facet = 'network';
@@ -482,9 +617,20 @@
 			{:else if facet === 'traces'}
 				<TracesSidebar
 					{traces}
-					bind:selectedTraceIdx
+					bind:selectedTraceId
 					loading={tracesLoading}
 					error={tracesError}
+					canGenerate={!!snapshot}
+					onSelect={(id) => {
+						selectedTraceId = id;
+						traceView = 'current';
+					}}
+					onCreate={() => {
+						modalError = null;
+						modalOpen = true;
+					}}
+					onRegenerate={handleRegenerateTrace}
+					onDelete={handleDeleteTrace}
 				/>
 			{/if}
 		{:else if loading}
@@ -496,3 +642,11 @@
 		{/if}
 	</main>
 </div>
+
+<GenerateTraceModal
+	open={modalOpen}
+	submitting={modalSubmitting}
+	error={modalError}
+	onSubmit={handleCreateTrace}
+	onClose={() => (modalOpen = false)}
+/>

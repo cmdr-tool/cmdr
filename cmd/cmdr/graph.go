@@ -25,14 +25,16 @@ func graphCmd() *cobra.Command {
 }
 
 func graphTraceCmd() *cobra.Command {
-	var slug, sha, guidance string
-	var showRaw, save bool
+	var slug, prompt string
 	cmd := &cobra.Command{
 		Use:   "trace",
-		Short: "Generate LLM-augmented data flow traces for a repo graph snapshot",
+		Short: "Generate a single per-flow trace via the LLM (debug helper)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if slug == "" {
 				return fmt.Errorf("--repo is required (slug, e.g. workers-a1b2c3)")
+			}
+			if prompt == "" {
+				return fmt.Errorf("--prompt is required (the flow to trace)")
 			}
 
 			database, err := db.Open()
@@ -50,30 +52,35 @@ func graphTraceCmd() *cobra.Command {
 			// can substitute its agent + system prompt for this run.
 			agentoverride.Load()
 
-			fmt.Fprintf(os.Stderr, "cmdr: tracing %s...\n", slug)
-			result, raw, err := graphtrace.Run(cmd.Context(), database, store, slug, graphtrace.RunOptions{
-				SnapshotSHA:  sha,
-				UserGuidance: guidance,
-			}, func(line string) {
-				fmt.Fprintln(os.Stderr, line)
-			})
-			if showRaw {
-				fmt.Fprintln(os.Stderr, "--- raw agent output ---")
-				fmt.Fprintln(os.Stderr, raw)
-				fmt.Fprintln(os.Stderr, "--- end raw output ---")
-			}
+			snap, err := graphtrace.LoadLatestSnapshot(database, store, slug)
 			if err != nil {
 				return err
 			}
-
-			if save {
-				if err := result.Save(store); err != nil {
-					return fmt.Errorf("save traces: %w", err)
-				}
-				fmt.Fprintf(os.Stderr, "cmdr: saved %s\n", store.TracesPath(result.RepoSlug, result.CommitSHA))
+			if snap == nil {
+				return fmt.Errorf("no usable snapshot for slug %q — build the graph first", slug)
 			}
 
-			out, err := json.MarshalIndent(result, "", "  ")
+			fmt.Fprintf(os.Stderr, "cmdr: tracing %s @ %s...\n", slug, snap.CommitSHA[:7])
+			trace, files, err := graphtrace.Generate(cmd.Context(), *snap, prompt, func(e graphtrace.Event) {
+				switch e.Type {
+				case "tool":
+					if e.Detail != "" {
+						fmt.Fprintf(os.Stderr, "· %s: %s\n", e.Tool, e.Detail)
+					} else {
+						fmt.Fprintf(os.Stderr, "· %s\n", e.Tool)
+					}
+				case "text":
+					fmt.Fprintf(os.Stderr, "  %s\n", e.Text)
+				case "error":
+					fmt.Fprintf(os.Stderr, "! %s\n", e.Text)
+				}
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "cmdr: %d steps, %d affected files\n", len(trace.Steps), len(files))
+
+			out, err := json.MarshalIndent(trace, "", "  ")
 			if err != nil {
 				return err
 			}
@@ -82,10 +89,7 @@ func graphTraceCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&slug, "repo", "", "Repo slug (required)")
-	cmd.Flags().StringVar(&sha, "sha", "", "Specific snapshot commit SHA (defaults to latest ready snapshot)")
-	cmd.Flags().StringVar(&guidance, "guidance", "", "Optional user guidance for what flows/traces to generate")
-	cmd.Flags().BoolVar(&showRaw, "raw", false, "Print raw agent output to stderr for debugging")
-	cmd.Flags().BoolVar(&save, "save", false, "Persist traces.json next to the graph snapshot")
+	cmd.Flags().StringVar(&prompt, "prompt", "", "User prompt describing the flow to trace (required)")
 	cmd.SetContext(context.Background())
 	return cmd
 }

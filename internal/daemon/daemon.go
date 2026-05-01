@@ -178,7 +178,7 @@ func Run() error {
 			// Scheduled graph-watch only rebuilds the graph itself —
 			// trace generation is opt-in (LLM cost) and gated to
 			// explicit user action.
-			if _, _, err := kickOffGraphBuild(database, bus, graphStore, slug, sha, repoPath, false, buildTargets{graph: true}); err != nil {
+			if _, _, err := kickOffGraphBuild(database, bus, graphStore, slug, sha, repoPath, false); err != nil {
 				log.Printf("cmdr: graph-watch: kickoff failed for %s@%s: %v", slug, sha, err)
 			}
 		},
