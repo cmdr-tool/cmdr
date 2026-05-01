@@ -414,22 +414,6 @@
 				ctx.stroke();
 			}
 
-			// Super-view labels: light text with a dark halo so it reads
-			// on any node color regardless of background luminance.
-			if (mode === 'super' && r > 16) {
-				const label = node.label.length > 22 ? node.label.slice(0, 20) + '…' : node.label;
-				const fontPx = Math.max(10, Math.min(13, r * 0.55));
-				ctx.font = `${fontPx / transform.k}px ui-monospace, monospace`;
-				ctx.textAlign = 'center';
-				ctx.textBaseline = 'middle';
-				ctx.lineWidth = 3 / transform.k;
-				ctx.lineJoin = 'round';
-				ctx.strokeStyle = 'rgba(20,16,10,0.85)';
-				ctx.strokeText(label, x, y);
-				ctx.fillStyle = '#f5efe6';
-				ctx.fillText(label, x, y);
-			}
-
 			ctx.globalAlpha = 1;
 		}
 
