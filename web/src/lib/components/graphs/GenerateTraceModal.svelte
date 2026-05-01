@@ -87,14 +87,10 @@
 				<button
 					onclick={submit}
 					disabled={submitting || !prompt.trim()}
-					class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-						text-[10px] font-display font-bold uppercase tracking-widest
-						bg-cmd-700/40 border border-cmd-600/30 text-cmd-300
-						hover:bg-cmd-700/60 hover:text-cmd-200 transition-colors cursor-pointer
-						disabled:opacity-50 disabled:cursor-not-allowed"
+					class="flex items-center gap-1.5 text-[10px] font-mono text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer disabled:opacity-50"
 				>
-					<Sparkles size={11} />
-					{submitting ? 'submitting…' : 'Generate'}
+					<Sparkles size={14} />
+					{submitting ? 'Generating...' : 'Generate trace'}
 				</button>
 			</div>
 		</div>
