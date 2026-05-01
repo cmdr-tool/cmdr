@@ -11,6 +11,7 @@
 	import { initSessionStore } from '$lib/sessionStore';
 	import { initCommitStore } from '$lib/commitStore';
 	import { initDelegationStore } from '$lib/delegationStore';
+	import { purgeMermaidStrays } from '$lib/mermaid';
 
 	onMount(() => {
 		preload(SFX.hover, SFX.click, SFX.newCommits, SFX.dispatch);
@@ -18,6 +19,17 @@
 		initSessionStore();
 		initCommitStore();
 		initDelegationStore();
+		// Heal any mermaid scratch <div>s a previous session leaked
+		// into <body> when a render failed. Cheap idempotent sweep.
+		purgeMermaidStrays();
+	});
+
+	// Re-run on every route change so navigating away from a modal
+	// page that may have leaked elements while we were on it gets
+	// the body cleaned up.
+	$effect(() => {
+		page.url.pathname;
+		purgeMermaidStrays();
 	});
 
 	let { children } = $props();
