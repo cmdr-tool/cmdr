@@ -40,6 +40,11 @@
 	let networkMode: NetworkMode = $state('flat');
 	let focusedSuperId: number | null = $state(null);
 	let networkRebuilding = $state(false);
+	// Once the initial fetch+layout completes, subsequent rebuilds are
+	// mode switches rather than first-time loads — we use this to keep
+	// the first-load overlay copy stable as "Loading graph" and only
+	// switch to the lighter "Switching view" copy on later rebuilds.
+	let firstLoadComplete = $state(false);
 
 	// Traces state — lifted to the page so the right-hand TracesSidebar
 	// and the canvas TracesFacet can share the same selection.
@@ -122,6 +127,7 @@
 	$effect(() => {
 		if (!slug || !sha) return;
 		loading = true;
+		firstLoadComplete = false;
 		error = null;
 		Promise.all([getGraph(slug, sha), listSnapshots(slug)])
 			.then(([snap, list]) => {
@@ -143,6 +149,7 @@
 
 	function handleFacetReady() {
 		loading = false;
+		firstLoadComplete = true;
 	}
 
 	let pickerEl: HTMLDivElement | null = $state(null);
@@ -452,13 +459,20 @@
 				<!-- Loading overlay — covers the canvas while it's preparing
 				     the new snapshot's layout, or while a zoom-mode switch
 				     is rebuilding the force simulation. Drops away when
-				     the facet signals onReady (which clears rebuilding). -->
+				     the facet signals onReady (which clears rebuilding).
+				     `firstLoadComplete` keeps the initial-load copy stable:
+				     even if `loading` clears before `rebuilding` (or vice
+				     versa) during the first paint, the label stays
+				     "Loading graph" rather than flipping briefly. -->
 				{#if (loading || networkRebuilding) && snapshot.nodes.length > 0}
 					<div class="absolute inset-0 z-30 flex items-center justify-center gap-3 bg-bourbon-950/80 backdrop-blur-sm text-bourbon-400">
-						<div class="w-4 h-4 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
-						<span class="font-display text-xs uppercase tracking-widest">
-							{loading ? 'Loading graph' : 'Switching view'}
-						</span>
+						{#if !firstLoadComplete}
+							<div class="w-4 h-4 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
+							<span class="font-display text-xs uppercase tracking-widest">Loading graph</span>
+						{:else}
+							<div class="w-3 h-3 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
+							<span class="font-display text-[10px] uppercase tracking-widest">Switching view</span>
+						{/if}
 					</div>
 				{/if}
 			</div>
