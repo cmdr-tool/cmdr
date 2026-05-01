@@ -300,6 +300,7 @@
 						<TracesFacet
 							trace={selectedTrace}
 							loading={tracesLoading}
+							repoPath={snapshot.snapshot.repo_path}
 							emptyMessage={traces ? 'Select a trace from the sidebar.' : 'No traces — run a Build with traces from the graphs index.'}
 							onNavigate={(id) => {
 								selectedId = id;

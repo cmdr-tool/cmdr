@@ -3,14 +3,15 @@
 	import * as dagre from '@dagrejs/dagre';
 	import { zoom, zoomIdentity, type ZoomBehavior } from 'd3-zoom';
 	import { select } from 'd3-selection';
-	import { AlertCircle, X, ArrowRight } from 'lucide-svelte';
-	import type { Trace, TraceStep } from '$lib/api';
+	import { AlertCircle, X, ArrowRight, ExternalLink } from 'lucide-svelte';
+	import { openInEditor, type Trace, type TraceStep } from '$lib/api';
 
 	type Props = {
 		trace: Trace | null;
 		loading?: boolean;
 		generating?: boolean;
 		emptyMessage?: string;
+		repoPath?: string;
 		onNavigate?: (nodeId: string) => void;
 		onReady?: () => void;
 	};
@@ -20,6 +21,7 @@
 		loading = false,
 		generating = false,
 		emptyMessage = 'Select a trace from the sidebar.',
+		repoPath,
 		onNavigate,
 		onReady
 	}: Props = $props();
@@ -536,6 +538,16 @@
 					<span class="text-bourbon-600 truncate">
 						{pinned.node.step.source_file}{#if pinned.node.step.source_line}:{pinned.node.step.source_line}{/if}
 					</span>
+					{#if repoPath}
+						<button
+							onclick={() => openInEditor(repoPath!, pinned!.node.step.source_file!, pinned!.node.step.source_line ?? 1)}
+							class="shrink-0 flex items-center gap-1 text-bourbon-600 hover:text-cmd-400 transition-colors cursor-pointer uppercase tracking-wider"
+							title="Open in editor"
+						>
+							<ExternalLink size={10} />
+							open
+						</button>
+					{/if}
 				{/if}
 			</div>
 

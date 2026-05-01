@@ -1,9 +1,10 @@
 <script lang="ts">
 	import {
-		Search, X, ArrowRight, ArrowLeft,
+		Search, X, ArrowRight, ArrowLeft, ExternalLink,
 		File, Package, Braces, Component as ComponentIcon, Shapes, Tag,
 		Table as TableIcon, Columns3, Database
 	} from 'lucide-svelte';
+	import { openInEditor } from '$lib/api';
 
 	const kindIcons: Record<string, typeof File> = {
 		file: File,
@@ -147,15 +148,22 @@
 				<span class="font-display text-[10px] font-bold uppercase tracking-widest text-bourbon-300">
 					{selectedNode.kind}
 				</span>
-				<span class="text-[10px] font-mono text-bourbon-600">
-					community {selectedNode.community}
-				</span>
 			</div>
 			<div class="text-bourbon-100 font-mono text-sm break-all mb-2">{selectedNode.label}</div>
 			{#if selectedNode.source_file}
-				<div class="text-[10px] font-mono text-bourbon-500 break-all">{selectedNode.source_file}</div>
+				<div class="flex items-baseline gap-2 text-[10px] font-mono">
+					<span class="text-bourbon-500 break-all">{selectedNode.source_file}</span>
+					<button
+						onclick={() => openInEditor(snapshot.snapshot.repo_path, selectedNode.source_file, 1)}
+						class="shrink-0 flex items-center gap-1 text-bourbon-600 hover:text-cmd-400 transition-colors cursor-pointer uppercase tracking-wider"
+						title="Open in editor"
+					>
+						<ExternalLink size={10} />
+						open
+					</button>
+				</div>
 			{/if}
-			<div class="flex items-center gap-3 mt-3 pt-3 border-t border-bourbon-800/50 text-[10px] font-mono text-bourbon-500">
+			<div class="flex items-center justify-center gap-3 mt-3 pt-3 border-t border-bourbon-800/50 text-[10px] font-mono text-bourbon-500">
 				<span>degree <span class="text-bourbon-300">{selectedNode.degree}</span></span>
 				<span>neighbors <span class="text-bourbon-300">{neighbors.length}</span></span>
 			</div>
