@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"log"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -67,16 +68,24 @@ func buildAdjacency(snap *Snapshot) *adjacency {
 	return a
 }
 
+// louvainResolution is the γ in the generalized modularity gain
+// formula. γ = 1 is standard Louvain; γ < 1 weakens the penalty on
+// community size and produces fewer, larger communities. Tuned down
+// from 1.0 because at default resolution a typical JS/TS codebase
+// fragments into one cluster per tightly-bound file, which is too
+// fine-grained to act as a structural map.
+const louvainResolution = 0.4
+
 // detectCommunities is a single-pass Louvain-style assignment: greedy
 // modularity-gain moves over a deterministic node ordering until no
 // node changes its community. For graphs of a few thousand nodes this
 // converges fast and is dependency-free.
 //
 // The "gain" we maximize for placing i into community c is the
-// standard Louvain ΔQ contribution (with i hypothetically removed
+// generalized Louvain ΔQ contribution (with i hypothetically removed
 // from its own community first):
 //
-//	gain(c) = w(i,c) - sigma_tot[c] * k_i / 2m
+//	gain(c) = w(i,c) - γ * sigma_tot[c] * k_i / 2m
 //
 // We include the current community in the argmax with the same
 // formula (baseline = "put i back where it was"). A strict `>`
@@ -120,7 +129,7 @@ func detectCommunities(snap *Snapshot) []int {
 			sigmaTot[currentC] -= ki[i]
 
 			bestC := currentC
-			bestGain := weights[currentC] - sigmaTot[currentC]*ki[i]/a.totalW
+			bestGain := weights[currentC] - louvainResolution*sigmaTot[currentC]*ki[i]/a.totalW
 
 			cands := make([]int, 0, len(weights))
 			for c := range weights {
@@ -131,7 +140,7 @@ func detectCommunities(snap *Snapshot) []int {
 				if c == currentC {
 					continue
 				}
-				gain := weights[c] - sigmaTot[c]*ki[i]/a.totalW
+				gain := weights[c] - louvainResolution*sigmaTot[c]*ki[i]/a.totalW
 				if gain > bestGain {
 					bestGain = gain
 					bestC = c
@@ -409,6 +418,52 @@ func computeStats(snap *Snapshot) {
 		ByRelation:     byRel,
 		CommunityCount: len(snap.Communities),
 	}
+	logCommunityHistogram(snap)
+}
+
+// logCommunityHistogram emits a one-line summary of the community
+// size distribution so we can diagnose whether the count is dominated
+// by singletons (structural — γ tuning won't help) or by real-but-tiny
+// clusters (γ might help, or multi-level Louvain is the fix).
+func logCommunityHistogram(snap *Snapshot) {
+	if len(snap.Communities) == 0 {
+		return
+	}
+	type sized struct {
+		label string
+		size  int
+	}
+	sizes := make([]sized, 0, len(snap.Communities))
+	for _, c := range snap.Communities {
+		sizes = append(sizes, sized{c.Label, len(c.NodeIDs)})
+	}
+	sort.Slice(sizes, func(i, j int) bool { return sizes[i].size > sizes[j].size })
+
+	var singleton, small, medium, large int
+	for _, s := range sizes {
+		switch {
+		case s.size == 1:
+			singleton++
+		case s.size <= 5:
+			small++
+		case s.size <= 20:
+			medium++
+		default:
+			large++
+		}
+	}
+
+	topN := 5
+	if topN > len(sizes) {
+		topN = len(sizes)
+	}
+	tops := make([]string, 0, topN)
+	for i := 0; i < topN; i++ {
+		tops = append(tops, fmt.Sprintf("%s=%d", sizes[i].label, sizes[i].size))
+	}
+
+	log.Printf("graph: %d communities — singletons=%d small(2-5)=%d medium(6-20)=%d large(21+)=%d; top: %s",
+		len(snap.Communities), singleton, small, medium, large, strings.Join(tops, " "))
 }
 
 // itoa is a small helper to avoid importing strconv just for community keys.
