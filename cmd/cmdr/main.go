@@ -55,6 +55,7 @@ actively check enlistment status, use:
 	root.AddCommand(missionsCmd())
 	root.AddCommand(taskCmd())
 	root.AddCommand(debriefCmd())
+	root.AddCommand(graphCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

@@ -55,9 +55,8 @@ type Capabilities struct {
 
 // SimpleConfig configures a one-shot headless execution.
 type SimpleConfig struct {
-	Prompt       string
-	WorkDir      string
-	AllowedTools []string
+	Prompt  string
+	WorkDir string
 }
 
 // StreamingConfig configures a streaming headless execution.

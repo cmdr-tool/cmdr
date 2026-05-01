@@ -38,10 +38,6 @@ func (a *Adapter) Capabilities() agent.Capabilities {
 // RunSimple executes pi -p and returns the full output.
 func (a *Adapter) RunSimple(ctx context.Context, cfg agent.SimpleConfig) (string, error) {
 	args := []string{"-p", cfg.Prompt}
-	if len(cfg.AllowedTools) > 0 {
-		args = append(args, "--tools", strings.Join(cfg.AllowedTools, ","))
-	}
-
 	cmd := exec.CommandContext(ctx, "pi", args...)
 	if cfg.WorkDir != "" {
 		cmd.Dir = cfg.WorkDir
@@ -185,11 +181,31 @@ func (a *Adapter) RunStreaming(ctx context.Context, cfg agent.StreamingConfig, o
 					break
 				}
 			}
+			// Pi emits agent_end as the final logical event but doesn't
+			// always close stdout immediately afterwards (sometimes it
+			// keeps the connection open waiting for follow-up input).
+			// Stop reading and politely terminate the process.
+			goto done
 		}
 	}
+done:
 
-	if err := cmd.Wait(); err != nil && finalText == "" {
-		return nil, fmt.Errorf("pi exited: %w", err)
+	// Pi sometimes hangs after agent_end (keeps the connection open
+	// expecting follow-up input). Escalate gracefully:
+	//   1. Brief grace period — let pi exit naturally if it was about to.
+	//   2. SIGTERM — polite shutdown signal.
+	//   3. SIGKILL — last resort if it still won't go.
+	// The result is already in finalText (and in the file the agent
+	// wrote via Write tool), so we don't need pi to keep running.
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+
+	const grace = 2 * time.Second
+	const termWait = 3 * time.Second
+
+	exitErr := waitWithEscalation(cmd, waitCh, grace, termWait)
+	if exitErr != nil && finalText == "" {
+		return nil, fmt.Errorf("pi exited: %w", exitErr)
 	}
 
 	if finalText == "" {
@@ -201,6 +217,35 @@ func (a *Adapter) RunStreaming(ctx context.Context, cfg agent.StreamingConfig, o
 		SessionID: sessionID,
 		Cmd:       cmd,
 	}, nil
+}
+
+// waitWithEscalation waits for cmd to exit, escalating signals if it
+// doesn't exit on its own. waitCh must already be receiving cmd.Wait()'s
+// result on a goroutine. Returns the eventual cmd.Wait() error (which
+// may be a signal-induced exit and is the caller's job to interpret).
+func waitWithEscalation(cmd *exec.Cmd, waitCh <-chan error, grace, termWait time.Duration) error {
+	// 1. Grace period — let pi exit on its own.
+	select {
+	case err := <-waitCh:
+		return err
+	case <-time.After(grace):
+	}
+
+	// 2. SIGTERM — polite shutdown.
+	if cmd.Process != nil {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+	}
+	select {
+	case err := <-waitCh:
+		return err
+	case <-time.After(termWait):
+	}
+
+	// 3. SIGKILL — force.
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	return <-waitCh
 }
 
 // InteractiveCommand returns the shell command to launch an interactive

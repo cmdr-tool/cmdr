@@ -38,10 +38,6 @@ func (a *Adapter) Capabilities() agent.Capabilities {
 // RunSimple executes claude -p and returns the full output.
 func (a *Adapter) RunSimple(ctx context.Context, cfg agent.SimpleConfig) (string, error) {
 	args := []string{"-p", cfg.Prompt}
-	for _, tool := range cfg.AllowedTools {
-		args = append(args, "--allowedTools", tool)
-	}
-
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	if cfg.WorkDir != "" {
 		cmd.Dir = cfg.WorkDir
