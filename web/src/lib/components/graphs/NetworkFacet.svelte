@@ -27,12 +27,14 @@
 		selectedId = $bindable(null),
 		mode = $bindable<Mode>('flat'),
 		focusedSuperId = $bindable<number | null>(null),
+		rebuilding = $bindable(false),
 		onReady
 	}: {
 		snapshot: GraphSnapshot;
 		selectedId?: string | null;
 		mode?: Mode;
 		focusedSuperId?: number | null;
+		rebuilding?: boolean;
 		onReady?: () => void;
 	} = $props();
 
@@ -75,7 +77,11 @@
 	let hoveredId: string | null = $state(null);
 	let cursor: { x: number; y: number } | null = $state(null);
 
-	let dragging: { node: SimNode; pointerId: number } | null = $state(null);
+	let dragging: { node: SimNode; pointerId: number; moved: boolean } | null = $state(null);
+	// Set true during a drag's pointermove; checked in onCanvasClick so a
+	// drag-then-release doesn't also count as a click (which would zoom
+	// into the node we just dragged).
+	let suppressNextClick = false;
 
 	let drawScheduled = false;
 	function scheduleDraw() {
@@ -107,6 +113,7 @@
 	function rebuild(snap: GraphSnapshot, m: Mode, fid: number | null) {
 		simulation?.stop();
 		readyFired = false;
+		rebuilding = true;
 
 		if (m === 'super') {
 			buildSuperView(snap);
@@ -304,6 +311,7 @@
 
 		if (!readyFired) {
 			readyFired = true;
+			rebuilding = false;
 			onReady?.();
 		}
 	}
@@ -397,14 +405,19 @@
 				ctx.stroke();
 			}
 
-			// Super-view labels: write the label inside the node.
+			// Super-view labels: light text with a dark halo so it reads
+			// on any node color regardless of background luminance.
 			if (mode === 'super' && r > 16) {
-				const label = node.label.length > 18 ? node.label.slice(0, 16) + '…' : node.label;
-				ctx.fillStyle = 'rgba(20,16,10,0.85)';
-				const fontPx = Math.max(9, Math.min(13, r * 0.6));
+				const label = node.label.length > 22 ? node.label.slice(0, 20) + '…' : node.label;
+				const fontPx = Math.max(10, Math.min(13, r * 0.55));
 				ctx.font = `${fontPx / transform.k}px ui-monospace, monospace`;
 				ctx.textAlign = 'center';
 				ctx.textBaseline = 'middle';
+				ctx.lineWidth = 3 / transform.k;
+				ctx.lineJoin = 'round';
+				ctx.strokeStyle = 'rgba(20,16,10,0.85)';
+				ctx.strokeText(label, x, y);
+				ctx.fillStyle = '#f5efe6';
 				ctx.fillText(label, x, y);
 			}
 
@@ -443,6 +456,7 @@
 			const { x, y } = clientToLocal(e.clientX, e.clientY);
 			dragging.node.fx = x;
 			dragging.node.fy = y;
+			dragging.moved = true;
 			cursor = null;
 			return;
 		}
@@ -462,7 +476,7 @@
 		if (!hit || !canvas) return;
 		e.stopPropagation();
 		canvas.setPointerCapture(e.pointerId);
-		dragging = { node: hit, pointerId: e.pointerId };
+		dragging = { node: hit, pointerId: e.pointerId, moved: false };
 		hit.fx = hit.x;
 		hit.fy = hit.y;
 		simulation?.alphaTarget(0.3).restart();
@@ -470,6 +484,9 @@
 
 	function onPointerUp(e: PointerEvent) {
 		if (!dragging || dragging.pointerId !== e.pointerId) return;
+		// If the user actually moved during this gesture, this was a drag,
+		// not a tap — swallow the synthesized click that follows.
+		if (dragging.moved) suppressNextClick = true;
 		dragging.node.fx = null;
 		dragging.node.fy = null;
 		simulation?.alphaTarget(0);
@@ -477,6 +494,10 @@
 	}
 
 	function onCanvasClick(e: MouseEvent) {
+		if (suppressNextClick) {
+			suppressNextClick = false;
+			return;
+		}
 		const hit = findNodeAt(e.clientX, e.clientY);
 		if (!hit) {
 			selectedId = null;

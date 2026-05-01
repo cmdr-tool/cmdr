@@ -39,6 +39,7 @@
 	let facet: Facet = $state('network');
 	let networkMode: NetworkMode = $state('flat');
 	let focusedSuperId: number | null = $state(null);
+	let networkRebuilding = $state(false);
 
 	// Traces state — lifted to the page so the right-hand TracesSidebar
 	// and the canvas TracesFacet can share the same selection.
@@ -325,6 +326,7 @@
 							bind:selectedId
 							bind:mode={networkMode}
 							bind:focusedSuperId
+							bind:rebuilding={networkRebuilding}
 							onReady={handleFacetReady}
 						/>
 					</div>
@@ -448,12 +450,15 @@
 				{/if}
 
 				<!-- Loading overlay — covers the canvas while it's preparing
-				     the new snapshot's layout. Drops away when the facet
-				     signals onReady. -->
-				{#if loading && snapshot.nodes.length > 0}
+				     the new snapshot's layout, or while a zoom-mode switch
+				     is rebuilding the force simulation. Drops away when
+				     the facet signals onReady (which clears rebuilding). -->
+				{#if (loading || networkRebuilding) && snapshot.nodes.length > 0}
 					<div class="absolute inset-0 z-30 flex items-center justify-center gap-3 bg-bourbon-950/80 backdrop-blur-sm text-bourbon-400">
 						<div class="w-4 h-4 border-2 border-bourbon-700 border-t-run-500 rounded-full animate-spin"></div>
-						<span class="font-display text-xs uppercase tracking-widest">Loading graph</span>
+						<span class="font-display text-xs uppercase tracking-widest">
+							{loading ? 'Loading graph' : 'Switching view'}
+						</span>
 					</div>
 				{/if}
 			</div>

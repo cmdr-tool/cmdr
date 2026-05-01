@@ -373,16 +373,18 @@ func labelCommunities(snap *Snapshot, idx []int) {
 	snap.Communities = out
 }
 
-// labelSuperCommunities derives a label per super-community by taking
-// the longest common directory prefix of its member tier-2 community
-// labels. Super-communities are coarser than tier-2 and may span
-// multiple subtrees, so the label often backs off to a high-level
-// directory like `src/services` (which is the right granularity for
-// a "neighborhood" label). Also stores each super-community's child
-// tier-2 IDs so the UI can drill from super → community without a
-// reverse-lookup pass.
+// labelSuperCommunities derives a label per super-community using the
+// same "longest common dir-prefix + drill into dominant subdir on
+// collision" strategy as labelCommunities, but applied to the actual
+// source-file paths of every member node (not just child community
+// labels). Operating on file paths directly produces more
+// distinctive labels than working from already-summarized child
+// labels — when two supers share a base prefix, the drill-down
+// finds the dominant subtree of each rather than tagging them
+// "src (2)" / "src (3)". Also stores child tier-2 IDs so the UI
+// can list a super's members without a reverse-lookup pass.
 func labelSuperCommunities(snap *Snapshot, communities, superIdx []int) {
-	if len(superIdx) == 0 || snap.Communities == nil {
+	if len(superIdx) == 0 {
 		return
 	}
 	a := buildAdjacency(snap)
@@ -393,53 +395,89 @@ func labelSuperCommunities(snap *Snapshot, communities, superIdx []int) {
 		}
 	}
 
-	// Annotate nodes with their super-community and group nodes + child
-	// tier-2 ids per super.
 	superNodeIDs := make(map[int][]string, nSuper)
 	superChildren := make(map[int]map[int]struct{}, nSuper)
+	superFilePaths := make(map[int][]string, nSuper)
+	superModulePaths := make(map[int][]string, nSuper)
 	for i := range snap.Nodes {
 		if i >= len(superIdx) {
 			break
 		}
 		sc := superIdx[i]
 		snap.Nodes[i].SuperCommunity = sc
-		superNodeIDs[sc] = append(superNodeIDs[sc], snap.Nodes[i].ID)
+		n := snap.Nodes[i]
+		superNodeIDs[sc] = append(superNodeIDs[sc], n.ID)
 		if superChildren[sc] == nil {
 			superChildren[sc] = map[int]struct{}{}
 		}
 		superChildren[sc][communities[i]] = struct{}{}
-	}
 
-	// Derive super labels from the longest common dir-prefix of the
-	// child community labels. Falls back to "external" when no prefix
-	// can be found (typically pure-module clusters).
-	labels := map[int]string{}
-	childLists := make(map[int][]string, nSuper)
-	for sc, children := range superChildren {
-		var childLabels []string
-		var childIDs []string
-		for c := range children {
-			cid := itoa(c)
-			childIDs = append(childIDs, cid)
-			if comm, ok := snap.Communities[cid]; ok && comm.Label != "" {
-				childLabels = append(childLabels, comm.Label)
+		if n.SourceFile != "" {
+			superFilePaths[sc] = append(superFilePaths[sc], filepath.ToSlash(n.SourceFile))
+		} else if n.Kind == KindModule {
+			if p, ok := n.Attrs["path"].(string); ok && p != "" {
+				superModulePaths[sc] = append(superModulePaths[sc], filepath.ToSlash(p))
 			}
 		}
-		sort.Strings(childIDs)
-		childLists[sc] = childIDs
+	}
 
-		labels[sc] = longestCommonDirPrefix(childLabels)
+	childLists := make(map[int][]string, nSuper)
+	for sc, children := range superChildren {
+		ids := make([]string, 0, len(children))
+		for c := range children {
+			ids = append(ids, itoa(c))
+		}
+		sort.Strings(ids)
+		childLists[sc] = ids
+	}
+
+	// Initial labels: prefer file paths; fall back to module paths for
+	// pure-external supers.
+	pathsFor := func(sc int) []string {
+		if len(superFilePaths[sc]) > 0 {
+			return superFilePaths[sc]
+		}
+		return superModulePaths[sc]
+	}
+	labels := map[int]string{}
+	for sc := 0; sc < nSuper; sc++ {
+		labels[sc] = longestCommonDirPrefix(pathsFor(sc))
 		if labels[sc] == "" {
 			labels[sc] = "external"
 		}
 	}
 
-	// Disambiguate any colliding super labels with a stable count suffix.
-	collisions := map[string][]int{}
-	for sc, label := range labels {
-		collisions[label] = append(collisions[label], sc)
+	// Drill into the dominant subdir of any super sharing a label,
+	// repeating until no more progress can be made.
+	for pass := 0; pass < 4; pass++ {
+		labelToSupers := map[string][]int{}
+		for sc, label := range labels {
+			labelToSupers[label] = append(labelToSupers[label], sc)
+		}
+		anyDrilled := false
+		for label, scs := range labelToSupers {
+			if len(scs) <= 1 {
+				continue
+			}
+			for _, sc := range scs {
+				deeper := mostCommonSubdirBeyond(pathsFor(sc), label)
+				if deeper != "" && deeper != labels[sc] {
+					labels[sc] = deeper
+					anyDrilled = true
+				}
+			}
+		}
+		if !anyDrilled {
+			break
+		}
 	}
-	for label, scs := range collisions {
+
+	// Last-resort numeric suffix for any still-colliding labels.
+	finalCollisions := map[string][]int{}
+	for sc, label := range labels {
+		finalCollisions[label] = append(finalCollisions[label], sc)
+	}
+	for label, scs := range finalCollisions {
 		if len(scs) <= 1 {
 			continue
 		}
