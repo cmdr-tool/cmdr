@@ -397,31 +397,28 @@ func labelSuperCommunities(snap *Snapshot, communities, superIdx []int) {
 
 	superNodeIDs := make(map[int][]string, nSuper)
 	superChildren := make(map[int]map[int]struct{}, nSuper)
-	superFilePaths := make(map[int][]string, nSuper)
-	superModulePaths := make(map[int][]string, nSuper)
 	for i := range snap.Nodes {
 		if i >= len(superIdx) {
 			break
 		}
 		sc := superIdx[i]
 		snap.Nodes[i].SuperCommunity = sc
-		n := snap.Nodes[i]
-		superNodeIDs[sc] = append(superNodeIDs[sc], n.ID)
+		superNodeIDs[sc] = append(superNodeIDs[sc], snap.Nodes[i].ID)
 		if superChildren[sc] == nil {
 			superChildren[sc] = map[int]struct{}{}
 		}
 		superChildren[sc][communities[i]] = struct{}{}
-
-		if n.SourceFile != "" {
-			superFilePaths[sc] = append(superFilePaths[sc], filepath.ToSlash(n.SourceFile))
-		} else if n.Kind == KindModule {
-			if p, ok := n.Attrs["path"].(string); ok && p != "" {
-				superModulePaths[sc] = append(superModulePaths[sc], filepath.ToSlash(p))
-			}
-		}
 	}
 
+	// Per-child labels: one entry per tier-2 community in this super,
+	// not per node. This weights each child cluster equally — without
+	// it, a tier-2 community with many internal nodes (e.g. a class
+	// with 50 methods) would dominate the dominant-subdir computation
+	// and pull the super-label into that file's directory even when
+	// most child clusters live elsewhere. "external" labels are
+	// dropped because they carry no path information.
 	childLists := make(map[int][]string, nSuper)
+	superPaths := make(map[int][]string, nSuper)
 	for sc, children := range superChildren {
 		ids := make([]string, 0, len(children))
 		for c := range children {
@@ -429,36 +426,39 @@ func labelSuperCommunities(snap *Snapshot, communities, superIdx []int) {
 		}
 		sort.Strings(ids)
 		childLists[sc] = ids
+
+		for c := range children {
+			comm, ok := snap.Communities[itoa(c)]
+			if !ok || comm.Label == "" || comm.Label == "external" {
+				continue
+			}
+			superPaths[sc] = append(superPaths[sc], comm.Label)
+		}
 	}
 
-	// Initial labels: prefer file paths; fall back to module paths for
-	// pure-external supers.
-	pathsFor := func(sc int) []string {
-		if len(superFilePaths[sc]) > 0 {
-			return superFilePaths[sc]
-		}
-		return superModulePaths[sc]
-	}
 	labels := map[int]string{}
 	for sc := 0; sc < nSuper; sc++ {
-		labels[sc] = longestCommonDirPrefix(pathsFor(sc))
+		paths := superPaths[sc]
+		if len(paths) == 0 {
+			labels[sc] = "external"
+			continue
+		}
+		labels[sc] = commonPathPrefix(paths)
 		if labels[sc] == "" {
-			// No common dir prefix — happens when a super spans multiple
-			// top-level subtrees (e.g. src/* + scripts/*). Use the
-			// dominant top-level dir of the file paths so the label
-			// still reads as something internal. Only fall back to
-			// "external" for pure-module supers (no local files at all).
-			if len(superFilePaths[sc]) > 0 {
-				labels[sc] = dominantTopLevelDir(superFilePaths[sc])
-			}
-			if labels[sc] == "" {
-				labels[sc] = "external"
-			}
+			// Children span multiple top-level dirs (e.g. src/* + scripts/*).
+			// Use the dominant top-level so the label is still informative.
+			labels[sc] = dominantTopLevelDir(paths)
+		}
+		if labels[sc] == "" {
+			labels[sc] = "external"
 		}
 	}
 
 	// Drill into the dominant subdir of any super sharing a label,
-	// repeating until no more progress can be made.
+	// repeating until no more progress can be made. The drill function
+	// receives child labels (one per cluster) and a majority-gate so
+	// it only deepens the label when most children genuinely live in a
+	// shared subdirectory.
 	for pass := 0; pass < 4; pass++ {
 		labelToSupers := map[string][]int{}
 		for sc, label := range labels {
@@ -470,7 +470,7 @@ func labelSuperCommunities(snap *Snapshot, communities, superIdx []int) {
 				continue
 			}
 			for _, sc := range scs {
-				deeper := mostCommonSubdirBeyond(pathsFor(sc), label, false)
+				deeper := mostCommonSubdirBeyond(superPaths[sc], label, false)
 				if deeper != "" && deeper != labels[sc] {
 					labels[sc] = deeper
 					anyDrilled = true
@@ -550,6 +550,39 @@ func longestCommonDirPrefix(paths []string) string {
 	return strings.Join(common, "/")
 }
 
+// commonPathPrefix returns the longest common segment-prefix of paths
+// treated as "/"-separated identifiers. Differs from
+// longestCommonDirPrefix in that it doesn't strip the last segment
+// (filepath.Dir style) — useful when paths are already directory-
+// shaped (e.g. tier-2 community labels that may be either file paths
+// like "src/services/Etsy.js" or directory paths like
+// "src/processes"). Returns "" when no segment is shared by all.
+func commonPathPrefix(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	parts := make([][]string, len(paths))
+	for i, p := range paths {
+		parts[i] = strings.Split(p, "/")
+	}
+	var common []string
+	for level := 0; level < len(parts[0]); level++ {
+		ref := parts[0][level]
+		same := true
+		for _, q := range parts[1:] {
+			if level >= len(q) || q[level] != ref {
+				same = false
+				break
+			}
+		}
+		if !same {
+			break
+		}
+		common = append(common, ref)
+	}
+	return strings.Join(common, "/")
+}
+
 // mostCommonSubdirBeyond returns prefix + "/" + a discriminator that
 // drills deeper into the community's path structure. Two strategies,
 // tried in order:
@@ -565,15 +598,33 @@ func longestCommonDirPrefix(paths []string) string {
 // labels (a 400-node super shouldn't read as "src/services/agents/
 // AccountingAgent.js"). Tier-2 communities pass true since a single
 // file commonly is a meaningful identifier for a small cluster.
+//
+// For super-communities (!allowFileBasename), additionally require a
+// strict majority of paths to share the dominant subdir before
+// drilling — otherwise sibling files at the current level outvote
+// and the prefix is the right granularity. Without this gate, a
+// super whose children are mostly file-siblings of `src/services/*`
+// plus a couple under `src/services/agents/*` would drill down to
+// `src/services/agents` even though most members aren't there.
 func mostCommonSubdirBeyond(paths []string, prefix string, allowFileBasename bool) string {
 	pref := prefix + "/"
 	subdirs := map[string]int{}
 	files := map[string]int{}
+	total := 0
 	for _, p := range paths {
-		rel := strings.TrimPrefix(p, pref)
-		if rel == p {
+		// A path that EQUALS the prefix counts as a "stay at this
+		// level" vote — relevant when child community labels can be
+		// directory-shaped (e.g. "src/processes") and one super's
+		// child IS the current prefix.
+		if p == prefix {
+			total++
 			continue
 		}
+		if !strings.HasPrefix(p, pref) {
+			continue
+		}
+		rel := p[len(pref):]
+		total++
 		if idx := strings.Index(rel, "/"); idx >= 0 {
 			subdirs[rel[:idx]]++
 		} else {
@@ -581,6 +632,12 @@ func mostCommonSubdirBeyond(paths []string, prefix string, allowFileBasename boo
 		}
 	}
 	if best := dominantLabel(subdirs); best != "" {
+		// Super-community drilling: only proceed if a strict majority
+		// of children live in this subdir. Otherwise the file-siblings
+		// at this level are signaling "the prefix is the right depth."
+		if !allowFileBasename && subdirs[best]*2 < total {
+			return ""
+		}
 		return prefix + "/" + best
 	}
 	if allowFileBasename {
