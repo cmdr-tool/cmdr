@@ -36,12 +36,12 @@
 			onclick={onCreate}
 			disabled={!canGenerate}
 			title={canGenerate ? 'Generate a new trace' : 'Build the graph first'}
-			class="flex items-center gap-1 px-2 py-1 rounded
+			class="flex items-center gap-1 px-2 py-1 rounded-md
 				text-[10px] font-display font-bold uppercase tracking-widest
-				transition-colors cursor-pointer
+				border backdrop-blur-sm transition-colors cursor-pointer
 				{canGenerate
-					? 'text-cmd-400 hover:text-cmd-300 hover:bg-bourbon-800/60'
-					: 'text-bourbon-700 cursor-not-allowed'}"
+					? 'bg-cmd-700/40 border-cmd-600/30 text-cmd-400 hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300'
+					: 'bg-bourbon-800/30 border-bourbon-800/40 text-bourbon-700 cursor-not-allowed'}"
 		>
 			<Plus size={11} />
 			new
@@ -73,8 +73,9 @@
 					onclick={onCreate}
 					class="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-md
 						text-[10px] font-display font-bold uppercase tracking-widest
-						bg-cmd-700/40 border border-cmd-600/30 text-cmd-300
-						hover:bg-cmd-700/60 hover:text-cmd-200 transition-colors cursor-pointer"
+						bg-cmd-700/40 border border-cmd-600/30 text-cmd-400
+						hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300
+						transition-colors cursor-pointer"
 				>
 					<Plus size={11} />
 					Generate trace
