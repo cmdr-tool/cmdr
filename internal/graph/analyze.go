@@ -331,7 +331,7 @@ func labelCommunities(snap *Snapshot, idx []int) {
 				continue
 			}
 			for _, c := range cs {
-				deeper := mostCommonSubdirBeyond(communityPaths[c], label)
+				deeper := mostCommonSubdirBeyond(communityPaths[c], label, true)
 				if deeper != "" && deeper != labels[c] {
 					labels[c] = deeper
 					anyDrilled = true
@@ -470,7 +470,7 @@ func labelSuperCommunities(snap *Snapshot, communities, superIdx []int) {
 				continue
 			}
 			for _, sc := range scs {
-				deeper := mostCommonSubdirBeyond(pathsFor(sc), label)
+				deeper := mostCommonSubdirBeyond(pathsFor(sc), label, false)
 				if deeper != "" && deeper != labels[sc] {
 					labels[sc] = deeper
 					anyDrilled = true
@@ -559,7 +559,13 @@ func longestCommonDirPrefix(paths []string) string {
 //  2. Most-common file basename in the immediate prefix dir (when the
 //     community is one or more "flat" files like src/services/
 //     Inventory.js where a whole class + methods cluster together).
-func mostCommonSubdirBeyond(paths []string, prefix string) string {
+//
+// allowFileBasename: pass false when labeling super-communities, where
+// drilling down to a specific filename produces misleadingly narrow
+// labels (a 400-node super shouldn't read as "src/services/agents/
+// AccountingAgent.js"). Tier-2 communities pass true since a single
+// file commonly is a meaningful identifier for a small cluster.
+func mostCommonSubdirBeyond(paths []string, prefix string, allowFileBasename bool) string {
 	pref := prefix + "/"
 	subdirs := map[string]int{}
 	files := map[string]int{}
@@ -577,8 +583,10 @@ func mostCommonSubdirBeyond(paths []string, prefix string) string {
 	if best := dominantLabel(subdirs); best != "" {
 		return prefix + "/" + best
 	}
-	if best := dominantLabel(files); best != "" {
-		return prefix + "/" + best
+	if allowFileBasename {
+		if best := dominantLabel(files); best != "" {
+			return prefix + "/" + best
+		}
 	}
 	return ""
 }
