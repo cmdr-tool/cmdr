@@ -3,8 +3,14 @@
 	import * as dagre from '@dagrejs/dagre';
 	import { zoom, zoomIdentity, type ZoomBehavior } from 'd3-zoom';
 	import { select } from 'd3-selection';
-	import { AlertCircle, X, ArrowRight, ExternalLink } from 'lucide-svelte';
-	import { openInEditor, type Trace, type TraceStep } from '$lib/api';
+	import { AlertCircle, X, ArrowRight, ExternalLink, History, ChevronRight } from 'lucide-svelte';
+	import { openInEditor, type Trace, type TraceStep, type ChangeSummary, type TraceEvent } from '$lib/api';
+
+	type ActivityEvent = {
+		id: number;
+		kind: 'tool' | 'text' | 'error' | 'phase';
+		text: string;
+	};
 
 	type Props = {
 		trace: Trace | null;
@@ -12,6 +18,13 @@
 		generating?: boolean;
 		emptyMessage?: string;
 		repoPath?: string;
+		// Optional previous-version data for the current/previous toggle.
+		previousTrace?: Trace | null;
+		changeSummary?: ChangeSummary | null;
+		view?: 'current' | 'previous';
+		// SSE activity stream (events for in-flight runs).
+		activity?: ActivityEvent[];
+		onViewChange?: (view: 'current' | 'previous') => void;
 		onNavigate?: (nodeId: string) => void;
 		onReady?: () => void;
 	};
@@ -22,9 +35,38 @@
 		generating = false,
 		emptyMessage = 'Select a trace from the sidebar.',
 		repoPath,
+		previousTrace = null,
+		changeSummary = null,
+		view = 'current',
+		activity = [],
+		onViewChange,
 		onNavigate,
 		onReady
 	}: Props = $props();
+
+	// Whichever version is being shown drives the layout. Callouts only
+	// render in 'previous' view because the spec calls for "show what
+	// changed by overlaying it on the previous DAG."
+	let activeTrace = $derived(view === 'previous' ? previousTrace : trace);
+	let calloutsByStepID = $derived.by(() => {
+		const map = new Map<string, { kind: string; description: string }[]>();
+		if (view !== 'previous' || !changeSummary) return map;
+		for (const ch of changeSummary.changes) {
+			const key = ch.previous_step_id;
+			if (!key) continue;
+			const list = map.get(key) ?? [];
+			list.push({ kind: ch.kind, description: ch.description });
+			map.set(key, list);
+		}
+		return map;
+	});
+
+	// Anchorless callouts (added in current with no previous step) show in
+	// a side panel rather than on the canvas.
+	let anchorlessCallouts = $derived.by(() => {
+		if (view !== 'previous' || !changeSummary) return [];
+		return changeSummary.changes.filter((c) => !c.previous_step_id);
+	});
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 	let ctx: CanvasRenderingContext2D | null = null;
@@ -52,7 +94,7 @@
 	};
 
 	let layout = $derived.by<{ nodes: LayoutNode[]; edges: LayoutEdge[] } | null>(() => {
-		if (!trace) return null;
+		if (!activeTrace) return null;
 		const g = new dagre.graphlib.Graph()
 			.setGraph({
 				rankdir: 'TB',
@@ -65,7 +107,7 @@
 			.setDefaultEdgeLabel(() => ({}));
 
 		const stepById = new Map<string, TraceStep>();
-		for (const step of trace.steps) {
+		for (const step of activeTrace.steps) {
 			stepById.set(step.id, step);
 			const labelLen = step.label.length;
 			const w = Math.max(220, Math.min(360, labelLen * 7 + 60));
@@ -74,7 +116,7 @@
 			const h = 56 + (hasDesc ? 18 : 0) + (reqCount > 0 ? 14 : 0);
 			g.setNode(step.id, { width: w, height: h, step });
 		}
-		for (const step of trace.steps) {
+		for (const step of activeTrace.steps) {
 			for (const next of step.next ?? []) {
 				const target = stepById.get(next.to);
 				if (!target) continue;
@@ -98,7 +140,7 @@
 	$effect(() => {
 		// Fire ready as soon as we know whether traces are present or not.
 		// The canvas itself doesn't have a "first paint" milestone here.
-		trace;
+		activeTrace;
 		loading;
 		onReady?.();
 	});
@@ -107,7 +149,7 @@
 	// step IDs are local per-trace, so a stale pin would point at a step
 	// in a different flow.
 	$effect(() => {
-		trace;
+		activeTrace;
 		pinnedStepId = null;
 	});
 
@@ -458,21 +500,100 @@
 		onclick={handleClick}
 	></canvas>
 
-	{#if !loading && !generating && !trace}
+	{#if !loading && !generating && !activeTrace}
 		<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
 			<span class="text-bourbon-600 text-sm">{emptyMessage}</span>
 		</div>
 	{/if}
 
+	<!-- Current/Previous toggle — only when a previous version exists. -->
+	{#if previousTrace}
+		<div class="absolute top-3 right-3 z-20 flex items-center gap-1 p-0.5 rounded-md
+			bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm">
+			<button
+				onclick={() => onViewChange?.('current')}
+				class="px-2.5 py-1 rounded font-display text-[10px] font-bold uppercase tracking-widest transition-colors cursor-pointer
+					{view === 'current'
+						? 'bg-bourbon-700/60 text-bourbon-200'
+						: 'text-bourbon-500 hover:text-bourbon-300'}"
+			>
+				current
+			</button>
+			<button
+				onclick={() => onViewChange?.('previous')}
+				class="px-2.5 py-1 rounded font-display text-[10px] font-bold uppercase tracking-widest transition-colors cursor-pointer
+					{view === 'previous'
+						? 'bg-bourbon-700/60 text-bourbon-200'
+						: 'text-bourbon-500 hover:text-bourbon-300'}"
+			>
+				<History size={10} class="inline mr-1" />
+				previous
+			</button>
+		</div>
+	{/if}
+
+	<!-- Change-summary banner when viewing previous. -->
+	{#if view === 'previous' && changeSummary && changeSummary.summary}
+		<div class="absolute top-3 left-3 z-20 max-w-md px-3 py-2 rounded-md
+			bg-cmd-900/60 border border-cmd-700/50 backdrop-blur-sm">
+			<div class="font-display text-[9px] font-bold uppercase tracking-widest text-cmd-400 mb-1">
+				what changed
+			</div>
+			<div class="text-[11px] text-bourbon-200 leading-relaxed">
+				{changeSummary.summary}
+			</div>
+		</div>
+	{/if}
+
+	<!-- Anchorless callouts (added in current with no previous step) — text-only side panel. -->
+	{#if view === 'previous' && anchorlessCallouts.length > 0}
+		<div class="absolute bottom-3 right-3 z-20 w-72 max-h-64 overflow-y-auto
+			rounded-md bg-bourbon-900/85 border border-bourbon-800 backdrop-blur-sm">
+			<div class="px-3 py-2 border-b border-bourbon-800/60 font-display text-[9px] font-bold uppercase tracking-widest text-cmd-400">
+				added in current ({anchorlessCallouts.length})
+			</div>
+			<div class="flex flex-col">
+				{#each anchorlessCallouts as ch}
+					<div class="px-3 py-2 border-b border-bourbon-800/40 last:border-b-0">
+						<div class="text-[9px] font-display font-bold uppercase tracking-widest text-cmd-500 mb-0.5">
+							{ch.kind}
+						</div>
+						<div class="text-[10px] text-bourbon-300 leading-relaxed">{ch.description}</div>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
+	<!-- In-flight activity panel: streams agent tool/text events as they arrive. -->
 	{#if generating}
-		<div class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-bourbon-950/85 backdrop-blur-sm">
-			<div class="w-5 h-5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
-			<span class="font-display text-xs uppercase tracking-widest text-bourbon-400">
-				Generating traces
-			</span>
-			<span class="text-[10px] font-mono text-bourbon-600 max-w-sm text-center">
-				LLM is analyzing your repo. This typically takes 1-3 minutes.
-			</span>
+		<div class="absolute inset-0 z-30 flex items-center justify-center bg-bourbon-950/85 backdrop-blur-sm">
+			<div class="w-[28rem] max-h-[70vh] flex flex-col bg-bourbon-900/95 border border-bourbon-800 rounded-lg overflow-hidden">
+				<div class="px-4 py-3 border-b border-bourbon-800 flex items-center gap-2">
+					<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
+					<span class="font-display text-xs uppercase tracking-widest text-bourbon-300">Generating trace</span>
+				</div>
+				<div class="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-1.5 font-mono text-[10px]">
+					{#if activity.length === 0}
+						<span class="text-bourbon-600">waiting for agent…</span>
+					{:else}
+						{#each activity as evt (evt.id)}
+							{#if evt.kind === 'tool'}
+								<div class="text-bourbon-300">· {evt.text}</div>
+							{:else if evt.kind === 'text'}
+								<div class="text-bourbon-500 leading-relaxed line-clamp-2">{evt.text}</div>
+							{:else if evt.kind === 'error'}
+								<div class="text-red-400">! {evt.text}</div>
+							{:else if evt.kind === 'phase'}
+								<div class="text-run-500 uppercase tracking-widest">— {evt.text} —</div>
+							{/if}
+						{/each}
+					{/if}
+				</div>
+				<div class="px-4 py-2 border-t border-bourbon-800 text-[9px] text-bourbon-700">
+					Typically takes 1–3 minutes. You can close this page; the run continues in the background.
+				</div>
+			</div>
 		</div>
 	{/if}
 
@@ -550,6 +671,23 @@
 					{/if}
 				{/if}
 			</div>
+
+			{#if view === 'previous' && calloutsByStepID.get(pinned.node.id)}
+				{@const calls = calloutsByStepID.get(pinned.node.id) ?? []}
+				<div class="px-4 py-3 border-b border-bourbon-800/40 flex flex-col gap-1.5">
+					<div class="text-[9px] font-display font-bold uppercase tracking-widest text-cmd-400">
+						what changed
+					</div>
+					{#each calls as c}
+						<div>
+							<div class="text-[9px] font-display font-bold uppercase tracking-widest text-cmd-500 mb-0.5">
+								{c.kind}
+							</div>
+							<div class="text-[10px] text-bourbon-300 leading-relaxed">{c.description}</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
 
 			{#if pinned.node.step.requires && pinned.node.step.requires.length > 0}
 				<div class="px-4 py-3 border-b border-bourbon-800/40">

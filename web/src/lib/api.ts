@@ -856,50 +856,118 @@ export type TraceStep = {
 };
 
 export type Trace = {
-	name: string;
-	description?: string;
 	entry: string;
 	steps: TraceStep[];
 };
 
-export type TraceResult = {
-	repo_slug: string;
-	commit_sha: string;
-	traces: Trace[];
+export type TraceChangeKind = 'added' | 'removed' | 'modified';
+
+export type TraceChange = {
+	kind: TraceChangeKind;
+	description: string;
+	previous_step_id?: string;
+	current_step_id?: string;
 };
 
-export async function getTraces(slug: string, sha: string): Promise<TraceResult | null> {
-	const res = await fetch(`${BASE}/graphs/${encodeURIComponent(slug)}/${encodeURIComponent(sha)}/traces`);
-	if (res.status === 404) return null;
-	if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-	return res.json();
+export type ChangeSummary = {
+	summary: string;
+	changes: TraceChange[];
+};
+
+export type TraceStatus = 'generating' | 'ready' | 'failed';
+
+export type TraceRow = {
+	id: number;
+	repoSlug: string;
+	prompt: string;
+	title: string;
+	affectedFiles: string[];
+	stale: boolean;
+	currentData: Trace | null;
+	currentSnapshotSha?: string;
+	currentGeneratedAt: string | null;
+	currentStatus: TraceStatus;
+	currentError?: string;
+	previousData?: Trace | null;
+	previousSnapshotSha?: string;
+	previousGeneratedAt?: string | null;
+	previousChangeSummary?: ChangeSummary;
+	createdAt: string;
+};
+
+export function listTraces(slug: string): Promise<TraceRow[]> {
+	return request(`/graphs/${encodeURIComponent(slug)}/traces`);
 }
 
-export function generateTraces(
+export function createTrace(
 	slug: string,
-	sha: string,
-	opts?: { guidance?: string }
-): Promise<TraceResult> {
-	return request(`/graphs/${encodeURIComponent(slug)}/${encodeURIComponent(sha)}/traces`, {
+	prompt: string
+): Promise<{ trace_id: number; title: string; status: TraceStatus }> {
+	return request(`/graphs/${encodeURIComponent(slug)}/traces`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			guidance: opts?.guidance ?? ''
-		})
+		body: JSON.stringify({ prompt })
 	});
 }
 
-export type BuildTarget = 'graph' | 'traces';
+export function regenerateTrace(
+	slug: string,
+	traceId: number
+): Promise<{ trace_id: number; status: TraceStatus }> {
+	return request(`/graphs/${encodeURIComponent(slug)}/traces/${traceId}/regenerate`, {
+		method: 'POST'
+	});
+}
+
+export function deleteTrace(slug: string, traceId: number): Promise<{ ok: boolean }> {
+	return request(`/graphs/${encodeURIComponent(slug)}/traces/${traceId}`, {
+		method: 'DELETE'
+	});
+}
+
+export type TraceEventPhase = 'generating' | 'comparing' | 'done' | 'failed';
+
+export type TraceEvent =
+	| { type: 'phase'; phase: TraceEventPhase }
+	| { type: 'tool'; tool: string; detail?: string }
+	| { type: 'text'; text: string }
+	| { type: 'error'; text: string };
+
+// subscribeTraceEvents opens an SSE connection to the per-trace event
+// channel. Returns a disposer that closes the underlying EventSource.
+// onEvent is called for each parsed event regardless of type; the caller
+// is responsible for filtering. The callback may be invoked after
+// disposer() if browser delivery is in flight, so callers should guard
+// against late events touching destroyed UI state.
+export function subscribeTraceEvents(
+	slug: string,
+	traceId: number,
+	onEvent: (e: TraceEvent) => void
+): () => void {
+	const url = `${BASE}/graphs/${encodeURIComponent(slug)}/traces/events?trace_id=${traceId}`;
+	const es = new EventSource(url);
+	const handler = (ev: MessageEvent<string>) => {
+		try {
+			const parsed = JSON.parse(ev.data) as TraceEvent;
+			onEvent(parsed);
+		} catch {
+			// Drop malformed events silently — the UI already shows a
+			// status pill from the row's currentStatus, so a missed
+			// event is not a hard failure.
+		}
+	};
+	for (const t of ['phase', 'tool', 'text', 'error', 'message']) {
+		es.addEventListener(t, handler as EventListener);
+	}
+	return () => es.close();
+}
 
 export async function buildGraph(
 	slug: string,
-	opts?: { force?: boolean; targets?: BuildTarget[] }
-): Promise<{ snapshot_id: number; status: 'building' | 'tracing' | 'ready' }> {
+	opts?: { force?: boolean }
+): Promise<{ snapshot_id: number; status: 'building' | 'ready' }> {
 	const params = new URLSearchParams();
 	if (opts?.force) params.set('force', 'true');
-	if (opts?.targets && opts.targets.length > 0) {
-		params.set('targets', opts.targets.join(','));
-	}
 	const qs = params.toString() ? '?' + params.toString() : '';
 	const res = await fetch(`${BASE}/graphs/${encodeURIComponent(slug)}/build${qs}`, { method: 'POST' });
 	const data = await res.json();

@@ -57,17 +57,36 @@ type TraceStep struct {
 	SourceLine  int           `json:"source_line,omitempty"`
 }
 
-// Trace is a single named data flow.
+// Trace is a single user-prompted data flow. One trace = one user prompt;
+// title and prompt are immutable for the trace's lifetime.
 type Trace struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	Entry       string      `json:"entry"`
-	Steps       []TraceStep `json:"steps"`
+	Entry string      `json:"entry"`
+	Steps []TraceStep `json:"steps"`
 }
 
-// Result is the top-level output of a trace run.
-type Result struct {
-	RepoSlug  string  `json:"repo_slug"`
-	CommitSHA string  `json:"commit_sha"`
-	Traces    []Trace `json:"traces"`
+// ChangeKind classifies a single difference between two trace versions.
+type ChangeKind string
+
+const (
+	ChangeAdded    ChangeKind = "added"
+	ChangeRemoved  ChangeKind = "removed"
+	ChangeModified ChangeKind = "modified"
+)
+
+// Change is one entry in a ChangeSummary. PreviousStepID anchors removed
+// or modified callouts to the previous-version DAG; CurrentStepID anchors
+// added or modified callouts to the current-version DAG.
+type Change struct {
+	Kind           ChangeKind `json:"kind"`
+	Description    string     `json:"description"`
+	PreviousStepID string     `json:"previous_step_id,omitempty"`
+	CurrentStepID  string     `json:"current_step_id,omitempty"`
+}
+
+// ChangeSummary is the LLM-computed diff between two trace versions.
+// Stored alongside the previous slot it describes; discarded together
+// when the previous slot is overwritten.
+type ChangeSummary struct {
+	Summary string   `json:"summary"`
+	Changes []Change `json:"changes"`
 }
