@@ -123,33 +123,42 @@
 			buildFlatView(snap);
 		}
 
+		// rAF callbacks run BEFORE the next paint in the same frame, so
+		// scheduling the heavy `simulation.tick(150)` inside a single rAF
+		// blocks before the loader overlay ever gets painted — the user
+		// experiences 1-2s of frozen UI with no visible feedback. The
+		// fix is a double-rAF: the first frame paints the loader, the
+		// second frame runs the blocking work. setTimeout(0) would also
+		// work but rAF aligns with the browser's render cadence.
 		requestAnimationFrame(() => {
-			simulation = forceSimulation<SimNode, SimLink>(nodes)
-				.force(
-					'link',
-					forceLink<SimNode, SimLink>(links)
-						.id((d) => d.id)
-						.distance((d) => (m === 'super' ? 100 : 45))
-						.strength(0.5)
-				)
-				.force('charge', forceManyBody<SimNode>().strength(m === 'super' ? -400 : -120).distanceMax(400))
-				.force('center', forceCenter(0, 0).strength(0.04))
-				.force(
-					'collide',
-					forceCollide<SimNode>().radius((d) => {
-						if (d.isPhantom) return phantomRadius(d.phantomCount ?? 1) + 2;
-						if (m === 'super') return superNodeRadius((d as any).memberCount ?? 1) + 4;
-						return nodeRadius(d.degree) + 2;
-					})
-				)
-				.alphaDecay(0.04)
-				.stop()
-				.on('tick', scheduleDraw);
-
-			simulation.tick(150);
 			requestAnimationFrame(() => {
-				fitToViewport();
-				scheduleDraw();
+				simulation = forceSimulation<SimNode, SimLink>(nodes)
+					.force(
+						'link',
+						forceLink<SimNode, SimLink>(links)
+							.id((d) => d.id)
+							.distance(() => (m === 'super' ? 100 : 45))
+							.strength(0.5)
+					)
+					.force('charge', forceManyBody<SimNode>().strength(m === 'super' ? -400 : -120).distanceMax(400))
+					.force('center', forceCenter(0, 0).strength(0.04))
+					.force(
+						'collide',
+						forceCollide<SimNode>().radius((d) => {
+							if (d.isPhantom) return phantomRadius(d.phantomCount ?? 1) + 2;
+							if (m === 'super') return superNodeRadius((d as any).memberCount ?? 1) + 4;
+							return nodeRadius(d.degree) + 2;
+						})
+					)
+					.alphaDecay(0.04)
+					.stop()
+					.on('tick', scheduleDraw);
+
+				simulation.tick(150);
+				requestAnimationFrame(() => {
+					fitToViewport();
+					scheduleDraw();
+				});
 			});
 		});
 	}
