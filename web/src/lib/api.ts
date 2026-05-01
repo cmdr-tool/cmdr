@@ -721,6 +721,7 @@ export type GraphPhase =
 	| 'building'
 	| 'clustering'
 	| 'writing'
+	| 'tracing'
 	| 'complete'
 	| 'failed';
 
@@ -731,6 +732,7 @@ export interface GraphBuildEvent {
 	phase: GraphPhase;
 	percent: number;
 	error?: string;
+	trace_error?: string;
 	stats?: {
 		node_count: number;
 		edge_count: number;
@@ -825,11 +827,76 @@ export function setGraphContext(slug: string, context: string): Promise<{ ok: bo
 	});
 }
 
+export type TraceProvenance = 'extracted' | 'inferred';
+
+export type TraceRequirement = {
+	kind: 'env' | 'config' | 'instance' | 'import' | 'type';
+	label: string;
+	node_id?: string;
+	description?: string;
+	source_file?: string;
+	source_line?: number;
+	provenance: TraceProvenance;
+};
+
+export type TraceStep = {
+	id: string;
+	node_id?: string;
+	label: string;
+	description?: string;
+	provenance: TraceProvenance;
+	next?: Array<{ to: string; condition?: string }>;
+	requires?: TraceRequirement[];
+	source_file?: string;
+	source_line?: number;
+};
+
+export type Trace = {
+	name: string;
+	description?: string;
+	entry: string;
+	steps: TraceStep[];
+};
+
+export type TraceResult = {
+	repo_slug: string;
+	commit_sha: string;
+	traces: Trace[];
+};
+
+export async function getTraces(slug: string, sha: string): Promise<TraceResult | null> {
+	const res = await fetch(`${BASE}/graphs/${encodeURIComponent(slug)}/${encodeURIComponent(sha)}/traces`);
+	if (res.status === 404) return null;
+	if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+	return res.json();
+}
+
+export function generateTraces(
+	slug: string,
+	sha: string,
+	opts?: { guidance?: string }
+): Promise<TraceResult> {
+	return request(`/graphs/${encodeURIComponent(slug)}/${encodeURIComponent(sha)}/traces`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			guidance: opts?.guidance ?? ''
+		})
+	});
+}
+
+export type BuildTarget = 'graph' | 'traces';
+
 export async function buildGraph(
 	slug: string,
-	opts?: { force?: boolean }
-): Promise<{ snapshot_id: number; status: 'building' | 'ready' }> {
-	const qs = opts?.force ? '?force=true' : '';
+	opts?: { force?: boolean; targets?: BuildTarget[] }
+): Promise<{ snapshot_id: number; status: 'building' | 'tracing' | 'ready' }> {
+	const params = new URLSearchParams();
+	if (opts?.force) params.set('force', 'true');
+	if (opts?.targets && opts.targets.length > 0) {
+		params.set('targets', opts.targets.join(','));
+	}
+	const qs = params.toString() ? '?' + params.toString() : '';
 	const res = await fetch(`${BASE}/graphs/${encodeURIComponent(slug)}/build${qs}`, { method: 'POST' });
 	const data = await res.json();
 	if (!res.ok) {

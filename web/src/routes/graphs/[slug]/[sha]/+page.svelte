@@ -6,17 +6,20 @@
 	import {
 		getGraph,
 		listSnapshots,
+		getTraces,
 		type GraphSnapshot,
 		type GraphSnapshotMeta,
-		type GraphPhase
+		type GraphPhase,
+		type TraceResult
 	} from '$lib/api';
 	import { events } from '$lib/events';
 	import NetworkFacet from '$lib/components/graphs/NetworkFacet.svelte';
-	import FlowFacet from '$lib/components/graphs/FlowFacet.svelte';
+	import TracesFacet from '$lib/components/graphs/TracesFacet.svelte';
 	import GraphSidebar from '$lib/components/graphs/GraphSidebar.svelte';
+	import TracesSidebar from '$lib/components/graphs/TracesSidebar.svelte';
 	import { communityColor } from '$lib/components/graphs/colors';
 
-	type Facet = 'network' | 'flow';
+	type Facet = 'network' | 'traces';
 
 	let slug = $derived(page.params.slug ?? '');
 	let sha = $derived(page.params.sha ?? '');
@@ -32,7 +35,32 @@
 	let selectedId: string | null = $state(null);
 	let statsExpanded = $state(false);
 	let facet: Facet = $state('network');
-	let flowDepth = $state(2);
+
+	// Traces state — lifted to the page so the right-hand TracesSidebar
+	// and the canvas TracesFacet can share the same selection.
+	let traces = $state<TraceResult | null>(null);
+	let tracesLoading = $state(false);
+	let tracesError: string | null = $state(null);
+	let selectedTraceIdx = $state(0);
+
+	let selectedTrace = $derived(traces?.traces[selectedTraceIdx] ?? null);
+
+	$effect(() => {
+		if (!slug || !sha) return;
+		tracesLoading = true;
+		tracesError = null;
+		selectedTraceIdx = 0;
+		getTraces(slug, sha)
+			.then((t) => {
+				traces = t;
+			})
+			.catch((e) => {
+				tracesError = e instanceof Error ? e.message : 'failed to load traces';
+			})
+			.finally(() => {
+				tracesLoading = false;
+			});
+	});
 
 	let repoName = $derived.by(() => {
 		const s = snapshot;
@@ -59,6 +87,7 @@
 		building: 'building',
 		clustering: 'clustering',
 		writing: 'writing',
+		tracing: 'tracing',
 		complete: 'complete',
 		failed: 'failed'
 	};
@@ -187,25 +216,9 @@
 
 		<div class="flex items-center gap-3 shrink-0">
 			{#if snapshot}
-				{#if facet === 'flow'}
-					<!-- Depth slider — appears to the left of the tabs so the
-					     tab position stays stable across mode switches. -->
-					<div class="flex items-center gap-2 px-2.5 py-1 rounded-md bg-bourbon-800/40 border border-bourbon-700/40">
-						<span class="font-display text-[10px] uppercase tracking-widest text-bourbon-500">depth</span>
-						<input
-							type="range"
-							min="1"
-							max="5"
-							bind:value={flowDepth}
-							class="w-20 accent-cmd-500"
-						/>
-						<span class="font-mono text-[10px] text-bourbon-300 w-3 text-right">{flowDepth}</span>
-					</div>
-				{/if}
-
 				<!-- Facet tabs -->
 				<div class="flex items-center gap-1 p-0.5 rounded-md bg-bourbon-800/40 border border-bourbon-700/40">
-					{#each ['network', 'flow'] as f (f)}
+					{#each ['network', 'traces'] as f (f)}
 						<button
 							onclick={() => (facet = f as Facet)}
 							class="px-2.5 py-1 rounded font-display text-[10px] font-bold uppercase tracking-widest transition-colors cursor-pointer
@@ -277,14 +290,23 @@
 					</div>
 				{:else}
 					<!-- Both facets stay mounted across tab switches so we don't
-					     pay re-init costs (force simulation rebuild, hierarchy
-					     re-layout) every time the user toggles. The inactive
-					     one is hidden + click-disabled but keeps its state. -->
+					     pay re-init costs (force simulation rebuild, layout
+					     re-computation) every time the user toggles. The
+					     inactive one is hidden + click-disabled but keeps state. -->
 					<div class="absolute inset-0" class:invisible={facet !== 'network'} class:pointer-events-none={facet !== 'network'}>
 						<NetworkFacet {snapshot} bind:selectedId onReady={handleFacetReady} />
 					</div>
-					<div class="absolute inset-0" class:invisible={facet !== 'flow'} class:pointer-events-none={facet !== 'flow'}>
-						<FlowFacet {snapshot} bind:selectedId bind:depth={flowDepth} onReady={handleFacetReady} />
+					<div class="absolute inset-0" class:invisible={facet !== 'traces'} class:pointer-events-none={facet !== 'traces'}>
+						<TracesFacet
+							trace={selectedTrace}
+							loading={tracesLoading}
+							emptyMessage={traces ? 'Select a trace from the sidebar.' : 'No traces — run a Build with traces from the graphs index.'}
+							onNavigate={(id) => {
+								selectedId = id;
+								facet = 'network';
+							}}
+							onReady={handleFacetReady}
+						/>
 					</div>
 
 					{#if facet === 'network'}
@@ -354,8 +376,15 @@
 				{/if}
 			</div>
 
-			{#if snapshot.nodes.length > 0}
+			{#if snapshot.nodes.length > 0 && facet === 'network'}
 				<GraphSidebar {snapshot} bind:selectedId />
+			{:else if facet === 'traces'}
+				<TracesSidebar
+					{traces}
+					bind:selectedTraceIdx
+					loading={tracesLoading}
+					error={tracesError}
+				/>
 			{/if}
 		{:else if loading}
 			<!-- Initial mount: snapshot not yet fetched. -->

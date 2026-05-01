@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Network, Hammer, FolderCode, AlertCircle, ChevronRight, BookOpen, X } from 'lucide-svelte';
+	import { Network, Hammer, FolderCode, AlertCircle, ChevronRight, ChevronDown, X } from 'lucide-svelte';
 	import {
 		listGraphs,
 		buildGraph,
@@ -22,40 +22,90 @@
 	let live: Record<string, LiveBuild> = $state({});
 	let buildErrors: Record<string, string> = $state({});
 
-	// Context-edit modal state.
-	let editingSlug: string | null = $state(null);
-	let editingRepoName = $state('');
-	let editingContext = $state('');
-	let savingContext = $state(false);
+	// Build modal state. Open via the "Build All" / "Rebuild All" dropdown
+	// option; submitting saves the context and kicks off graph + traces.
+	let buildModalSlug: string | null = $state(null);
+	let buildModalRepoName = $state('');
+	let buildModalContext = $state('');
+	let buildModalContextLoaded = $state('');
+	let buildModalSubmitting = $state(false);
+	let buildModalError: string | null = $state(null);
+	let buildModalTextarea: HTMLTextAreaElement | undefined = $state(undefined);
 
-	async function openContextEditor(row: GraphRepoRow) {
-		editingSlug = row.slug;
-		editingRepoName = row.repoName;
-		editingContext = '';
+	$effect(() => {
+		if (buildModalSlug && buildModalTextarea) buildModalTextarea.focus();
+	});
+
+	// Per-row dropdown state — only one row's menu is ever open.
+	let openDropdownSlug: string | null = $state(null);
+
+	function toggleDropdown(slug: string) {
+		openDropdownSlug = openDropdownSlug === slug ? null : slug;
+	}
+
+	$effect(() => {
+		if (!openDropdownSlug) return;
+		function onPointerDown(e: PointerEvent) {
+			const target = e.target as HTMLElement | null;
+			if (!target) return;
+			if (target.closest('[data-dropdown-anchor]')) return;
+			openDropdownSlug = null;
+		}
+		window.addEventListener('pointerdown', onPointerDown);
+		return () => window.removeEventListener('pointerdown', onPointerDown);
+	});
+
+	async function openBuildModal(row: GraphRepoRow) {
+		openDropdownSlug = null;
+		buildModalSlug = row.slug;
+		buildModalRepoName = row.repoName;
+		buildModalContext = '';
+		buildModalContextLoaded = '';
+		buildModalError = null;
 		try {
 			const res = await getGraphContext(row.slug);
-			editingContext = res.context;
+			buildModalContext = res.context;
+			buildModalContextLoaded = res.context;
 		} catch {
 			// new repo, no context yet — leave empty
 		}
 	}
 
-	function closeContextEditor() {
-		editingSlug = null;
-		editingRepoName = '';
-		editingContext = '';
+	function closeBuildModal() {
+		buildModalSlug = null;
+		buildModalRepoName = '';
+		buildModalContext = '';
+		buildModalContextLoaded = '';
+		buildModalError = null;
 	}
 
-	async function saveContext() {
-		if (!editingSlug) return;
-		savingContext = true;
+	async function submitBuildModal() {
+		if (!buildModalSlug) return;
+		const slug = buildModalSlug;
+		buildModalSubmitting = true;
+		buildModalError = null;
 		try {
-			await setGraphContext(editingSlug, editingContext);
-			closeContextEditor();
+			// Save context only if it changed — keeps the row's metadata
+			// stable when the user opens and closes without edits.
+			if (buildModalContext !== buildModalContextLoaded) {
+				await setGraphContext(slug, buildModalContext);
+			}
+			closeBuildModal();
+			await runBuild(slug, ['graph', 'traces'], true);
 		} catch (err) {
-			buildErrors[editingSlug] = err instanceof Error ? err.message : 'save failed';
+			buildModalError = err instanceof Error ? err.message : 'build failed';
 		}
-		savingContext = false;
+		buildModalSubmitting = false;
+	}
+
+	function handleBuildModalKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			closeBuildModal();
+		} else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+			e.preventDefault();
+			submitBuildModal();
+		}
 	}
 
 	const phaseLabels: Record<GraphPhase, string> = {
@@ -64,6 +114,7 @@
 		building: 'building',
 		clustering: 'clustering',
 		writing: 'writing',
+		tracing: 'tracing',
 		complete: 'complete',
 		failed: 'failed'
 	};
@@ -71,6 +122,16 @@
 	onMount(async () => {
 		try {
 			rows = await listGraphs();
+			// If a build is mid-flight when the page loads, the SSE history
+			// is lost — but the DB row's status reflects it. Hydrate live[]
+			// from any non-ready/failed row so the in-flight indicator
+			// shows immediately. Subsequent SSE events overwrite this with
+			// real phase info as they arrive.
+			for (const row of rows) {
+				if (row.latestStatus && row.latestStatus !== 'ready' && row.latestStatus !== 'failed') {
+					live[row.slug] = { phase: 'started', percent: 0 };
+				}
+			}
 		} catch {
 			rows = [];
 		}
@@ -80,6 +141,13 @@
 	const unsub = events.on('graphs:build', async (e) => {
 		live[e.slug] = { phase: e.phase, percent: e.percent, error: e.error };
 		if (e.phase === 'complete' || e.phase === 'failed') {
+			// Trace failures are soft on the backend (graph still ready),
+			// so surface them on the row instead of swallowing silently.
+			if (e.trace_error) {
+				buildErrors[e.slug] = `traces failed: ${e.trace_error}`;
+			} else if (e.error) {
+				buildErrors[e.slug] = e.error;
+			}
 			try {
 				rows = await listGraphs();
 			} catch {
@@ -94,13 +162,12 @@
 
 	onDestroy(unsub);
 
-	async function handleBuild(slug: string, force = false) {
+	async function runBuild(slug: string, targets: ('graph' | 'traces')[], force: boolean) {
 		buildErrors[slug] = '';
 		live[slug] = { phase: 'started', percent: 0 };
 		try {
-			const res = await buildGraph(slug, { force });
+			const res = await buildGraph(slug, { force, targets });
 			if (res.status === 'ready') {
-				// SHA already had a snapshot — refresh and clear inline state
 				rows = await listGraphs();
 				delete live[slug];
 				live = { ...live };
@@ -110,6 +177,11 @@
 			delete live[slug];
 			live = { ...live };
 		}
+	}
+
+	function buildGraphOnly(row: GraphRepoRow) {
+		openDropdownSlug = null;
+		runBuild(row.slug, ['graph'], row.snapshotCount > 0);
 	}
 
 	function shortSha(sha: string | null | undefined): string {
@@ -155,23 +227,34 @@
 				{#each rows as row (row.slug)}
 					{@const inFlight = live[row.slug]}
 					{@const error = buildErrors[row.slug]}
+					{@const hasSnapshot = row.snapshotCount > 0 && !!row.latestSha}
+					{@const isFailed = row.latestStatus === 'failed'}
+					{@const isReady = hasSnapshot && row.latestStatus === 'ready'}
+					{@const dropdownOpen = openDropdownSlug === row.slug}
 					<div class="group bg-bourbon-950/30 border border-bourbon-800 rounded-lg px-5 py-3.5">
 						<div class="flex items-center justify-between gap-4">
 							<div class="flex items-start gap-3 min-w-0">
 								<FolderCode size={14} class="text-cmd-400 shrink-0 mt-1.5" />
 								<div class="flex flex-col gap-1 min-w-0">
 									<span class="text-bourbon-200 truncate">{row.repoName}</span>
-									{#if row.snapshotCount > 0 && row.latestSha}
+									{#if hasSnapshot}
 										<div class="flex items-baseline gap-3 text-xs">
 											<span class="font-mono text-bourbon-300 bg-bourbon-800/60 border border-bourbon-700/40 px-1.5 py-0.5 rounded">
 												{shortSha(row.latestSha)}
 											</span>
-											<span class="text-bourbon-600">
-												{row.latestNodeCount ?? 0} nodes
-												{#if row.latestBuiltAt}
-													· built {timeAgo(row.latestBuiltAt)}
-												{/if}
-											</span>
+											{#if isFailed}
+												<span class="flex items-center gap-1 text-red-400 font-mono">
+													<AlertCircle size={11} />
+													last build failed
+												</span>
+											{:else}
+												<span class="text-bourbon-600">
+													{row.latestNodeCount ?? 0} nodes
+													{#if row.latestBuiltAt}
+														· built {timeAgo(row.latestBuiltAt)}
+													{/if}
+												</span>
+											{/if}
 										</div>
 									{:else}
 										<span class="text-xs text-bourbon-600">no snapshots</span>
@@ -180,55 +263,64 @@
 							</div>
 
 							<div class="flex items-center gap-2 shrink-0">
-								{#if !inFlight}
-									<button
-										onclick={() => openContextEditor(row)}
-										title="Edit graph context"
-										class="text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
-									>
-										<BookOpen size={14} />
-									</button>
-								{/if}
 								{#if inFlight}
 									<span class="font-display text-[10px] uppercase tracking-widest text-run-500">
 										{phaseLabels[inFlight.phase]}
 									</span>
-								{:else if row.snapshotCount > 0 && row.latestSha}
-									<button
-										onclick={() => handleBuild(row.slug, true)}
-										title="Rebuild for current HEAD"
-										class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-											text-xs font-display font-bold uppercase tracking-widest
-											border backdrop-blur-sm transition-colors cursor-pointer
-											bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-400
-											hover:bg-bourbon-800/60 hover:border-bourbon-600/50 hover:text-bourbon-200"
-									>
-										<Hammer size={12} />
-										Rebuild
-									</button>
-									<a
-										href="/graphs/{row.slug}/{row.latestSha}"
-										class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-											text-xs font-display font-bold uppercase tracking-widest no-underline
-											border backdrop-blur-sm transition-colors cursor-pointer
-											bg-run-700/30 border-run-700/40 text-run-400
-											hover:bg-run-700/50 hover:border-run-500/50 hover:text-run-300"
-									>
-										<ChevronRight size={12} />
-										Open
-									</a>
 								{:else}
-									<button
-										onclick={() => handleBuild(row.slug)}
-										class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-											text-xs font-display font-bold uppercase tracking-widest
-											border backdrop-blur-sm transition-colors cursor-pointer
-											bg-cmd-700/40 border-cmd-600/30 text-cmd-400
-											hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300"
-									>
-										<Hammer size={12} />
-										Build graph
-									</button>
+									<div class="relative" data-dropdown-anchor>
+										<button
+											onclick={() => toggleDropdown(row.slug)}
+											title={hasSnapshot ? 'Rebuild options' : 'Build options'}
+											class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+												text-xs font-display font-bold uppercase tracking-widest
+												border backdrop-blur-sm transition-colors cursor-pointer
+												{hasSnapshot
+													? 'bg-bourbon-800/40 border-bourbon-700/40 text-bourbon-400 hover:bg-bourbon-800/60 hover:border-bourbon-600/50 hover:text-bourbon-200'
+													: 'bg-cmd-700/40 border-cmd-600/30 text-cmd-400 hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300'}"
+										>
+											<Hammer size={12} />
+											{hasSnapshot ? 'Rebuild' : 'Build'}
+											<ChevronDown size={11} class="opacity-70" />
+										</button>
+
+										{#if dropdownOpen}
+											<div class="absolute right-0 top-full mt-1 z-20 w-56 rounded-md
+												bg-bourbon-900 border border-bourbon-700 shadow-xl overflow-hidden">
+												<button
+													onclick={() => buildGraphOnly(row)}
+													class="w-full text-left px-3 py-2 hover:bg-bourbon-800/60 transition-colors cursor-pointer
+														flex flex-col gap-0.5"
+												>
+													<span class="text-xs text-bourbon-200">Build graph only</span>
+													<span class="text-[10px] text-bourbon-600">Tree-sitter extraction. Fast.</span>
+												</button>
+												<button
+													onclick={() => openBuildModal(row)}
+													class="w-full text-left px-3 py-2 border-t border-bourbon-800/60
+														hover:bg-bourbon-800/60 transition-colors cursor-pointer
+														flex flex-col gap-0.5"
+												>
+													<span class="text-xs text-bourbon-200">Build everything…</span>
+													<span class="text-[10px] text-bourbon-600">Graph + LLM traces. ~1-3 min.</span>
+												</button>
+											</div>
+										{/if}
+									</div>
+
+									{#if isReady}
+										<a
+											href="/graphs/{row.slug}/{row.latestSha}"
+											class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
+												text-xs font-display font-bold uppercase tracking-widest no-underline
+												border backdrop-blur-sm transition-colors cursor-pointer
+												bg-run-700/30 border-run-700/40 text-run-400
+												hover:bg-run-700/50 hover:border-run-500/50 hover:text-run-300"
+										>
+											<ChevronRight size={12} />
+											Open
+										</a>
+									{/if}
 								{/if}
 							</div>
 						</div>
@@ -237,6 +329,7 @@
 							<div class="mt-3 h-1 bg-bourbon-800 rounded overflow-hidden">
 								<div
 									class="h-full bg-cmd-500 transition-all duration-300"
+									class:animate-pulse={inFlight.phase === 'tracing'}
 									style:width="{inFlight.percent}%"
 								></div>
 							</div>
@@ -255,75 +348,64 @@
 	</div>
 {/if}
 
-<!-- Context editor modal — markdown guidance for the LLM trace pipeline.
-     Stored in repos.graph_context, loaded fresh on each open. -->
-{#if editingSlug}
+{#if buildModalSlug}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="fixed inset-0 z-40 flex items-center justify-center bg-bourbon-950/80 backdrop-blur-sm"
-		onclick={closeContextEditor}
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+		onmousedown={(e) => { if (e.target === e.currentTarget) closeBuildModal(); }}
+		onkeydown={handleBuildModalKeydown}
+		role="dialog"
+		tabindex="-1"
 	>
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			class="w-[600px] max-h-[80vh] flex flex-col bg-bourbon-900 border border-bourbon-700 rounded-2xl shadow-2xl overflow-hidden"
-			onclick={(e) => e.stopPropagation()}
-		>
-			<header class="flex items-center justify-between px-5 py-3 border-b border-bourbon-800">
+		<div class="bg-bourbon-900 border border-bourbon-800 rounded-2xl w-[90vw] max-w-3xl min-h-[60vh] max-h-[85vh] flex flex-col overflow-hidden">
+			<div class="flex items-center justify-between px-6 py-4 border-b border-bourbon-800 shrink-0">
 				<div class="flex items-center gap-3">
-					<span class="font-display text-xs font-bold uppercase tracking-widest text-run-500">
-						context
-					</span>
-					<span class="text-bourbon-200">{editingRepoName}</span>
+					<h2 class="font-display text-xs font-bold uppercase tracking-widest text-run-500">Build</h2>
+					<span class="text-bourbon-200 text-sm">{buildModalRepoName}</span>
 				</div>
 				<button
-					onclick={closeContextEditor}
-					class="text-bourbon-500 hover:text-bourbon-200 transition-colors cursor-pointer"
+					onclick={closeBuildModal}
+					class="text-bourbon-600 hover:text-bourbon-300 transition-colors cursor-pointer"
 				>
-					<X size={16} />
+					<X size={18} />
 				</button>
-			</header>
+			</div>
 
-			<div class="px-5 py-3 border-b border-bourbon-800">
+			<div class="px-6 py-3 border-b border-bourbon-800/50 shrink-0">
 				<p class="text-xs text-bourbon-500 leading-relaxed">
-					Markdown describing this repo's architecture, entry points, and
-					notable flows. The LLM trace pipeline anchors on this when
-					generating data-flow visualizations.
+					Guidance for how traces should be generated — architecture, entry points, notable flows the LLM should focus on. Saved on Build.
 				</p>
 			</div>
 
-			<div class="flex-1 min-h-0 px-5 py-3">
+			<div class="flex-1 overflow-y-auto bg-bourbon-950 px-6 py-4">
 				<textarea
-					bind:value={editingContext}
+					bind:this={buildModalTextarea}
+					bind:value={buildModalContext}
 					placeholder={`# Architecture\nDescribe what this repo does and how requests flow through it.\n\n# Entry points\n- src/index.ts — bootstrap\n- src/handlers/* — route handlers\n\n# Notable flows\n- generate-image: Vision → OpenAI → S3`}
-					class="w-full h-[40vh] bg-bourbon-950 border border-bourbon-800 rounded-lg px-3 py-2
+					class="w-full h-full min-h-[40vh] bg-transparent border-none
 						text-sm font-mono text-bourbon-200 placeholder:text-bourbon-700
-						focus:outline-none focus:border-cmd-500 transition-colors resize-none leading-relaxed"
+						focus:outline-none resize-none leading-relaxed"
 				></textarea>
 			</div>
 
-			<footer class="flex items-center justify-end gap-3 px-5 py-3 border-t border-bourbon-800">
+			{#if buildModalError}
+				<div class="px-6 py-2 border-t border-bourbon-800/50 shrink-0 flex items-center gap-2 text-xs text-red-400">
+					<AlertCircle size={12} />
+					<span class="font-mono">{buildModalError}</span>
+				</div>
+			{/if}
+
+			<div class="flex items-center justify-between gap-4 px-6 py-3 border-t border-bourbon-800 shrink-0">
+				<span class="text-[9px] text-bourbon-700">⌘+Enter to build</span>
 				<button
-					onclick={closeContextEditor}
-					class="px-3 py-1.5 text-xs font-display font-bold uppercase tracking-widest
-						text-bourbon-500 hover:text-bourbon-300 transition-colors cursor-pointer"
+					onclick={submitBuildModal}
+					disabled={buildModalSubmitting}
+					class="flex items-center gap-1.5 text-[10px] font-mono text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer disabled:opacity-50"
 				>
-					Cancel
+					<Hammer size={12} />
+					{buildModalSubmitting ? 'building…' : 'Build'}
 				</button>
-				<button
-					onclick={saveContext}
-					disabled={savingContext}
-					class="flex items-center gap-1.5 px-3 py-1.5 rounded-md
-						text-xs font-display font-bold uppercase tracking-widest
-						border backdrop-blur-sm transition-colors cursor-pointer
-						bg-cmd-700/40 border-cmd-600/30 text-cmd-400
-						hover:bg-cmd-700/60 hover:border-cmd-500/50 hover:text-cmd-300
-						disabled:opacity-40 disabled:cursor-default"
-				>
-					{savingContext ? 'Saving…' : 'Save'}
-				</button>
-			</footer>
+			</div>
 		</div>
 	</div>
 {/if}
