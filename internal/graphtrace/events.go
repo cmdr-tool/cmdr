@@ -117,7 +117,10 @@ func Subscribe(traceID int64) (<-chan Event, func()) {
 			for range ch {
 			}
 		}()
-		close(ch)
+		// Use safeClose because Close(traceID) may have already closed
+		// this channel — the cleanup func and the publisher's Close
+		// path both target the same channels and either can run first.
+		safeClose(ch)
 	}
 	return ch, cleanup
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,39 @@ import (
 	"github.com/cmdr-tool/cmdr/internal/agent"
 	"github.com/cmdr-tool/cmdr/internal/proc"
 )
+
+// tailBuffer captures the last `limit` bytes written to it. Used to
+// retain the trailing stderr of a subprocess so we can surface it in
+// error messages when pi crashes mid-run (e.g. v0.70.6 RangeError).
+type tailBuffer struct {
+	mu    sync.Mutex
+	buf   []byte
+	limit int
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > t.limit {
+		t.buf = t.buf[len(t.buf)-t.limit:]
+	}
+	return len(p), nil
+}
+
+func (t *tailBuffer) tail(maxLines int) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	s := strings.TrimSpace(string(t.buf))
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return strings.Join(lines, " | ")
+}
 
 func init() {
 	agent.Register("pi", func() agent.Agent {
@@ -78,7 +112,12 @@ func (a *Adapter) RunStreaming(ctx context.Context, cfg agent.StreamingConfig, o
 	if err != nil {
 		return nil, fmt.Errorf("pi stdout pipe: %w", err)
 	}
-	cmd.Stderr = os.Stderr
+	// Tee stderr through to os.Stderr (preserved for log diagnostics)
+	// AND a small tail buffer so we can attach the last few lines of
+	// stderr to error messages when pi crashes without producing a
+	// final result.
+	stderrTail := &tailBuffer{limit: 4096}
+	cmd.Stderr = io.MultiWriter(os.Stderr, stderrTail)
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("pi start: %w", err)
@@ -205,10 +244,19 @@ done:
 
 	exitErr := waitWithEscalation(cmd, waitCh, grace, termWait)
 	if exitErr != nil && finalText == "" {
+		if tail := stderrTail.tail(3); tail != "" {
+			return nil, fmt.Errorf("pi exited: %w — stderr: %s", exitErr, tail)
+		}
 		return nil, fmt.Errorf("pi exited: %w", exitErr)
 	}
 
 	if finalText == "" {
+		// Pi sometimes exits cleanly (code 0) even after an internal
+		// crash — surface the stderr tail so the user knows whether
+		// the failure was upstream (e.g. v0.70.6 RangeError) vs ours.
+		if tail := stderrTail.tail(3); tail != "" {
+			return nil, fmt.Errorf("no result from pi — stderr: %s", tail)
+		}
 		return nil, fmt.Errorf("no result from pi")
 	}
 
