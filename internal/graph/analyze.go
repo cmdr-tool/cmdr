@@ -9,13 +9,17 @@ import (
 )
 
 // Analyze annotates a Snapshot in place: computes per-node degree,
-// runs Louvain community detection on the undirected projection,
-// labels each community by its dominant top-level path component, and
-// fills out the Stats and Communities blocks.
+// runs two-level Louvain community detection (tier-2 = granular
+// clusters, tier-1 = neighborhoods built by collapsing tier-2 into
+// super-nodes and re-running Louvain), labels each community/super-
+// community by its dominant top-level path component, and fills out
+// the Stats, Communities, and SuperCommunities blocks.
 func Analyze(snap *Snapshot) {
 	computeDegrees(snap)
 	communities := detectCommunities(snap)
 	labelCommunities(snap, communities)
+	superCommunities := detectSuperCommunities(snap, communities)
+	labelSuperCommunities(snap, communities, superCommunities)
 	computeStats(snap)
 }
 
@@ -76,10 +80,11 @@ func buildAdjacency(snap *Snapshot) *adjacency {
 // fine-grained to act as a structural map.
 const louvainResolution = 0.4
 
-// detectCommunities is a single-pass Louvain-style assignment: greedy
-// modularity-gain moves over a deterministic node ordering until no
-// node changes its community. For graphs of a few thousand nodes this
-// converges fast and is dependency-free.
+// runLouvain executes greedy modularity-gain moves on an adjacency
+// until convergence and returns the per-node community assignment,
+// normalized to contiguous IDs starting from 0. This is the core
+// loop, shared by the tier-2 (per-node) pass and the tier-1
+// (per-community super-graph) pass.
 //
 // The "gain" we maximize for placing i into community c is the
 // generalized Louvain ΔQ contribution (with i hypothetically removed
@@ -91,8 +96,7 @@ const louvainResolution = 0.4
 // formula (baseline = "put i back where it was"). A strict `>`
 // comparison guarantees Q monotonically increases per move, so the
 // loop terminates. A maxPasses cap is a belt-and-braces safeguard.
-func detectCommunities(snap *Snapshot) []int {
-	a := buildAdjacency(snap)
+func runLouvain(a *adjacency) []int {
 	n := len(a.ids)
 	community := make([]int, n)
 	for i := range community {
@@ -123,9 +127,6 @@ func detectCommunities(snap *Snapshot) []int {
 				weights[community[j]]++
 			}
 
-			// Remove i from its current community before evaluating any
-			// candidate (including currentC itself, which corresponds to
-			// "put i back" — its gain is then the baseline to beat).
 			sigmaTot[currentC] -= ki[i]
 
 			bestC := currentC
@@ -168,6 +169,89 @@ func detectCommunities(snap *Snapshot) []int {
 			remap[c] = nc
 		}
 		out[i] = nc
+	}
+	return out
+}
+
+// detectCommunities runs tier-2 Louvain on the original node-level
+// adjacency and returns a per-node community assignment.
+func detectCommunities(snap *Snapshot) []int {
+	return runLouvain(buildAdjacency(snap))
+}
+
+// detectSuperCommunities runs tier-1 Louvain on a graph where each
+// tier-2 community has been collapsed into a single super-node. The
+// super-graph's edges are the aggregated cross-community edge weights
+// from the original adjacency, encoded by index multiplicity (matching
+// runLouvain's expectation that out[i] contains a duplicate per unit
+// of weight). Returns a per-node tier-1 assignment via mapping back
+// through baseIdx.
+func detectSuperCommunities(snap *Snapshot, baseIdx []int) []int {
+	if len(baseIdx) == 0 {
+		return nil
+	}
+	nC := 0
+	for _, c := range baseIdx {
+		if c >= nC {
+			nC = c + 1
+		}
+	}
+	if nC <= 1 {
+		// Single community → super-pass is degenerate; map identically.
+		return append([]int(nil), baseIdx...)
+	}
+
+	a := buildAdjacency(snap)
+	superCounts := make([]map[int]int, nC)
+	for i := range superCounts {
+		superCounts[i] = map[int]int{}
+	}
+	for i := 0; i < len(a.out); i++ {
+		ci := baseIdx[i]
+		for _, j := range a.out[i] {
+			cj := baseIdx[j]
+			if ci == cj {
+				continue
+			}
+			superCounts[ci][cj]++
+		}
+	}
+
+	sa := &adjacency{
+		idx: make(map[string]int, nC),
+		ids: make([]string, nC),
+		out: make([][]int, nC),
+	}
+	for c := 0; c < nC; c++ {
+		cid := itoa(c)
+		sa.idx[cid] = c
+		sa.ids[c] = cid
+	}
+	for ci, neighbors := range superCounts {
+		// Deterministic order so runLouvain's behavior is reproducible.
+		nbrIDs := make([]int, 0, len(neighbors))
+		for cj := range neighbors {
+			nbrIDs = append(nbrIDs, cj)
+		}
+		sort.Ints(nbrIDs)
+		for _, cj := range nbrIDs {
+			for x := 0; x < neighbors[cj]; x++ {
+				sa.out[ci] = append(sa.out[ci], cj)
+				sa.totalW++
+			}
+		}
+	}
+
+	if sa.totalW == 0 {
+		// All tier-2 communities are pairwise isolated — super-pass has
+		// nothing to merge, so super-id == community-id.
+		return append([]int(nil), baseIdx...)
+	}
+
+	superC := runLouvain(sa)
+	out := make([]int, len(baseIdx))
+	for i, c := range baseIdx {
+		out[i] = superC[c]
 	}
 	return out
 }
@@ -287,6 +371,97 @@ func labelCommunities(snap *Snapshot, idx []int) {
 		}
 	}
 	snap.Communities = out
+}
+
+// labelSuperCommunities derives a label per super-community by taking
+// the longest common directory prefix of its member tier-2 community
+// labels. Super-communities are coarser than tier-2 and may span
+// multiple subtrees, so the label often backs off to a high-level
+// directory like `src/services` (which is the right granularity for
+// a "neighborhood" label). Also stores each super-community's child
+// tier-2 IDs so the UI can drill from super → community without a
+// reverse-lookup pass.
+func labelSuperCommunities(snap *Snapshot, communities, superIdx []int) {
+	if len(superIdx) == 0 || snap.Communities == nil {
+		return
+	}
+	a := buildAdjacency(snap)
+	nSuper := 0
+	for _, sc := range superIdx {
+		if sc >= nSuper {
+			nSuper = sc + 1
+		}
+	}
+
+	// Annotate nodes with their super-community and group nodes + child
+	// tier-2 ids per super.
+	superNodeIDs := make(map[int][]string, nSuper)
+	superChildren := make(map[int]map[int]struct{}, nSuper)
+	for i := range snap.Nodes {
+		if i >= len(superIdx) {
+			break
+		}
+		sc := superIdx[i]
+		snap.Nodes[i].SuperCommunity = sc
+		superNodeIDs[sc] = append(superNodeIDs[sc], snap.Nodes[i].ID)
+		if superChildren[sc] == nil {
+			superChildren[sc] = map[int]struct{}{}
+		}
+		superChildren[sc][communities[i]] = struct{}{}
+	}
+
+	// Derive super labels from the longest common dir-prefix of the
+	// child community labels. Falls back to "external" when no prefix
+	// can be found (typically pure-module clusters).
+	labels := map[int]string{}
+	childLists := make(map[int][]string, nSuper)
+	for sc, children := range superChildren {
+		var childLabels []string
+		var childIDs []string
+		for c := range children {
+			cid := itoa(c)
+			childIDs = append(childIDs, cid)
+			if comm, ok := snap.Communities[cid]; ok && comm.Label != "" {
+				childLabels = append(childLabels, comm.Label)
+			}
+		}
+		sort.Strings(childIDs)
+		childLists[sc] = childIDs
+
+		labels[sc] = longestCommonDirPrefix(childLabels)
+		if labels[sc] == "" {
+			labels[sc] = "external"
+		}
+	}
+
+	// Disambiguate any colliding super labels with a stable count suffix.
+	collisions := map[string][]int{}
+	for sc, label := range labels {
+		collisions[label] = append(collisions[label], sc)
+	}
+	for label, scs := range collisions {
+		if len(scs) <= 1 {
+			continue
+		}
+		sort.Ints(scs)
+		for i, sc := range scs {
+			if i == 0 {
+				continue
+			}
+			labels[sc] = fmt.Sprintf("%s (%d)", label, i+1)
+		}
+	}
+
+	out := make(map[string]Community, nSuper)
+	for sc, ids := range superNodeIDs {
+		out[itoa(sc)] = Community{
+			Label:    labels[sc],
+			NodeIDs:  ids,
+			ChildIDs: childLists[sc],
+			Cohesion: cohesionFor(a, superIdx, sc),
+		}
+	}
+	snap.SuperCommunities = out
 }
 
 // longestCommonDirPrefix returns the longest path prefix shared by all
@@ -412,11 +587,12 @@ func computeStats(snap *Snapshot) {
 		byRel[string(e.Relation)]++
 	}
 	snap.Stats = Stats{
-		NodeCount:      len(snap.Nodes),
-		EdgeCount:      len(snap.Edges),
-		ByKind:         byKind,
-		ByRelation:     byRel,
-		CommunityCount: len(snap.Communities),
+		NodeCount:           len(snap.Nodes),
+		EdgeCount:           len(snap.Edges),
+		ByKind:              byKind,
+		ByRelation:          byRel,
+		CommunityCount:      len(snap.Communities),
+		SuperCommunityCount: len(snap.SuperCommunities),
 	}
 	logCommunityHistogram(snap)
 }
@@ -462,8 +638,8 @@ func logCommunityHistogram(snap *Snapshot) {
 		tops = append(tops, fmt.Sprintf("%s=%d", sizes[i].label, sizes[i].size))
 	}
 
-	log.Printf("graph: %d communities — singletons=%d small(2-5)=%d medium(6-20)=%d large(21+)=%d; top: %s",
-		len(snap.Communities), singleton, small, medium, large, strings.Join(tops, " "))
+	log.Printf("graph: %d communities (in %d super-communities) — singletons=%d small(2-5)=%d medium(6-20)=%d large(21+)=%d; top: %s",
+		len(snap.Communities), len(snap.SuperCommunities), singleton, small, medium, large, strings.Join(tops, " "))
 }
 
 // itoa is a small helper to avoid importing strconv just for community keys.

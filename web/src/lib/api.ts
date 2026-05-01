@@ -749,6 +749,7 @@ export interface GraphNode {
 	source_file: string;
 	source_location?: string;
 	community: number;
+	super_community: number;
 	degree: number;
 	attrs?: Record<string, unknown>;
 }
@@ -764,6 +765,7 @@ export interface GraphEdge {
 export interface GraphCommunity {
 	label: string;
 	node_ids: string[];
+	child_ids?: string[];
 	cohesion: number;
 }
 
@@ -781,8 +783,10 @@ export interface GraphSnapshot {
 		by_kind: Record<string, number>;
 		by_relation: Record<string, number>;
 		community_count: number;
+		super_community_count: number;
 	};
 	communities: Record<string, GraphCommunity>;
+	super_communities: Record<string, GraphCommunity>;
 	nodes: GraphNode[];
 	edges: GraphEdge[];
 }

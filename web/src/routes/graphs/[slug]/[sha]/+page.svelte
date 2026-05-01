@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { X, ChevronDown, Info } from 'lucide-svelte';
+	import { X, ChevronDown, Info, ArrowLeft, Layers, Network } from 'lucide-svelte';
 	import {
 		getGraph,
 		listSnapshots,
@@ -17,7 +17,9 @@
 	import TracesFacet from '$lib/components/graphs/TracesFacet.svelte';
 	import GraphSidebar from '$lib/components/graphs/GraphSidebar.svelte';
 	import TracesSidebar from '$lib/components/graphs/TracesSidebar.svelte';
-	import { communityColor } from '$lib/components/graphs/colors';
+	import { communityColor, superCommunityColor } from '$lib/components/graphs/colors';
+
+	type NetworkMode = 'flat' | 'super' | 'focus';
 
 	type Facet = 'network' | 'traces';
 
@@ -35,6 +37,8 @@
 	let selectedId: string | null = $state(null);
 	let statsExpanded = $state(false);
 	let facet: Facet = $state('network');
+	let networkMode: NetworkMode = $state('flat');
+	let focusedSuperId: number | null = $state(null);
 
 	// Traces state — lifted to the page so the right-hand TracesSidebar
 	// and the canvas TracesFacet can share the same selection.
@@ -68,18 +72,40 @@
 		return s.snapshot.repo_path.split('/').pop() || slug;
 	});
 
-	// All communities sorted by size — for the legend bottom-left of the
-	// canvas. Capped only by the visual scrollable area, not the count.
-	let topCommunities = $derived.by(() => {
-		if (!snapshot) return [] as { id: number; label: string; size: number }[];
-		const list = Object.entries(snapshot.communities).map(([id, c]) => ({
-			id: Number(id),
-			label: c.label,
-			size: c.node_ids.length
-		}));
+	// Legend entries depend on the current zoom mode:
+	//   - flat / super → list super-communities (high-level neighborhoods)
+	//   - focus        → list tier-2 children of the focused super-community
+	type LegendEntry = { id: number; label: string; size: number; tier: 'super' | 'community' };
+	let legendEntries = $derived.by<LegendEntry[]>(() => {
+		if (!snapshot) return [];
+		const list: LegendEntry[] = [];
+		if (networkMode === 'focus' && focusedSuperId !== null) {
+			const sc = snapshot.super_communities?.[String(focusedSuperId)];
+			const childIds = sc?.child_ids ?? [];
+			for (const cid of childIds) {
+				const c = snapshot.communities[cid];
+				if (c) list.push({ id: Number(cid), label: c.label, size: c.node_ids.length, tier: 'community' });
+			}
+		} else {
+			const supers = snapshot.super_communities ?? {};
+			for (const [id, c] of Object.entries(supers)) {
+				list.push({ id: Number(id), label: c.label, size: c.node_ids.length, tier: 'super' });
+			}
+		}
 		list.sort((a, b) => b.size - a.size);
 		return list;
 	});
+
+	let focusedSuperLabel = $derived.by(() => {
+		if (focusedSuperId === null || !snapshot) return null;
+		return snapshot.super_communities?.[String(focusedSuperId)]?.label ?? `super ${focusedSuperId}`;
+	});
+
+	function exitFocus() {
+		networkMode = 'super';
+		focusedSuperId = null;
+		selectedId = null;
+	}
 
 	const phaseLabels: Record<GraphPhase, string> = {
 		started: 'starting',
@@ -294,7 +320,13 @@
 					     re-computation) every time the user toggles. The
 					     inactive one is hidden + click-disabled but keeps state. -->
 					<div class="absolute inset-0" class:invisible={facet !== 'network'} class:pointer-events-none={facet !== 'network'}>
-						<NetworkFacet {snapshot} bind:selectedId onReady={handleFacetReady} />
+						<NetworkFacet
+							{snapshot}
+							bind:selectedId
+							bind:mode={networkMode}
+							bind:focusedSuperId
+							onReady={handleFacetReady}
+						/>
 					</div>
 					<div class="absolute inset-0" class:invisible={facet !== 'traces'} class:pointer-events-none={facet !== 'traces'}>
 						<TracesFacet
@@ -311,20 +343,69 @@
 					</div>
 
 					{#if facet === 'network'}
-						<!-- Community legend (sorted by size) — Network-only,
-						     Flow has its own bottom-left depth indicator.
-						     Scrollable when there are many communities. -->
+						<!-- Zoom-mode controls: top-left of canvas. Flat = full
+						     graph with hierarchical color; Super = bird's-eye
+						     of just super-communities; Focus = drilled into
+						     one super-community. -->
+						<div class="absolute top-3 left-3 flex items-center gap-1.5 px-1 py-1 rounded-md
+							bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm">
+							{#if networkMode === 'focus'}
+								<button
+									onclick={exitFocus}
+									class="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono
+										text-bourbon-400 hover:text-bourbon-100 hover:bg-bourbon-800/60 transition-colors cursor-pointer"
+									title="Back to super view"
+								>
+									<ArrowLeft size={11} />
+									<span>back</span>
+								</button>
+								<span class="text-bourbon-700">·</span>
+								<span class="flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono">
+									<span class="w-2 h-2 rounded-full shrink-0" style:background-color={superCommunityColor(focusedSuperId ?? 0)}></span>
+									<span class="text-bourbon-200 truncate max-w-[160px]">{focusedSuperLabel}</span>
+								</span>
+							{:else}
+								<button
+									onclick={() => { networkMode = 'flat'; focusedSuperId = null; }}
+									class="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono transition-colors cursor-pointer
+										{networkMode === 'flat'
+											? 'bg-bourbon-800/80 text-bourbon-100'
+											: 'text-bourbon-500 hover:text-bourbon-200 hover:bg-bourbon-800/40'}"
+									title="Show every node, colored by neighborhood"
+								>
+									<Network size={11} />
+									<span>flat</span>
+								</button>
+								<button
+									onclick={() => { networkMode = 'super'; focusedSuperId = null; }}
+									class="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono transition-colors cursor-pointer
+										{networkMode === 'super'
+											? 'bg-bourbon-800/80 text-bourbon-100'
+											: 'text-bourbon-500 hover:text-bourbon-200 hover:bg-bourbon-800/40'}"
+									title="Bird's-eye: one node per neighborhood"
+								>
+									<Layers size={11} />
+									<span>super</span>
+								</button>
+							{/if}
+						</div>
+
+						<!-- Legend (sorted by size). Shows super-communities by
+						     default; tier-2 children when in focus mode. -->
 						<div class="absolute bottom-3 left-3 max-w-xs max-h-72 overflow-y-auto px-3 py-2.5 rounded-md
 							bg-bourbon-900/70 border border-bourbon-800 backdrop-blur-sm">
 							<div class="font-display text-[9px] font-bold uppercase tracking-widest text-bourbon-500 mb-1.5">
-								communities <span class="text-bourbon-700">{topCommunities.length}</span>
+								{networkMode === 'focus' ? 'sub-clusters' : 'neighborhoods'}
+								<span class="text-bourbon-700">{legendEntries.length}</span>
 							</div>
 							<div class="flex flex-col gap-1">
-								{#each topCommunities as c (c.id)}
+								{#each legendEntries as c (c.tier + c.id)}
 									<div class="flex items-center gap-2 text-[10px] font-mono text-bourbon-400">
 										<span
 											class="w-2 h-2 rounded-full shrink-0"
-											style:background-color={communityColor(c.id)}
+											style:background-color={c.tier === 'super'
+												? superCommunityColor(c.id)
+												: communityColor(c.id, focusedSuperId ?? undefined)}
 										></span>
 										<span class="truncate">{c.label}</span>
 										<span class="text-bourbon-600">{c.size}</span>
