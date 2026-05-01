@@ -443,7 +443,17 @@ func labelSuperCommunities(snap *Snapshot, communities, superIdx []int) {
 	for sc := 0; sc < nSuper; sc++ {
 		labels[sc] = longestCommonDirPrefix(pathsFor(sc))
 		if labels[sc] == "" {
-			labels[sc] = "external"
+			// No common dir prefix — happens when a super spans multiple
+			// top-level subtrees (e.g. src/* + scripts/*). Use the
+			// dominant top-level dir of the file paths so the label
+			// still reads as something internal. Only fall back to
+			// "external" for pure-module supers (no local files at all).
+			if len(superFilePaths[sc]) > 0 {
+				labels[sc] = dominantTopLevelDir(superFilePaths[sc])
+			}
+			if labels[sc] == "" {
+				labels[sc] = "external"
+			}
 		}
 	}
 
@@ -571,6 +581,23 @@ func mostCommonSubdirBeyond(paths []string, prefix string) string {
 		return prefix + "/" + best
 	}
 	return ""
+}
+
+// dominantTopLevelDir returns the most common first-segment directory
+// across paths. Used as a fallback super-community label when paths
+// span multiple top-level subtrees and have no common prefix — e.g.
+// a super containing src/* + scripts/* files reports "src" instead
+// of misleadingly falling back to "external".
+func dominantTopLevelDir(paths []string) string {
+	counts := map[string]int{}
+	for _, p := range paths {
+		idx := strings.Index(p, "/")
+		if idx <= 0 {
+			continue // root file or empty path
+		}
+		counts[p[:idx]]++
+	}
+	return dominantLabel(counts)
 }
 
 func dominantLabel(counts map[string]int) string {
