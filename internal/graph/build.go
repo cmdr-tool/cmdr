@@ -113,6 +113,7 @@ const (
 	PhaseBuilding   Phase = "building"
 	PhaseClustering Phase = "clustering"
 	PhaseWriting    Phase = "writing"
+	PhaseTracing    Phase = "tracing"
 	PhaseComplete   Phase = "complete"
 	PhaseFailed     Phase = "failed"
 )

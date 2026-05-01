@@ -158,12 +158,27 @@ func Run() error {
 	// Retry or mark headless tasks orphaned by a previous daemon instance
 	cleanupOrphanedHeadlessTasks(database, bus)
 
+	// Mark any graph_snapshots rows still in 'building' as failed — they
+	// were interrupted by the previous daemon shutdown (likely make install
+	// or a crash) and aren't actually in flight anymore.
+	if res, err := database.Exec(
+		`UPDATE graph_snapshots SET status='failed', error='interrupted by daemon restart'
+		 WHERE status NOT IN ('ready', 'failed')`,
+	); err == nil {
+		if n, _ := res.RowsAffected(); n > 0 {
+			log.Printf("cmdr: marked %d orphaned graph_snapshots as failed", n)
+		}
+	}
+
 	s := scheduler.New(database, scheduler.Hooks{
 		OnCommitsSync: func() {
 			bus.Publish(Event{Type: "commits:sync", Data: true})
 		},
 		OnGraphWatchBuild: func(slug, sha, repoPath string) {
-			if _, _, err := kickOffGraphBuild(database, bus, graphStore, slug, sha, repoPath, false); err != nil {
+			// Scheduled graph-watch only rebuilds the graph itself —
+			// trace generation is opt-in (LLM cost) and gated to
+			// explicit user action.
+			if _, _, err := kickOffGraphBuild(database, bus, graphStore, slug, sha, repoPath, false, buildTargets{graph: true}); err != nil {
 				log.Printf("cmdr: graph-watch: kickoff failed for %s@%s: %v", slug, sha, err)
 			}
 		},
