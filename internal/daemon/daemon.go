@@ -170,6 +170,18 @@ func Run() error {
 		}
 	}
 
+	// Same treatment for traces stuck in 'generating' — runTraceGeneration
+	// uses context.Background() so a daemon restart kills the goroutine
+	// without ever flipping the row, leaving it stuck forever.
+	if res, err := database.Exec(
+		`UPDATE traces SET current_status='failed', current_error='interrupted by daemon restart'
+		 WHERE current_status='generating'`,
+	); err == nil {
+		if n, _ := res.RowsAffected(); n > 0 {
+			log.Printf("cmdr: marked %d orphaned traces as failed", n)
+		}
+	}
+
 	s := scheduler.New(database, scheduler.Hooks{
 		OnCommitsSync: func() {
 			bus.Publish(Event{Type: "commits:sync", Data: true})
