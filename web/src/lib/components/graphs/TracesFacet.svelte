@@ -44,6 +44,12 @@
 		onReady
 	}: Props = $props();
 
+	// Show only the trailing window of activity events so the panel
+	// doesn't keep growing through a long generation run. New events
+	// push older ones off the bottom — a tail rather than a log.
+	const ACTIVITY_TAIL = 3;
+	let recentActivity = $derived(activity.slice(-ACTIVITY_TAIL));
+
 	// Whichever version is being shown drives the layout. Callouts only
 	// render in 'previous' view because the spec calls for "show what
 	// changed by overlaying it on the previous DAG."
@@ -573,17 +579,17 @@
 					<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
 					<span class="font-display text-xs uppercase tracking-widest text-bourbon-300">Generating trace</span>
 				</div>
-				<div class="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-1.5 font-mono text-[10px]">
+				<div class="px-4 py-3 flex flex-col gap-1.5 font-mono text-[10px]">
 					{#if activity.length === 0}
 						<span class="text-bourbon-600">waiting for agent…</span>
 					{:else}
-						{#each activity as evt (evt.id)}
+						{#each recentActivity as evt (evt.id)}
 							{#if evt.kind === 'tool'}
-								<div class="text-bourbon-300">· {evt.text}</div>
+								<div class="text-bourbon-300 truncate">· {evt.text}</div>
 							{:else if evt.kind === 'text'}
 								<div class="text-bourbon-500 leading-relaxed line-clamp-2">{evt.text}</div>
 							{:else if evt.kind === 'error'}
-								<div class="text-red-400">! {evt.text}</div>
+								<div class="text-red-400 truncate">! {evt.text}</div>
 							{:else if evt.kind === 'phase'}
 								<div class="text-run-500 uppercase tracking-widest">— {evt.text} —</div>
 							{/if}
