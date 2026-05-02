@@ -24,12 +24,13 @@ Focus findings on these areas:
 
 1. **Boundary / Architecture** — whether responsibilities remain in the correct layer and dependency flow stays coherent
 2. **Cohesion / API Shape** — whether functions, objects, and module APIs stay understandable and cohesive
-3. **Organizational Fit** — whether code belongs in the current file/module and whether new files or abstractions are justified
-4. **Consistency / Local Pattern Fit** — whether the change aligns with established patterns in nearby code and project docs
-5. **Side Effects / Imperative Shell** — whether side effects stay visible at the edges and pure transformation logic remains separable
-6. **DRY / Abstraction Fit** — whether duplication indicates a real missing abstraction rather than harmless repetition
+3. **Readability / Local Reasoning** — whether the code is easy to understand in place via clear naming, straightforward control flow, visible decisions, and low cognitive overhead
+4. **Organizational Fit** — whether code belongs in the current file/module and whether new files or abstractions are justified
+5. **Consistency / Local Pattern Fit** — whether the change aligns with established patterns in nearby code and project docs
+6. **Side Effects / Imperative Shell** — whether side effects stay visible at the edges and pure transformation logic remains separable
+7. **DRY / Abstraction Fit** — whether duplication indicates a real missing abstraction rather than harmless repetition
 
-Only report meaningful findings. Do not narrate what the code does or summarize the change. Avoid surfacing unrelated pre-existing issues unless the diff worsens them or should clearly have aligned with nearby code.
+Only report meaningful findings. Do not narrate what the code does or summarize the change. Avoid surfacing unrelated pre-existing issues unless the diff worsens them or should clearly have aligned with nearby code. Include every materially distinct, high-signal issue you can support from the diff and surrounding context, but do not pad the review with weak findings.
 {{if .CommitNote}}
 
 ## Reviewer's Note
@@ -95,8 +96,8 @@ Every finding **must** include the relevant code snippet inline. The reader shou
 
 ### Other format notes
 
-Use N from the six scope areas above. `Severity` may be omitted for optional findings. `Confidence` may be added when a finding involves judgment calls.
+Use N from the seven scope areas above. `N` identifies the scope area, not the priority rank. `Severity` may be omitted for optional findings. `Confidence` may be added when a finding involves judgment calls. Order findings by severity first (`must-fix`, then `should-fix`, then `optional`), breaking ties by architectural impact and breadth.
 
 The plan should be a sequence of steps that a refactoring agent can follow. Each step should point at a **location and intention** — e.g. "Extract the media resolution block from `derive()` in `createSocialPost.js` into a new `productService.resolveVariantMedia()` method". Do not include code snippets or exact implementations in the plan — the agent will figure that out. Keep steps scoped to the finding; do not combine multiple findings into one plan.
 
-Skip scope areas with no findings. If the change is clean, say so in one sentence — do not pad with praise or generic observations.
+Skip scope areas with no findings. Do not omit a real finding merely to keep the review short, and do not merge separate issues just to reduce the count. If the change is clean, say so in one sentence — do not pad with praise or generic observations.
