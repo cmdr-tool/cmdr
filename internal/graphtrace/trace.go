@@ -91,16 +91,15 @@ func Generate(ctx context.Context, snap Snapshot, userPrompt string, onEvent fun
 		onEvent = func(Event) {}
 	}
 
-	graphData, err := os.ReadFile(snap.GraphPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read graph.json: %w", err)
-	}
-
+	// graph.json is large (often 100KB+) — pass the path and let the
+	// agent Read it selectively rather than inlining the whole thing
+	// in the prompt. Inlining trips agent input limits and (for pi
+	// v0.70.6) caused stack-overflow crashes during prompt parsing.
 	rendered, err := renderTemplate(generateUserPromptTemplate, map[string]any{
 		"UserPrompt": strings.TrimSpace(userPrompt),
 		"RepoSlug":   snap.Slug,
 		"RepoPath":   snap.RepoPath,
-		"GraphJSON":  string(graphData),
+		"GraphPath":  snap.GraphPath,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("render generate user prompt: %w", err)

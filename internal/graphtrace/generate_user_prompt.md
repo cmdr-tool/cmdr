@@ -9,11 +9,17 @@
 
 ## Graph snapshot
 
-A deterministic knowledge graph extracted from this repo's AST is below. Nodes are files/modules/functions/methods/classes. Edges are imports/calls/contains/extends. Use it as a map: find the entry point for the flow above, then walk through the graph to follow the call chain — confirm each step against the actual source.
+A deterministic knowledge graph extracted from this repo's AST lives at:
 
-```json
-{{.GraphJSON}}
-```
+`{{.GraphPath}}`
+
+Read this file to orient yourself. It's typically 50–500KB of JSON — too large to scan blindly. Use targeted reads:
+
+- `Grep` it for specific function/class names mentioned in the user prompt to find their node IDs and relationships.
+- `Read` selected ranges if you need surrounding context.
+- For broad shape questions, the file's top-level structure is `{ nodes: [...], edges: [...], communities: {...} }` — the first ~100 lines show the schema; you can sample further from there.
+
+Use the graph to find entry points and the call chain, then read the actual source files to confirm each step's behavior.
 
 ## Reminder
 
