@@ -16,7 +16,12 @@ var (
 
 // Summarize asks Ollama to generate a concise title for the given content.
 // Uses tool calling to get structured output (just the title, no preamble).
-func Summarize(ctx context.Context, content string) (string, error) {
+// The optional hint is appended to the system prompt as extra guidance.
+func Summarize(ctx context.Context, content, hint string) (string, error) {
+	systemPrompt := "Generate a concise title (under 80 characters) summarizing the user's content. Call the set_title tool with your result."
+	if hint != "" {
+		systemPrompt += " " + hint
+	}
 	reqBody := chatRequest{
 		Model:   model,
 		Stream:  false,
@@ -24,7 +29,7 @@ func Summarize(ctx context.Context, content string) (string, error) {
 		Messages: []message{
 			{
 				Role:    "system",
-				Content: "Generate a concise title (under 80 characters) summarizing the user's content. Call the set_title tool with your result.",
+				Content: systemPrompt,
 			},
 			{
 				Role:    "user",

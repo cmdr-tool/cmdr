@@ -935,7 +935,7 @@ func enhanceTitle(db *sql.DB, bus *EventBus, taskID int, content string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 
-		title, err := sum.Summarize(ctx, content)
+		title, err := sum.Summarize(ctx, content, "")
 		if err != nil {
 			log.Printf("cmdr: title for task %d failed: %v", taskID, err)
 			return

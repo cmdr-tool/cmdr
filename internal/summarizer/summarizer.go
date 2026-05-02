@@ -9,9 +9,13 @@ import (
 	"sync"
 )
 
-// Summarizer generates a short title from content.
+// Summarizer generates a short title from content. The optional hint is
+// extra guidance layered onto the adapter's built-in instruction — useful
+// for nudging the model away from default phrasings (e.g. preventing trace
+// titles from all starting with "Trace ..."). Pass "" when no guidance
+// is needed.
 type Summarizer interface {
-	Summarize(ctx context.Context, content string) (string, error)
+	Summarize(ctx context.Context, content, hint string) (string, error)
 }
 
 // --- Adapter registry ---

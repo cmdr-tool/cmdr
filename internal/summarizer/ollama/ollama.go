@@ -17,6 +17,6 @@ func init() {
 // Adapter delegates to the existing internal/ollama package.
 type Adapter struct{}
 
-func (a *Adapter) Summarize(ctx context.Context, content string) (string, error) {
-	return ollama.Summarize(ctx, content)
+func (a *Adapter) Summarize(ctx context.Context, content, hint string) (string, error) {
+	return ollama.Summarize(ctx, content, hint)
 }

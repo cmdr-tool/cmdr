@@ -882,6 +882,11 @@ func failTraceRun(database *sql.DB, traceID int64, cause error, publish func(gra
 	log.Printf("cmdr: trace[%d]: %v", traceID, cause)
 }
 
+// traceTitleHint nudges the summarizer away from echoing the leading
+// verb of the user's prompt. Without it, every trace title tends to
+// start with "Trace ..." or "Build ..." which collapses identifiability.
+const traceTitleHint = "The content is a request to map a code flow. Title the flow's subject (what is being traced), not the act of tracing. Do not begin with verbs like 'Trace', 'Build', 'Show', 'Map', or 'Generate'."
+
 // generateTraceTitle returns a short title for a trace prompt. Tries
 // the configured summarizer adapter (Apple Intelligence → Ollama →
 // snippet fallback) and falls back to the truncated prompt prefix on
@@ -891,7 +896,7 @@ func generateTraceTitle(prompt string) string {
 	if sum != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		title, err := sum.Summarize(ctx, prompt)
+		title, err := sum.Summarize(ctx, prompt, traceTitleHint)
 		if err == nil {
 			title = strings.TrimSpace(title)
 			if title != "" {

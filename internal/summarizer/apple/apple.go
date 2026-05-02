@@ -37,9 +37,17 @@ func New() *Adapter {
 	return &Adapter{binPath: "cmdr-summarize"}
 }
 
-func (a *Adapter) Summarize(ctx context.Context, content string) (string, error) {
+func (a *Adapter) Summarize(ctx context.Context, content, hint string) (string, error) {
+	payload, err := json.Marshal(struct {
+		Content string `json:"content"`
+		Hint    string `json:"hint,omitempty"`
+	}{Content: content, Hint: hint})
+	if err != nil {
+		return "", fmt.Errorf("cmdr-summarize: marshal: %w", err)
+	}
+
 	cmd := exec.CommandContext(ctx, a.binPath)
-	cmd.Stdin = bytes.NewBufferString(content)
+	cmd.Stdin = bytes.NewReader(payload)
 
 	out, err := cmd.Output()
 	if err != nil {
