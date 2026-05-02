@@ -3,7 +3,7 @@
 	import * as dagre from '@dagrejs/dagre';
 	import { zoom, zoomIdentity, type ZoomBehavior } from 'd3-zoom';
 	import { select } from 'd3-selection';
-	import { AlertCircle, X, ArrowRight, ExternalLink, History, ChevronRight } from 'lucide-svelte';
+	import { X, ArrowRight, ExternalLink, History, ChevronRight } from 'lucide-svelte';
 	import { openInEditor, type Trace, type TraceStep, type ChangeSummary, type TraceEvent } from '$lib/api';
 
 	type ActivityEvent = {

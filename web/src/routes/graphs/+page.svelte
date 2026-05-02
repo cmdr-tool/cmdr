@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Network, Hammer, FolderCode, AlertCircle, ChevronRight } from 'lucide-svelte';
+	import { Network, Hammer, FolderCode, CircleAlert, ChevronRight } from 'lucide-svelte';
 	import {
 		listGraphs,
 		buildGraph,
@@ -147,7 +147,7 @@
 											</span>
 											{#if isFailed}
 												<span class="flex items-center gap-1 text-red-400 font-mono">
-													<AlertCircle size={11} />
+													<CircleAlert size={11} />
 													last build failed
 												</span>
 											{:else}
@@ -213,7 +213,7 @@
 
 						{#if error}
 							<div class="mt-3 flex items-center gap-2 text-xs text-red-400">
-								<AlertCircle size={12} />
+								<CircleAlert size={12} />
 								<span class="font-mono">{error}</span>
 							</div>
 						{/if}

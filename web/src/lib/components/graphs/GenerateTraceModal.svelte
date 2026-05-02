@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { X, AlertCircle, Sparkles } from 'lucide-svelte';
+	import { X, CircleAlert, Sparkles } from 'lucide-svelte';
 
 	type Props = {
 		open: boolean;
@@ -77,7 +77,7 @@
 
 			{#if error}
 				<div class="px-6 py-2 border-t border-bourbon-800/50 shrink-0 flex items-center gap-2 text-xs text-red-400">
-					<AlertCircle size={12} />
+					<CircleAlert size={12} />
 					<span class="font-mono">{error}</span>
 				</div>
 			{/if}

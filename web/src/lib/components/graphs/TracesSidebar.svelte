@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AlertCircle, FileText, Plus, RefreshCw, Trash2, Loader2 } from 'lucide-svelte';
+	import { CircleAlert, FileText, Plus, RefreshCw, Trash2, Loader2 } from 'lucide-svelte';
 	import type { TraceRow } from '$lib/api';
 
 	type Props = {
@@ -55,7 +55,7 @@
 		</div>
 	{:else if error}
 		<div class="flex items-center gap-2 px-4 py-4 text-red-400">
-			<AlertCircle size={12} />
+			<CircleAlert size={12} />
 			<span class="text-[10px] font-mono">{error}</span>
 		</div>
 	{:else if traces.length === 0}
@@ -102,7 +102,7 @@
 							{#if isInFlight}
 								<Loader2 size={11} class="text-cmd-400 mt-1 shrink-0 animate-spin" />
 							{:else if isFailed}
-								<AlertCircle size={11} class="text-red-400 mt-1 shrink-0" />
+								<CircleAlert size={11} class="text-red-400 mt-1 shrink-0" />
 							{:else}
 								<FileText size={11} class="text-bourbon-600 mt-1 shrink-0" />
 							{/if}

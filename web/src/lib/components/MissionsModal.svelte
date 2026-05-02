@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { X, ArrowRight, GitBranch, Loader2, CircleCheck, CircleX } from 'lucide-svelte';
+	import { X, ArrowRight, GitBranch, CircleCheck, CircleX } from 'lucide-svelte';
 	import { getDelegations, type Delegation } from '$lib/api';
 	import { renderMarkdown, ensurePrismLoaded } from '$lib/markdown';
 	import { events } from '$lib/events';
@@ -98,7 +98,7 @@
 								<!-- Header bar -->
 								<div class="flex items-center justify-between px-4 py-2.5 bg-bourbon-950/50">
 									<div class="flex items-center gap-2">
-										<Loader2 size={14} class="text-run-400 animate-spin" />
+										<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-run-400 rounded-full animate-spin"></div>
 										<span class="text-xs font-mono text-bourbon-300">{d.delegationFrom}</span>
 										<ArrowRight size={10} class="text-bourbon-600" />
 										<span class="text-xs font-mono text-bourbon-300">{d.delegationTo}</span>
