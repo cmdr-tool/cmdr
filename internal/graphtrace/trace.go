@@ -86,10 +86,23 @@ func LoadLatestSnapshot(database *sql.DB, store *graph.Store, slug string) (*Sna
 // prompt and returns the parsed Trace plus its computed affected_files. The
 // onEvent callback receives streaming events from the agent (forwarded by
 // the daemon to the SSE channel for live UI feedback).
+//
+// Output contract: the agent writes the trace JSON to a temp file (path
+// passed in via the prompt), and we read+parse the file afterwards. Stdout
+// is treated as chatter — only the file is the artifact. This avoids the
+// fragility of asking the agent to one-shot a structured JSON message.
 func Generate(ctx context.Context, snap Snapshot, userPrompt string, onEvent func(Event)) (*Trace, []string, error) {
 	if onEvent == nil {
 		onEvent = func(Event) {}
 	}
+
+	tmp, err := os.CreateTemp("", "cmdr-trace-*.json")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create trace output file: %w", err)
+	}
+	outputPath := tmp.Name()
+	tmp.Close()
+	defer os.Remove(outputPath)
 
 	// graph.json is large (often 100KB+) — pass the path and let the
 	// agent Read it selectively rather than inlining the whole thing
@@ -100,6 +113,7 @@ func Generate(ctx context.Context, snap Snapshot, userPrompt string, onEvent fun
 		"RepoSlug":   snap.Slug,
 		"RepoPath":   snap.RepoPath,
 		"GraphPath":  snap.GraphPath,
+		"OutputPath": outputPath,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("render generate user prompt: %w", err)
@@ -134,12 +148,20 @@ func Generate(ctx context.Context, snap Snapshot, userPrompt string, onEvent fun
 		return nil, nil, fmt.Errorf("agent run: %w", err)
 	}
 
-	trace, err := parseTraceJSON(streamRes.Output)
+	data, err := os.ReadFile(outputPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w (raw output: %s)", err, truncate(strings.TrimSpace(streamRes.Output), 500))
+		return nil, nil, fmt.Errorf("read trace output file: %w (agent stdout: %s)", err, truncate(strings.TrimSpace(streamRes.Output), 500))
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil, nil, fmt.Errorf("agent produced empty trace file — agent stdout: %s", truncate(strings.TrimSpace(streamRes.Output), 500))
+	}
+
+	trace, err := parseTraceJSON(string(data))
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w (file content: %s)", err, truncate(strings.TrimSpace(string(data)), 500))
 	}
 	if len(trace.Steps) == 0 {
-		return nil, nil, fmt.Errorf("agent produced empty trace — output: %s", truncate(strings.TrimSpace(streamRes.Output), 500))
+		return nil, nil, fmt.Errorf("agent produced trace with no steps — file content: %s", truncate(strings.TrimSpace(string(data)), 500))
 	}
 
 	files := collectAffectedFiles(trace)

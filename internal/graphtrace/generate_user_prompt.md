@@ -21,6 +21,12 @@ Read this file to orient yourself. It's typically 50–500KB of JSON — too lar
 
 Use the graph to find entry points and the call chain, then read the actual source files to confirm each step's behavior.
 
-## Reminder
+## Output
 
-Your final assistant message MUST be a single valid JSON object matching the `Trace` schema (entry + steps). No prose. No markdown fences. No file writes — your reply IS the artifact.
+**Write your final trace JSON using the Write tool to:**
+
+`{{.OutputPath}}`
+
+The file content is the artifact — your reply text is treated as chatter and discarded. The file MUST contain a single valid JSON object matching the `Trace` schema (entry + steps), with no markdown fences and no prose around it.
+
+After writing, read the file back with the Read tool to confirm the JSON is well-formed and matches the schema, then end your turn with a one-line confirmation. If the read reveals a problem, fix the file with another Write before confirming.
