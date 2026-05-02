@@ -69,7 +69,7 @@
 					bind:this={textarea}
 					bind:value={prompt}
 					placeholder={'Trace what happens when a user hits POST /api/agent/tasks/spawn — from request validation through tmux pane creation.'}
-					class="w-full min-h-[160px] bg-transparent border-none
+					class="w-full min-h-40  bg-transparent border-none
 						text-sm font-mono text-bourbon-200 placeholder:text-bourbon-700
 						focus:outline-none resize-none leading-relaxed"
 				></textarea>

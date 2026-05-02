@@ -47,7 +47,7 @@
 	// Show only the trailing window of activity events so the panel
 	// doesn't keep growing through a long generation run. New events
 	// push older ones off the bottom — a tail rather than a log.
-	const ACTIVITY_TAIL = 3;
+	const ACTIVITY_TAIL = 5;
 	let recentActivity = $derived(activity.slice(-ACTIVITY_TAIL));
 
 	// Whichever version is being shown drives the layout. Callouts only
@@ -83,7 +83,11 @@
 	let zoomBehavior: ZoomBehavior<HTMLCanvasElement, unknown> | null = null;
 	let hoveredStepId: string | null = $state(null);
 	let pinnedStepId: string | null = $state(null);
+	let hoveredEdgeIdx: number | null = $state(null);
 	let cursor: { x: number; y: number } | null = $state(null);
+
+	// Rebuilt every draw frame; not reactive, used only for edge-label hit testing.
+	let edgeLabelBoxes: Array<{ idx: number; x: number; y: number; w: number; h: number }> = [];
 
 	type LayoutNode = {
 		id: string;
@@ -119,7 +123,8 @@
 			const w = Math.max(220, Math.min(360, labelLen * 7 + 60));
 			const reqCount = step.requires?.length ?? 0;
 			const hasDesc = !!(step.description && step.description.trim());
-			const h = 56 + (hasDesc ? 18 : 0) + (reqCount > 0 ? 14 : 0);
+			// Description reserves space for up to 3 wrapped lines (10px font, 13px line-height = 39px + bottom gap).
+			const h = 56 + (hasDesc ? 42 : 0) + (reqCount > 0 ? 14 : 0);
 			g.setNode(step.id, { width: w, height: h, step });
 		}
 		for (const step of activeTrace.steps) {
@@ -268,8 +273,9 @@
 		ctx.restore();
 
 		// Pass 2: text in screen coordinates so it stays crisp at any zoom.
+		edgeLabelBoxes.length = 0;
 		for (const node of layout.nodes) drawNodeText(ctx, node);
-		for (const edge of layout.edges) drawEdgeLabel(ctx, edge);
+		for (let i = 0; i < layout.edges.length; i++) drawEdgeLabel(ctx, layout.edges[i], i);
 
 		ctx.restore();
 	}
@@ -354,48 +360,104 @@
 
 		let yOff = labelFontPx + 6;
 
-		if (hasDesc && sh > 50) {
+		// Box height scales with zoom but text stays in screen pixels — at
+		// low zoom levels the 3-line description budget would overflow into
+		// the requires line. Compute how many description lines actually fit.
+		const descLineHeight = descFontPx + 3;
+		const reqReserve = reqCount > 0 ? reqFontPx + 4 : 0;
+		const bottomPad = 6;
+		const availForDesc = sh - 8 - (labelFontPx + 6) - reqReserve - bottomPad;
+		const maxDescLines = Math.min(3, Math.max(0, Math.floor(availForDesc / descLineHeight)));
+
+		if (hasDesc && maxDescLines > 0) {
 			c.fillStyle = 'rgba(155, 141, 122, 0.85)';
 			c.font = `${descFontPx}px ui-sans-serif, system-ui`;
-			c.fillText(fitText(c, node.step.description!, sw - 20), tx, ty + yOff);
-			yOff += descFontPx + 4;
+			const descLines = wrapText(c, node.step.description!, sw - 20, maxDescLines);
+			for (const line of descLines) {
+				c.fillText(line, tx, ty + yOff);
+				yOff += descLineHeight;
+			}
+			yOff += 2;
 		}
 
-		if (reqCount > 0 && sh > 60) {
+		if (reqCount > 0 && sh > 50) {
 			c.fillStyle = 'rgba(255, 180, 90, 0.7)';
 			c.font = `${reqFontPx}px ui-monospace, monospace`;
 			c.fillText(`+ ${reqCount} require${reqCount === 1 ? '' : 's'}`, tx, ty + yOff);
 		}
 	}
 
-	function drawEdgeLabel(c: CanvasRenderingContext2D, edge: LayoutEdge) {
+	function drawEdgeLabel(c: CanvasRenderingContext2D, edge: LayoutEdge, edgeIdx: number) {
 		if (!edge.condition || edge.points.length < 2) return;
 		const mid = edge.points[Math.floor(edge.points.length / 2)];
 		const sx = mid.x * transform.k + transform.x;
 		const sy = mid.y * transform.k + transform.y;
 
-		c.font = `10px ui-monospace, monospace`;
+		const fontPx = 10;
+		c.font = `${fontPx}px ui-monospace, monospace`;
 		c.textAlign = 'center';
 		c.textBaseline = 'middle';
 
-		// Pill background so the label doesn't visually merge with edges/boxes.
-		const text = edge.condition;
-		const metrics = c.measureText(text);
+		// Single line, aggressively truncated — full text shown on hover.
+		const maxLineWidth = 140;
+		const lines = wrapText(c, edge.condition, maxLineWidth, 1);
+		if (lines.length === 0) return;
+
 		const padX = 6;
 		const padY = 3;
-		const textW = metrics.width;
-		const textH = 10;
-		const bgX = sx - textW / 2 - padX;
-		const bgY = sy - textH / 2 - padY;
-		c.fillStyle = 'rgba(20, 16, 12, 0.92)';
-		c.strokeStyle = 'rgba(180, 160, 130, 0.25)';
+		const textW = c.measureText(lines[0]).width;
+		const textH = fontPx;
+
+		const boxX = sx - textW / 2 - padX;
+		const boxY = sy - textH / 2 - padY;
+		const boxW = textW + padX * 2;
+		const boxH = textH + padY * 2;
+
+		const isHovered = hoveredEdgeIdx === edgeIdx;
+		c.fillStyle = isHovered ? 'rgba(40, 30, 20, 0.95)' : 'rgba(20, 16, 12, 0.92)';
+		c.strokeStyle = isHovered ? 'rgba(180, 160, 130, 0.6)' : 'rgba(180, 160, 130, 0.25)';
 		c.lineWidth = 1;
-		roundRect(c, bgX, bgY, textW + padX * 2, textH + padY * 2, 4);
+		roundRect(c, boxX, boxY, boxW, boxH, 4);
 		c.fill();
 		c.stroke();
 
-		c.fillStyle = 'rgba(200, 180, 150, 0.95)';
-		c.fillText(text, sx, sy);
+		c.fillStyle = isHovered ? 'rgba(232, 220, 200, 1)' : 'rgba(200, 180, 150, 0.95)';
+		c.fillText(lines[0], sx, sy);
+
+		edgeLabelBoxes.push({ idx: edgeIdx, x: boxX, y: boxY, w: boxW, h: boxH });
+	}
+
+	function wrapText(
+		c: CanvasRenderingContext2D,
+		text: string,
+		maxWidth: number,
+		maxLines: number
+	): string[] {
+		const words = text.split(/\s+/).filter(Boolean);
+		if (words.length === 0) return [];
+
+		const lines: string[] = [];
+		let current = '';
+
+		for (let i = 0; i < words.length; i++) {
+			const word = words[i];
+			const candidate = current ? `${current} ${word}` : word;
+			if (c.measureText(candidate).width <= maxWidth) {
+				current = candidate;
+				continue;
+			}
+			// Word doesn't fit — flush current line and continue with this word.
+			if (current) lines.push(current);
+			if (lines.length >= maxLines) {
+				// Out of vertical budget — squash remaining words into last line + ellipsis.
+				const remainder = words.slice(i).join(' ');
+				lines[maxLines - 1] = fitText(c, `${lines[maxLines - 1]} ${remainder}`, maxWidth);
+				return lines;
+			}
+			current = word;
+		}
+		if (current) lines.push(current);
+		return lines;
 	}
 
 	function fitText(c: CanvasRenderingContext2D, s: string, maxWidth: number): string {
@@ -451,13 +513,34 @@
 	}
 
 	function handlePointerMove(e: PointerEvent) {
-		const hit = hitTest(e.clientX, e.clientY);
-		hoveredStepId = hit?.id ?? null;
-		cursor = hit ? { x: e.clientX, y: e.clientY } : null;
+		const nodeHit = hitTest(e.clientX, e.clientY);
+		if (nodeHit) {
+			hoveredStepId = nodeHit.id;
+			hoveredEdgeIdx = null;
+			cursor = { x: e.clientX, y: e.clientY };
+			return;
+		}
+		hoveredStepId = null;
+
+		// Edge labels are drawn in screen space — hit-test against raw cursor coords.
+		if (!canvas) {
+			hoveredEdgeIdx = null;
+			cursor = null;
+			return;
+		}
+		const rect = canvas.getBoundingClientRect();
+		const cx = e.clientX - rect.left;
+		const cy = e.clientY - rect.top;
+		const edgeHit = edgeLabelBoxes.find(
+			(b) => cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h
+		);
+		hoveredEdgeIdx = edgeHit?.idx ?? null;
+		cursor = edgeHit ? { x: e.clientX, y: e.clientY } : null;
 	}
 
 	function handlePointerLeave() {
 		hoveredStepId = null;
+		hoveredEdgeIdx = null;
 		cursor = null;
 	}
 
@@ -500,7 +583,7 @@
 	<canvas
 		bind:this={canvas}
 		class="absolute inset-0 w-full h-full"
-		class:cursor-pointer={hoveredStepId}
+		class:cursor-pointer={hoveredStepId || hoveredEdgeIdx !== null}
 		onpointermove={handlePointerMove}
 		onpointerleave={handlePointerLeave}
 		onclick={handleClick}
@@ -619,7 +702,24 @@
 						{hovered.step.description}
 					</div>
 				{/if}
-				<div class="text-[9px] text-bourbon-700 mt-1 italic">click to pin</div>
+				<div class="text-[9px] text-bourbon-700 mt-1 italic">click to expand</div>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Edge condition tooltip — full text on hover, since the on-canvas
+	     label is aggressively truncated to one line. -->
+	{#if hoveredEdgeIdx !== null && cursor && layout}
+		{@const hoveredEdge = layout.edges[hoveredEdgeIdx]}
+		{#if hoveredEdge?.condition}
+			<div
+				class="fixed z-40 max-w-sm px-3 py-2 rounded-md bg-bourbon-900/95 border border-bourbon-700 backdrop-blur-sm pointer-events-none shadow-xl"
+				style:left="{cursor.x + 14}px"
+				style:top="{cursor.y + 14}px"
+			>
+				<div class="text-[10px] font-mono text-bourbon-300 leading-relaxed">
+					{hoveredEdge.condition}
+				</div>
 			</div>
 		{/if}
 	{/if}
@@ -629,10 +729,10 @@
 	     a step again (or the X) to dismiss. -->
 	{#if pinned}
 		<div
-			class="absolute z-40 w-80 max-h-[80%] overflow-y-auto rounded-lg bg-bourbon-900/95 border border-bourbon-700 backdrop-blur-sm shadow-2xl"
+			class="absolute z-40 w-[400px] max-h-[80%] overflow-y-auto rounded-lg bg-bourbon-900/95 border border-bourbon-700 backdrop-blur-sm shadow-2xl"
 			style:left={pinned.placeRight
-				? `${Math.min(canvasW - 16 - 320, pinned.sx + pinned.sw / 2 + 16)}px`
-				: `${Math.max(16, pinned.sx - pinned.sw / 2 - 320 - 16)}px`}
+				? `${Math.min(canvasW - 16 - 400, pinned.sx + pinned.sw / 2 + 16)}px`
+				: `${Math.max(16, pinned.sx - pinned.sw / 2 - 400 - 16)}px`}
 			style:top="{Math.max(16, Math.min(canvasH - 200, pinned.sy - pinned.sh / 2))}px"
 		>
 			<div class="flex items-start justify-between gap-2 px-4 py-3 border-b border-bourbon-800/60">
@@ -662,9 +762,10 @@
 					{pinned.node.step.provenance}
 				</span>
 				{#if pinned.node.step.source_file}
-					<span class="text-bourbon-600 truncate">
-						{pinned.node.step.source_file}{#if pinned.node.step.source_line}:{pinned.node.step.source_line}{/if}
-					</span>
+					<span
+						class="text-bourbon-600 truncate"
+						style="direction: rtl; text-align: left;"
+					>{pinned.node.step.source_file}{#if pinned.node.step.source_line}:{pinned.node.step.source_line}{/if}</span>
 					{#if repoPath}
 						<button
 							onclick={() => openInEditor(repoPath!, pinned!.node.step.source_file!, pinned!.node.step.source_line ?? 1)}
@@ -696,8 +797,8 @@
 			{/if}
 
 			{#if pinned.node.step.requires && pinned.node.step.requires.length > 0}
-				<div class="px-4 py-3 border-b border-bourbon-800/40">
-					<div class="text-[9px] font-display font-bold uppercase tracking-widest text-bourbon-600 mb-2">
+				<div class="px-4 py-3 border-b border-bourbon-800/40 bg-black/20">
+					<div class="text-[9px] font-display font-bold uppercase tracking-widest text-run-500 mb-2">
 						requires
 					</div>
 					<div class="flex flex-col gap-1.5">

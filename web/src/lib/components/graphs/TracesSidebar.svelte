@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CircleAlert, FileText, Plus, RefreshCw, Trash2, Loader2 } from 'lucide-svelte';
+	import { CircleAlert, Route, Plus, RefreshCw, Trash2 } from 'lucide-svelte';
 	import type { TraceRow } from '$lib/api';
 
 	type Props = {
@@ -96,15 +96,15 @@
 				>
 					<button
 						onclick={() => onSelect(trace.id)}
-						class="w-full text-left px-4 py-3 cursor-pointer"
+						class="block w-full text-left px-4 pt-3 pb-2 cursor-pointer"
 					>
 						<div class="flex items-start gap-2">
 							{#if isInFlight}
-								<Loader2 size={11} class="text-cmd-400 mt-1 shrink-0 animate-spin" />
+								<div class="w-3 h-3 border-2 border-bourbon-700 border-t-cmd-400 rounded-full animate-spin mt-0.5 shrink-0"></div>
 							{:else if isFailed}
-								<CircleAlert size={11} class="text-red-400 mt-1 shrink-0" />
+								<CircleAlert size={11} class="text-red-400 mt-0.5 shrink-0" />
 							{:else}
-								<FileText size={11} class="text-bourbon-600 mt-1 shrink-0" />
+								<Route size={11} class="text-bourbon-600 mt-0.5 shrink-0" />
 							{/if}
 							<div class="min-w-0 flex-1">
 								<div class="flex items-center gap-1.5">
@@ -132,12 +132,13 @@
 						</div>
 					</button>
 					{#if isSelected && !isInFlight}
-						<div class="flex items-center gap-1 px-4 pb-3 -mt-1">
+						<div class="flex items-center justify-end gap-1.5 px-4 pb-3">
 							<button
 								onclick={() => onRegenerate(trace.id)}
-								class="flex items-center gap-1 px-2 py-1 rounded
-									text-[9px] font-display font-bold uppercase tracking-widest
-									text-bourbon-400 hover:text-cmd-300 hover:bg-bourbon-800/60
+								class="flex items-center gap-1 text-[9px] font-mono
+									text-cmd-400 bg-cmd-700/20 border border-cmd-500/30
+									px-1.5 py-0.5 rounded
+									hover:bg-cmd-600/40 hover:border-cmd-400/60 hover:text-cmd-200
 									transition-colors cursor-pointer"
 							>
 								<RefreshCw size={10} />
@@ -145,9 +146,10 @@
 							</button>
 							<button
 								onclick={() => onDelete(trace.id)}
-								class="flex items-center gap-1 px-2 py-1 rounded
-									text-[9px] font-display font-bold uppercase tracking-widest
-									text-bourbon-500 hover:text-red-400 hover:bg-bourbon-800/60
+								class="flex items-center gap-1 text-[9px] font-mono
+									text-bourbon-500 bg-bourbon-800/30 border border-bourbon-700/40
+									px-1.5 py-0.5 rounded
+									hover:text-red-400 hover:border-red-500/40 hover:bg-bourbon-800/50
 									transition-colors cursor-pointer"
 							>
 								<Trash2 size={10} />
