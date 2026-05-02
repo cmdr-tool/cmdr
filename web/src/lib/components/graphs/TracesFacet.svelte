@@ -89,6 +89,32 @@
 	// Rebuilt every draw frame; not reactive, used only for edge-label hit testing.
 	let edgeLabelBoxes: Array<{ idx: number; x: number; y: number; w: number; h: number }> = [];
 
+	// Elapsed seconds since the current generation run started. Counts from
+	// when the panel opens, not from a backend-tracked run start — close+reopen
+	// resets the counter, which is fine for a UX hint.
+	let elapsed = $state(0);
+	$effect(() => {
+		if (!generating) {
+			elapsed = 0;
+			return;
+		}
+		const start = Date.now();
+		elapsed = 0;
+		let timeoutId: ReturnType<typeof setTimeout>;
+		const tick = () => {
+			elapsed = Math.floor((Date.now() - start) / 1000);
+			timeoutId = setTimeout(tick, 1000);
+		};
+		timeoutId = setTimeout(tick, 1000);
+		return () => clearTimeout(timeoutId);
+	});
+
+	function formatElapsed(s: number): string {
+		const m = Math.floor(s / 60);
+		const r = s % 60;
+		return `${m}:${String(r).padStart(2, '0')}`;
+	}
+
 	type LayoutNode = {
 		id: string;
 		x: number;
@@ -658,9 +684,12 @@
 	{#if generating}
 		<div class="absolute inset-0 z-30 flex items-center justify-center bg-bourbon-950/85 backdrop-blur-sm">
 			<div class="w-[28rem] max-h-[70vh] flex flex-col bg-bourbon-900/95 border border-bourbon-800 rounded-lg overflow-hidden">
-				<div class="px-4 py-3 border-b border-bourbon-800 flex items-center gap-2">
-					<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
-					<span class="font-display text-xs uppercase tracking-widest text-bourbon-300">Generating trace</span>
+				<div class="px-4 py-3 border-b border-bourbon-800 flex items-center justify-between gap-2">
+					<div class="flex items-center gap-2">
+						<div class="w-3.5 h-3.5 border-2 border-bourbon-700 border-t-cmd-500 rounded-full animate-spin"></div>
+						<span class="font-display text-xs uppercase tracking-widest text-bourbon-300">Generating trace</span>
+					</div>
+					<span class="font-mono text-xs text-bourbon-500 tabular-nums">{formatElapsed(elapsed)}</span>
 				</div>
 				<div class="px-4 py-3 flex flex-col gap-1.5 font-mono text-[10px]">
 					{#if activity.length === 0}
