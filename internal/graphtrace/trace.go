@@ -136,10 +136,10 @@ func Generate(ctx context.Context, snap Snapshot, userPrompt string, onEvent fun
 
 	trace, err := parseTraceJSON(streamRes.Output)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w (raw output: %s)", err, truncate(strings.TrimSpace(streamRes.Output), 500))
 	}
 	if len(trace.Steps) == 0 {
-		return nil, nil, fmt.Errorf("agent produced empty trace — check that the agent followed the schema")
+		return nil, nil, fmt.Errorf("agent produced empty trace — output: %s", truncate(strings.TrimSpace(streamRes.Output), 500))
 	}
 
 	files := collectAffectedFiles(trace)
