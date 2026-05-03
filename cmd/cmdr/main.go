@@ -387,18 +387,16 @@ Your squad info was provided at session start. If you need it again: `+"``"+`%s 
 
 Enlisted work must always land as a PR in the enlisted repo, never as a direct commit to main. You may not have opened your own PR yet when enlisting — what matters is the destination state, not the current state. Always-PR keeps cross-repo coordination safe regardless of when each side merges.
 
-Always include in your `+"``"+`--details`+"``"+` an explicit delivery instruction with a back-reference:
+Pass `+"``"+`--pr`+"``"+` on every dispatch — the cmdr backend renders the right delivery instructions when this flag is set. Do **not** embed your own `+"``"+`## Delivery`+"``"+` section in `+"``"+`--details`+"``"+`; doing so duplicates the backend-rendered block and can produce conflicting instructions.
 
-> Deliver as a PR in your repo. In the PR description include `+"``"+`Companion PR: <branch-or-url>`+"``"+` so the changes can be tracked and merged together.
-
-For `+"``"+`<branch-or-url>`+"``"+`: use your PR URL if you've opened one; otherwise use your branch name (`+"``"+`git rev-parse --abbrev-ref HEAD`+"``"+`). You can update the cross-reference in the delegatee's PR later if your PR opens after theirs.
+Include a `+"``"+`Companion PR: <branch-or-url>`+"``"+` line at the end of `+"``"+`--details`+"``"+` so the delegatee can cross-reference your PR. For `+"``"+`<branch-or-url>`+"``"+`: use your PR URL if you've opened one; otherwise use your branch name (`+"``"+`git rev-parse --abbrev-ref HEAD`+"``"+`). You can update the cross-reference in the delegatee's PR later if your PR opens after theirs.
 
 ## Dispatch
 
 `+"```bash"+`
-%s enlist --squad {squad-name} --from {your-alias} --to {target-alias} \
+%s enlist --squad {squad-name} --from {your-alias} --to {target-alias} --pr \
   --summary "Brief description of what you need" \
-  --details "Full specification — be precise about interfaces, types, behavior. End with: 'Deliver as a PR. Reference <branch-or-url>.'"
+  --details "Full specification — be precise about interfaces, types, behavior. End with: 'Companion PR: <branch-or-url>'"
 `+"```"+`
 
 The --details should have enough context for someone unfamiliar with your repo to implement the change — include expected interfaces, types, endpoints, and behavior.
