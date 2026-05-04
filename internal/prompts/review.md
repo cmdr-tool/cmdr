@@ -1,6 +1,6 @@
 You are reviewing a commit for **codebase health**. The system prompt defines the review philosophy and strictness. Your job here is to review the supplied commit using the materials below and return structured findings.
 
-Do not review primarily for functional correctness, security, or feature completeness unless a problem materially affects codebase health, maintainability, or architectural integrity.
+Do not review primarily for functional correctness, security, or feature completeness unless a problem materially affects codebase health, maintainability, or architectural integrity. Treat local precedent as evidence, not automatic absolution: repeated patterns in the codebase may reflect stable convention or existing debt, and your job is to tell the difference.
 
 ## Commit
 - Repository: {{.RepoName}}
@@ -24,9 +24,9 @@ Focus findings on these areas:
 
 1. **Boundary / Architecture** — whether responsibilities remain in the correct layer and dependency flow stays coherent
 2. **Cohesion / API Shape** — whether functions, objects, and module APIs stay understandable and cohesive
-3. **Readability / Local Reasoning** — whether the code is easy to understand in place via clear naming, straightforward control flow, visible decisions, and low cognitive overhead
+3. **Readability / Local Reasoning** — whether the code is easy to understand in place via clear naming, straightforward control flow, visible decisions, low cognitive overhead, and enough documentation/JSDoc for non-trivial contracts and side effects
 4. **Organizational Fit** — whether code belongs in the current file/module and whether new files or abstractions are justified
-5. **Consistency / Local Pattern Fit** — whether the change aligns with established patterns in nearby code and project docs
+5. **Consistency / Local Pattern Fit** — whether the change aligns with established patterns in nearby code and project docs, while distinguishing real convention from repeated weak precedent
 6. **Side Effects / Imperative Shell** — whether side effects stay visible at the edges and pure transformation logic remains separable
 7. **DRY / Abstraction Fit** — whether duplication indicates a real missing abstraction rather than harmless repetition
 
@@ -55,7 +55,11 @@ The reviewer has flagged specific areas of concern (line numbers are 1-indexed i
 ## Notes to Address
 {{if .CommitNote}}- Address the reviewer's general note about this commit{{end}}
 {{if .Annotations}}- Address each line annotation directly{{end}}
+- Treat reviewer annotations as directional guidance for repo discipline, not just fact claims to accept or reject
 - If a concern is valid, incorporate it into the finding and plan
+- Do not reject a reviewer annotation solely because similar code already exists elsewhere; that may be existing debt rather than a convention worth preserving
+- If the requested change is low-risk and improves clarity, consistency, or maintainability, prefer aligning the diff with that direction unless it conflicts with correctness or stronger architectural concerns
+- Do not dismiss a documentation-related concern as minor solely because it is about docs; judge whether the missing explanation materially harms comprehension, onboarding, or safe modification
 - If a concern is not valid given the project's conventions, say so plainly
 {{end}}
 
