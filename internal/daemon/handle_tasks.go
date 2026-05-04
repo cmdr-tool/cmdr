@@ -620,7 +620,11 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			childPrompt = fmt.Sprintf(
 				"Address the following code review findings from commit %s.\n\n"+
 					"## How to read these findings\n\n"+
-					"- Each finding has a priority, location, issue description, and a step-by-step plan\n"+
+					"- Each finding includes severity, location, issue description, and a suggested plan\n"+
+					"- Severity is for triage and urgency, not a mandate for the size or shape of the fix\n"+
+					"- Treat the plan as advisory, not binding; re-evaluate the cleanest fix against the repo's rules, patterns, and boundaries\n"+
+					"- Do not assume the reviewer's proposed refactor is the only valid solution\n"+
+					"- Prefer the smallest clean fix that resolves the issue without introducing a new boundary or cohesion problem\n"+
 					"- If a finding contains a `> User response:` blockquote, treat it as explicit guidance — follow it\n"+
 					"- If a finding has multiple valid approaches and no user response, pick the cleanest one\n"+
 					"- Only ask me if there is genuine ambiguity that requires a judgment call\n\n"+
@@ -691,6 +695,87 @@ func handleSpawnTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
 			"target":  launchRes.Target,
 			"session": launchRes.Session,
 		})
+	}
+}
+
+// --- Rerun ---
+
+// handleRerunTask spawns a new task that re-runs a completed (or failed)
+// headless directive against the current state of its repo, using the same
+// stored prompt. The original row is preserved so the user can compare the
+// two perspectives. Scope is intentionally narrow: only headless directives
+// (e.g. analysis). Reviews aren't supported here because their stored prompt
+// freezes the diff snapshot at create time — a useful review-rerun would need
+// to regenerate the prompt from current annotations, which is a separate path.
+func handleRerunTask(db *sql.DB, bus *EventBus) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			ID int `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == 0 {
+			http.Error(w, `{"error":"missing id"}`, http.StatusBadRequest)
+			return
+		}
+
+		var taskType, intent, repoPath, prompt string
+		err := db.QueryRow(
+			`SELECT type, COALESCE(intent, ''), COALESCE(repo_path, ''), COALESCE(prompt, '')
+			 FROM agent_tasks WHERE id = ?`,
+			body.ID,
+		).Scan(&taskType, &intent, &repoPath, &prompt)
+		if err != nil {
+			http.Error(w, `{"error":"task not found"}`, http.StatusNotFound)
+			return
+		}
+		if taskType != "directive" || !prompts.IntentIsHeadless(intent) {
+			http.Error(w, `{"error":"task type does not support re-run"}`, http.StatusBadRequest)
+			return
+		}
+		if repoPath == "" || prompt == "" {
+			http.Error(w, `{"error":"task is missing repo or prompt"}`, http.StatusBadRequest)
+			return
+		}
+
+		taskAgent, overridePrompt, outputFmt := resolveAgent(intent)
+		systemPrompt := overridePrompt
+		if systemPrompt == "" {
+			systemPrompt, _ = prompts.GetIntentPrompt(intent)
+		}
+
+		title := directiveTitle(prompt)
+		now := time.Now().Format(time.RFC3339)
+		res, err := db.Exec(
+			`INSERT INTO agent_tasks (type, status, repo_path, prompt, title, intent, agent, created_at, started_at)
+			 VALUES ('directive', 'running', ?, ?, ?, ?, ?, ?, ?)`,
+			repoPath, prompt, title, intent, taskAgent.Name(), now, now,
+		)
+		if err != nil {
+			http.Error(w, jsonErr(err), http.StatusInternalServerError)
+			return
+		}
+		newID64, _ := res.LastInsertId()
+		newID := int(newID64)
+
+		bus.Publish(Event{Type: "agent:task", Data: map[string]any{
+			"id": newID, "status": "running", "type": "directive", "intent": intent, "repoPath": repoPath, "title": title,
+		}})
+
+		go runHeadlessWithAgent(taskAgent, db, bus, HeadlessConfig{
+			TaskID:       newID,
+			Prompt:       prompt,
+			WorkDir:      repoPath,
+			SystemPrompt: systemPrompt,
+			OutputFormat: outputFmt,
+		})
+
+		enhanceTitle(db, bus, newID, truncate(prompt, 500))
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": newID, "status": "running"})
 	}
 }
 

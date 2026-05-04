@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AgentTask, GitCommit } from '$lib/api';
-	import { getAgentTaskResult, getStatus } from '$lib/api';
+	import { getAgentTaskResult, getStatus, rerunTask } from '$lib/api';
 	import { onMount } from 'svelte';
 	import { ScanSearch } from 'lucide-svelte';
 	import { connection } from '$lib/events';
@@ -191,6 +191,11 @@
 		emptyHint={resultTask.intent === 'analysis' ? 'analyzing' : 'thinking'}
 		outputFormat={resultTask.outputFormat ?? 'markdown'}
 		onclose={() => { resultTask = null; }}
+		onrerun={resultTask.intent === 'analysis' ? async () => {
+			if (!resultTask) return;
+			await rerunTask(resultTask.id);
+			resultTask = null;
+		} : null}
 	/>
 {/if}
 

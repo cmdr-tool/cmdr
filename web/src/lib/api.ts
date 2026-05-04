@@ -652,6 +652,14 @@ export function cancelTask(id: number): Promise<{ status: string }> {
 	});
 }
 
+export function rerunTask(id: number): Promise<{ id: number; status: string }> {
+	return request('/agent/tasks/rerun', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ id })
+	});
+}
+
 export function restoreTask(id: number): Promise<{ status: string }> {
 	return request('/agent/tasks/restore', {
 		method: 'POST',

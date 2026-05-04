@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { X, CircleQuestionMark, Terminal, Trash2, List } from 'lucide-svelte';
+	import { X, CircleQuestionMark, Terminal, Trash2, List, RotateCcw } from 'lucide-svelte';
 	import { renderMarkdown, ensurePrismLoaded } from '$lib/markdown';
 	import { getAgentTaskResult, continueAsk } from '$lib/api';
 	import { dismiss as dismissTask } from '$lib/taskStore';
@@ -15,6 +15,7 @@
 		emptyHint = 'thinking',
 		outputFormat = 'markdown',
 		oncontinue,
+		onrerun = null,
 	}: {
 		taskId: number;
 		onclose: () => void;
@@ -24,6 +25,7 @@
 		emptyHint?: string;
 		outputFormat?: string;
 		oncontinue?: (() => Promise<void>) | null;
+		onrerun?: (() => Promise<void>) | null;
 	} = $props();
 
 	let status = $state<'running' | 'completed' | 'failed'>('running');
@@ -359,6 +361,15 @@
 					<Trash2 size={12} />
 					Dismiss
 				</button>
+				{#if onrerun}
+					<button
+						onclick={onrerun}
+						class="flex items-center gap-1.5 text-[10px] font-mono text-bourbon-500 hover:text-run-400 transition-colors cursor-pointer"
+					>
+						<RotateCcw size={12} />
+						Re-run
+					</button>
+				{/if}
 				{#if status === 'completed'}
 					<button
 						onclick={handleContinue}
