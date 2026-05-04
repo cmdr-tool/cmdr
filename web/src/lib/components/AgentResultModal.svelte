@@ -350,13 +350,13 @@
 
 		<!-- Footer -->
 		{#if status === 'completed' || status === 'failed'}
-			<div class="flex items-center justify-between px-6 py-3 border-t border-bourbon-800 shrink-0">
+			<div class="grid grid-cols-3 items-center px-6 py-3 border-t border-bourbon-800 shrink-0">
 				<button
 					onclick={async () => {
 						await dismissTask(taskId);
 						onclose();
 					}}
-					class="flex items-center gap-1.5 text-[10px] font-mono text-bourbon-600 hover:text-red-400 transition-colors cursor-pointer"
+					class="justify-self-start flex items-center gap-1.5 text-[10px] font-mono text-bourbon-600 hover:text-red-400 transition-colors cursor-pointer"
 				>
 					<Trash2 size={12} />
 					Dismiss
@@ -364,16 +364,18 @@
 				{#if onrerun}
 					<button
 						onclick={onrerun}
-						class="flex items-center gap-1.5 text-[10px] font-mono text-bourbon-500 hover:text-run-400 transition-colors cursor-pointer"
+						class="justify-self-center flex items-center gap-1.5 text-[10px] font-mono text-bourbon-500 hover:text-run-400 transition-colors cursor-pointer"
 					>
 						<RotateCcw size={12} />
 						Re-run
 					</button>
+				{:else}
+					<span></span>
 				{/if}
 				{#if status === 'completed'}
 					<button
 						onclick={handleContinue}
-						class="flex items-center gap-1.5 text-[10px] font-mono text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer"
+						class="justify-self-end flex items-center gap-1.5 text-[10px] font-mono text-cmd-400 hover:text-cmd-300 transition-colors cursor-pointer"
 					>
 						<Terminal size={12} />
 						Continue in interactive session
